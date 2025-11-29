@@ -1,4 +1,4 @@
-import { SlashCommandBuilder } from 'discord.js';
+import { SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { Command } from './Command.js';
 import { StoryTagStorage } from '../utils/StoryTagStorage.js';
 import { TagFormatter } from '../utils/TagFormatter.js';
@@ -34,7 +34,7 @@ export class AddTagsCommand extends Command {
     if (tags.length === 0) {
       await interaction.reply({
         content: 'Please provide at least one valid tag.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -46,7 +46,7 @@ export class AddTagsCommand extends Command {
     if (addedCount === 0) {
       await interaction.reply({
         content: 'All tags already exist in this scene.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     } else {
       const addedTags = tags.filter(tag => 
@@ -62,7 +62,7 @@ export class AddTagsCommand extends Command {
 
       await interaction.reply({
         content,
-        ephemeral,
+        flags: ephemeral ? MessageFlags.Ephemeral : undefined,
       });
     }
   }

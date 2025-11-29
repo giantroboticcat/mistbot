@@ -76,6 +76,44 @@ Before running the bot, you need to deploy slash commands to Discord:
   npm run lint:fix
   ```
 
+## Deployment
+
+### AWS EC2
+
+For production deployment on AWS EC2, see the detailed guide: [README-EC2.md](./README-EC2.md)
+
+Quick start:
+```bash
+# On your EC2 instance
+./deploy-ec2.sh
+pm2 start ecosystem.config.cjs
+pm2 save
+```
+
+### Local Development
+
+- Start the bot:
+  ```bash
+  npm start
+  ```
+
+- Run in development mode (with auto-restart):
+  ```bash
+  npm run dev
+  ```
+
+### PM2 Management (Production)
+
+If using PM2 for process management:
+
+```bash
+npm run pm2:start    # Start the bot
+npm run pm2:stop    # Stop the bot
+npm run pm2:restart # Restart the bot
+npm run pm2:logs    # View logs
+npm run pm2:status  # Check status
+```
+
 ## Requirements
 
 - Node.js 18.0.0 or higher

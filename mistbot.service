@@ -1,0 +1,25 @@
+[Unit]
+Description=MistBot Discord Bot
+After=network.target
+
+[Service]
+Type=simple
+# Change User to match your EC2 instance user (ec2-user for Amazon Linux, ubuntu for Ubuntu)
+User=ec2-user
+WorkingDirectory=/home/ec2-user/mistbot
+Environment="NODE_ENV=production"
+# For nvm installations, you'll need to source nvm and use node
+# For standard installations, use: ExecStart=/usr/bin/node /home/ec2-user/mistbot/index.js
+# For nvm, create a wrapper script or use: ExecStart=/bin/bash -c 'source ~/.nvm/nvm.sh && node /home/ec2-user/mistbot/index.js'
+ExecStart=/usr/bin/node /home/ec2-user/mistbot/index.js
+# If using nvm, uncomment and adjust the path below:
+# ExecStart=/home/ec2-user/.nvm/versions/node/$(node -v | sed 's/v//')/bin/node /home/ec2-user/mistbot/index.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mistbot
+
+[Install]
+WantedBy=multi-user.target
+

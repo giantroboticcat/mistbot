@@ -10,6 +10,11 @@
     "deploy": "node deploy-commands.js",
     "deploy:guild": "node deploy-commands.js",
     "deploy:global": "GUILD_ID= node deploy-commands.js",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:stop": "pm2 stop mistbot",
+    "pm2:restart": "pm2 restart mistbot",
+    "pm2:logs": "pm2 logs mistbot",
+    "pm2:status": "pm2 status",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },
