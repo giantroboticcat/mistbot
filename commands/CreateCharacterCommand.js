@@ -14,15 +14,26 @@ export class CreateCharacterCommand extends Command {
   }
 
   async execute(interaction) {
+    await CreateCharacterCommand.showCreateModal(interaction);
+  }
+
+  /**
+   * Show create character modal with optional pre-filled values
+   * @param {import('discord.js').Interaction} interaction - The interaction
+   * @param {Object} values - Optional pre-filled values { name, theme1, theme2, theme3, theme4 }
+   * @param {string} errorMessage - Optional error message to include in title
+   */
+  static async showCreateModal(interaction, values = {}, errorMessage = null) {
     const modal = new ModalBuilder()
       .setCustomId('create_character_modal')
-      .setTitle('Create Character');
+      .setTitle(errorMessage ? `Create Character - ${errorMessage}` : 'Create Character');
 
     // Character name input
     const nameInput = new TextInputBuilder()
       .setCustomId('character_name')
       .setStyle(TextInputStyle.Short)
       .setPlaceholder('Enter your character\'s name')
+      .setValue(values.name || '')
       .setRequired(true)
       .setMaxLength(100);
 
@@ -31,14 +42,15 @@ export class CreateCharacterCommand extends Command {
       .setTextInputComponent(nameInput);
 
     // Theme inputs (4 themes)
-    const themeInputs = [];
     const themeLabels = [];
     
     for (let i = 1; i <= 4; i++) {
+      const themeValue = values[`theme${i}`] || '';
       const themeInput = new TextInputBuilder()
         .setCustomId(`theme_${i}`)
         .setStyle(TextInputStyle.Paragraph)
         .setPlaceholder(`Theme Name | tag1, tag2 | weakness1, weakness2`)
+        .setValue(themeValue)
         .setRequired(true)
         .setMaxLength(1000);
 
@@ -46,7 +58,6 @@ export class CreateCharacterCommand extends Command {
         .setLabel(`Theme ${i}`)
         .setTextInputComponent(themeInput);
 
-      themeInputs.push(themeInput);
       themeLabels.push(themeLabel);
     }
 

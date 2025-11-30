@@ -1,10 +1,12 @@
-import { Client, GatewayIntentBits, Events, MessageFlags, ActionRowBuilder, ButtonBuilder, StringSelectMenuBuilder } from 'discord.js';
+import { Client, GatewayIntentBits, Events, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } from 'discord.js';
 import dotenv from 'dotenv';
 import { commands } from './commands/index.js';
 import { StoryTagStorage } from './utils/StoryTagStorage.js';
 import { TagFormatter } from './utils/TagFormatter.js';
+import { Validation } from './utils/Validation.js';
 import { CharacterStorage } from './utils/CharacterStorage.js';
 import { CreateCharacterCommand } from './commands/CreateCharacterCommand.js';
+import { EditCharacterCommand } from './commands/EditCharacterCommand.js';
 import { RollCommand } from './commands/RollCommand.js';
 
 // Load environment variables
@@ -45,7 +47,53 @@ client.rollStates = new Map();
 
 // Handle slash command interactions
 client.on(Events.InteractionCreate, async (interaction) => {
-  if (interaction.isChatInputCommand()) {
+  if (interaction.isAutocomplete()) {
+    // Handle autocomplete interactions
+    const commandName = interaction.commandName;
+    
+    if (commandName === 'char-lookup') {
+      const focusedOption = interaction.options.getFocused(true);
+      
+      if (focusedOption.name === 'character') {
+        const searchValue = focusedOption.value.toLowerCase();
+        
+        // Get all characters from all users
+        const allData = CharacterStorage.load();
+        const allCharacters = [];
+        
+        for (const [userId, userData] of Object.entries(allData)) {
+          if (userData && userData.characters) {
+            userData.characters.forEach(char => {
+              allCharacters.push({
+                ...char,
+                ownerId: userId,
+              });
+            });
+          }
+        }
+        
+        // Filter and sort by name match
+        const matching = allCharacters
+          .filter(char => char.name.toLowerCase().includes(searchValue))
+          .sort((a, b) => {
+            // Prioritize exact matches, then starts with, then contains
+            const aStartsWith = a.name.toLowerCase().startsWith(searchValue);
+            const bStartsWith = b.name.toLowerCase().startsWith(searchValue);
+            if (aStartsWith && !bStartsWith) return -1;
+            if (!aStartsWith && bStartsWith) return 1;
+            return a.name.localeCompare(b.name);
+          })
+          .slice(0, 25); // Discord limit is 25 options
+        
+        await interaction.respond(
+          matching.map(char => ({
+            name: char.name,
+            value: `${char.ownerId}:${char.id}`, // Encode ownerId:characterId
+          }))
+        );
+      }
+    }
+  } else if (interaction.isChatInputCommand()) {
     const command = commandMap.get(interaction.commandName);
 
     if (!command) {
@@ -70,6 +118,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await handleRollButton(interaction);
     } else if (interaction.customId.startsWith('roll_cancel_')) {
       await handleRollCancel(interaction);
+    } else if (interaction.customId.startsWith('edit_character_')) {
+      await handleEditCharacterButton(interaction);
+    } else if (interaction.customId.startsWith('edit_backpack_')) {
+      await handleEditBackpackButton(interaction);
+    } else if (interaction.customId.startsWith('retry_create_character_')) {
+      await handleRetryCreateCharacter(interaction);
     } else {
       // Handle tag removal button
       await handleTagRemovalButton(interaction);
@@ -311,9 +365,33 @@ async function handleModalSubmit(interaction) {
     const theme3Input = interaction.fields.getTextInputValue('theme_3');
     const theme4Input = interaction.fields.getTextInputValue('theme_4');
 
+    // Store form values for potential retry
+    const formValues = {
+      name: name,
+      theme1: theme1Input,
+      theme2: theme2Input,
+      theme3: theme3Input,
+      theme4: theme4Input,
+    };
+
     if (!name || name.trim().length === 0) {
+      // Store values for retry
+      if (!client.characterCreationRetry) {
+        client.characterCreationRetry = new Map();
+      }
+      client.characterCreationRetry.set(userId, formValues);
+
+      // Create retry button
+      const retryButton = new ButtonBuilder()
+        .setCustomId(`retry_create_character_${userId}`)
+        .setLabel('Retry with Same Values')
+        .setStyle(ButtonStyle.Primary);
+
+      const buttonRow = new ActionRowBuilder().setComponents([retryButton]);
+
       await interaction.reply({
-        content: 'Character name cannot be empty.',
+        content: '**Validation Error:** Character name cannot be empty.\n\nClick the button below to reopen the form with your entered values.',
+        components: [buttonRow],
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -339,11 +417,31 @@ async function handleModalSubmit(interaction) {
     });
 
     if (validationErrors.length > 0) {
+      // Store values for retry
+      if (!client.characterCreationRetry) {
+        client.characterCreationRetry = new Map();
+      }
+      client.characterCreationRetry.set(userId, formValues);
+
+      // Create retry button
+      const retryButton = new ButtonBuilder()
+        .setCustomId(`retry_create_character_${userId}`)
+        .setLabel('Retry with Same Values')
+        .setStyle(ButtonStyle.Primary);
+
+      const buttonRow = new ActionRowBuilder().setComponents([retryButton]);
+
       await interaction.reply({
-        content: `**Validation Error:**\n${validationErrors.join('\n')}`,
+        content: `**Validation Error:**\n${validationErrors.join('\n')}\n\nClick the button below to reopen the form with your entered values.`,
+        components: [buttonRow],
         flags: MessageFlags.Ephemeral,
       });
       return;
+    }
+
+    // Clear retry values on success
+    if (client.characterCreationRetry) {
+      client.characterCreationRetry.delete(userId);
     }
 
     // Create the character
@@ -450,13 +548,185 @@ async function handleModalSubmit(interaction) {
 
     const content = `**Character Updated: ${updatedCharacter.name}**\n\n` +
       themeParts.join('\n') +
-      `\n\n*Backpack: ${updatedCharacter.backpack.length > 0 ? updatedCharacter.backpack.join(', ') : 'Empty'}*\n*Statuses: ${updatedCharacter.tempStatuses.length > 0 ? updatedCharacter.tempStatuses.join(', ') : 'None'}*`;
+      `\n\n*Backpack: ${updatedCharacter.backpack.length > 0 ? updatedCharacter.backpack.join(', ') : 'Empty'}*\n*Story Tags: ${updatedCharacter.storyTags.length > 0 ? updatedCharacter.storyTags.join(', ') : 'None'}*\n*Statuses: ${updatedCharacter.tempStatuses.length > 0 ? updatedCharacter.tempStatuses.join(', ') : 'None'}*`;
+
+    // Create edit buttons to allow further edits
+    const editButton = new ButtonBuilder()
+      .setCustomId(`edit_character_${updatedCharacter.id}`)
+      .setLabel('Adjust Name/Themes')
+      .setStyle(ButtonStyle.Primary);
+
+    const backpackButton = new ButtonBuilder()
+      .setCustomId(`edit_backpack_${updatedCharacter.id}`)
+      .setLabel('Edit Backpack')
+      .setStyle(ButtonStyle.Secondary);
+
+    const buttonRow = new ActionRowBuilder().setComponents([editButton, backpackButton]);
 
     await interaction.reply({
       content,
+      components: [buttonRow],
+      flags: MessageFlags.Ephemeral,
+    });
+  } else if (customId.startsWith('edit_backpack_modal_')) {
+    // Handle backpack edit modal submission
+    const characterId = parseInt(customId.split('_')[3]);
+    const userId = interaction.user.id;
+    
+    const character = CharacterStorage.getCharacter(userId, characterId);
+    if (!character) {
+      await interaction.reply({
+        content: 'Character not found.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const backpackInput = interaction.fields.getTextInputValue('backpack_items');
+    const storyTagsInput = interaction.fields.getTextInputValue('story_tags');
+    const statusesInput = interaction.fields.getTextInputValue('statuses');
+    
+    // Parse backpack items from comma-separated string
+    const backpack = backpackInput
+      .split(',')
+      .map(item => item.trim())
+      .filter(item => item.length > 0);
+
+    // Parse story tags from comma-separated string
+    const storyTags = storyTagsInput
+      .split(',')
+      .map(item => item.trim())
+      .filter(item => item.length > 0);
+
+    // Parse statuses from comma-separated string
+    const statuses = statusesInput
+      .split(',')
+      .map(item => item.trim())
+      .filter(item => item.length > 0);
+
+    // Validate statuses
+    const statusValidation = Validation.validateStatuses(statuses);
+    if (!statusValidation.valid && statusValidation.errors) {
+      await interaction.reply({
+        content: `**Validation Error:**\n${statusValidation.errors.join('\n')}`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Update the character's backpack, story tags, and statuses
+    const updatedCharacter = CharacterStorage.updateCharacter(userId, characterId, {
+      backpack: backpack,
+      storyTags: storyTags,
+      tempStatuses: statuses,
+    });
+
+    if (!updatedCharacter) {
+      await interaction.reply({
+        content: 'Failed to update backpack.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Build response showing the updated character
+    const themeParts = [];
+    updatedCharacter.themes.forEach((theme) => {
+      if (theme.tags.length > 0 || theme.weaknesses.length > 0) {
+        const formatted = TagFormatter.formatTagsAndWeaknessesInCodeBlock(theme.tags, theme.weaknesses);
+        themeParts.push(`**${theme.name}:**\n${formatted}`);
+      }
+    });
+
+    const content = `**Character Updated: ${updatedCharacter.name}**\n\n` +
+      themeParts.join('\n') +
+      `\n\n*Backpack: ${updatedCharacter.backpack.length > 0 ? updatedCharacter.backpack.join(', ') : 'Empty'}*\n*Story Tags: ${updatedCharacter.storyTags.length > 0 ? updatedCharacter.storyTags.join(', ') : 'None'}*\n*Statuses: ${updatedCharacter.tempStatuses.length > 0 ? updatedCharacter.tempStatuses.join(', ') : 'None'}*`;
+
+    // Create edit buttons to allow further edits
+    const editButton = new ButtonBuilder()
+      .setCustomId(`edit_character_${updatedCharacter.id}`)
+      .setLabel('Adjust Name/Themes')
+      .setStyle(ButtonStyle.Primary);
+
+    const backpackButton = new ButtonBuilder()
+      .setCustomId(`edit_backpack_${updatedCharacter.id}`)
+      .setLabel('Edit Backpack')
+      .setStyle(ButtonStyle.Secondary);
+
+    const buttonRow = new ActionRowBuilder().setComponents([editButton, backpackButton]);
+
+    await interaction.reply({
+      content,
+      components: [buttonRow],
       flags: MessageFlags.Ephemeral,
     });
   }
+}
+
+/**
+ * Handle edit character button interaction
+ */
+async function handleEditCharacterButton(interaction) {
+  const customId = interaction.customId;
+  // Extract character ID: format is "edit_character_123"
+  const characterId = parseInt(customId.replace('edit_character_', ''));
+  const userId = interaction.user.id;
+  
+  const character = CharacterStorage.getCharacter(userId, characterId);
+  if (!character) {
+    await interaction.reply({
+      content: 'Character not found.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Show edit modal
+  await EditCharacterCommand.showEditModal(interaction, character);
+}
+
+/**
+ * Handle retry create character button interaction
+ */
+async function handleRetryCreateCharacter(interaction) {
+  const customId = interaction.customId;
+  // Extract user ID: format is "retry_create_character_123456789"
+  const userId = customId.replace('retry_create_character_', '');
+  
+  if (!client.characterCreationRetry || !client.characterCreationRetry.has(userId)) {
+    await interaction.reply({
+      content: 'No saved form data found. Please run `/char-create` again.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const formValues = client.characterCreationRetry.get(userId);
+  
+  // Show modal with pre-filled values (this will close the button message)
+  await CreateCharacterCommand.showCreateModal(interaction, formValues);
+}
+
+/**
+ * Handle edit backpack button interaction
+ */
+async function handleEditBackpackButton(interaction) {
+  const customId = interaction.customId;
+  // Extract character ID: format is "edit_backpack_123"
+  const characterId = parseInt(customId.replace('edit_backpack_', ''));
+  const userId = interaction.user.id;
+  
+  const character = CharacterStorage.getCharacter(userId, characterId);
+  if (!character) {
+    await interaction.reply({
+      content: 'Character not found.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Show edit backpack modal
+  await EditCharacterCommand.showEditBackpackModal(interaction, character);
 }
 
 /**

@@ -1,7 +1,8 @@
-import { SlashCommandBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, LabelBuilder } from 'discord.js';
+import { SlashCommandBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, LabelBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { Command } from './Command.js';
 import { CharacterStorage } from '../utils/CharacterStorage.js';
-import { CreateCharacterCommand } from './CreateCharacterCommand.js';
+import { TagFormatter } from '../utils/TagFormatter.js';
+import { Validation } from '../utils/Validation.js';
 
 /**
  * Edit an existing character
@@ -25,8 +26,82 @@ export class EditCharacterCommand extends Command {
       return;
     }
 
-    // Show edit modal with pre-filled data for the active character
-    await EditCharacterCommand.showEditModal(interaction, activeCharacter);
+    // Display character with edit button (pass userId as ownerId)
+    await EditCharacterCommand.displayCharacter(interaction, activeCharacter, true, userId);
+  }
+
+  /**
+   * Display character information with an edit button
+   * @param {import('discord.js').Interaction} interaction - The interaction
+   * @param {Object} character - The character to display
+   * @param {boolean} showEditButtons - Whether to show edit buttons (default: true)
+   * @param {string} ownerId - Optional owner ID to display owner information
+   */
+  static async displayCharacter(interaction, character, showEditButtons = true, ownerId = null) {
+    // Build response showing the character
+    const themeParts = [];
+    character.themes.forEach((theme) => {
+      if (theme.tags.length > 0 || theme.weaknesses.length > 0) {
+        const formatted = TagFormatter.formatTagsAndWeaknessesInCodeBlock(theme.tags, theme.weaknesses);
+        themeParts.push(`**${theme.name}:**\n${formatted}`);
+      }
+    });
+
+    let ownerInfo = '';
+    if (ownerId) {
+      try {
+        // Try to get guild member first (for display name), fall back to user
+        let ownerName = ownerId;
+        if (interaction.guild) {
+          try {
+            const member = await interaction.guild.members.fetch(ownerId);
+            ownerName = member.displayName || member.user.username;
+          } catch {
+            // If member not found, try fetching user
+            const user = await interaction.client.users.fetch(ownerId);
+            ownerName = user.username;
+          }
+        } else {
+          const user = await interaction.client.users.fetch(ownerId);
+          ownerName = user.username;
+        }
+        ownerInfo = `\n*Owner: ${ownerName}*`;
+      } catch (error) {
+        // If we can't fetch user info, just show the ID or skip
+        console.error('Error fetching owner info:', error);
+      }
+    }
+
+    const content = `**Character: ${character.name}**${ownerInfo}\n\n` +
+      themeParts.join('\n\n') +
+      `\n\n*Backpack: ${character.backpack.length > 0 ? character.backpack.join(', ') : 'Empty'}*\n*Story Tags: ${character.storyTags.length > 0 ? character.storyTags.join(', ') : 'None'}*\n*Statuses: ${character.tempStatuses.length > 0 ? character.tempStatuses.join(', ') : 'None'}*`;
+
+    if (showEditButtons) {
+      // Create edit buttons
+      const editButton = new ButtonBuilder()
+        .setCustomId(`edit_character_${character.id}`)
+        .setLabel('Edit Name/Themes')
+        .setStyle(ButtonStyle.Primary);
+
+      const backpackButton = new ButtonBuilder()
+        .setCustomId(`edit_backpack_${character.id}`)
+        .setLabel('Edit Backpack, Story Tags & Statuses')
+        .setStyle(ButtonStyle.Secondary);
+
+      const buttonRow = new ActionRowBuilder().setComponents([editButton, backpackButton]);
+
+      await interaction.reply({
+        content,
+        components: [buttonRow],
+        flags: MessageFlags.Ephemeral,
+      });
+    } else {
+      // Display without edit buttons
+      await interaction.reply({
+        content,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
   }
 
   /**
@@ -77,6 +152,65 @@ export class EditCharacterCommand extends Command {
     }
 
     modal.addLabelComponents(nameLabel, ...themeLabels);
+    await interaction.showModal(modal);
+  }
+
+  /**
+   * Show edit backpack modal for a character
+   * @param {import('discord.js').Interaction} interaction - The interaction
+   * @param {Object} character - The character to edit
+   */
+  static async showEditBackpackModal(interaction, character) {
+    const modal = new ModalBuilder()
+      .setCustomId(`edit_backpack_modal_${character.id}`)
+      .setTitle(`Edit Backpack, Story Tags & Statuses`);
+
+    // Backpack items input (pre-filled with current items)
+    const backpackValue = character.backpack.join(', ');
+    
+    const backpackInput = new TextInputBuilder()
+      .setCustomId('backpack_items')
+      .setStyle(TextInputStyle.Paragraph)
+      .setPlaceholder('Enter backpack items separated by commas (e.g., item1, item2, item3)')
+      .setValue(backpackValue)
+      .setRequired(false)
+      .setMaxLength(1000);
+
+    const backpackLabel = new LabelBuilder()
+      .setLabel('Backpack Items')
+      .setTextInputComponent(backpackInput);
+
+    // Story tags input (pre-filled with current tags)
+    const storyTagsValue = character.storyTags.join(', ');
+    
+    const storyTagsInput = new TextInputBuilder()
+      .setCustomId('story_tags')
+      .setStyle(TextInputStyle.Paragraph)
+      .setPlaceholder('Enter story tags separated by commas (e.g., tag1, tag2, tag3)')
+      .setValue(storyTagsValue)
+      .setRequired(false)
+      .setMaxLength(1000);
+
+    const storyTagsLabel = new LabelBuilder()
+      .setLabel('Story Tags')
+      .setTextInputComponent(storyTagsInput);
+
+    // Statuses input (pre-filled with current statuses)
+    const statusesValue = character.tempStatuses.join(', ');
+    
+    const statusesInput = new TextInputBuilder()
+      .setCustomId('statuses')
+      .setStyle(TextInputStyle.Paragraph)
+      .setPlaceholder('Enter statuses separated by commas (e.g., sleeping-3, rested-2)')
+      .setValue(statusesValue)
+      .setRequired(false)
+      .setMaxLength(1000);
+
+    const statusesLabel = new LabelBuilder()
+      .setLabel('Statuses')
+      .setTextInputComponent(statusesInput);
+
+    modal.addLabelComponents(backpackLabel, storyTagsLabel, statusesLabel);
     await interaction.showModal(modal);
   }
 }
