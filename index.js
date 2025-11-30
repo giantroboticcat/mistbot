@@ -1,6 +1,11 @@
-import { Client, GatewayIntentBits, Events, MessageFlags } from 'discord.js';
+import { Client, GatewayIntentBits, Events, MessageFlags, ActionRowBuilder, ButtonBuilder, StringSelectMenuBuilder } from 'discord.js';
 import dotenv from 'dotenv';
 import { commands } from './commands/index.js';
+import { StoryTagStorage } from './utils/StoryTagStorage.js';
+import { TagFormatter } from './utils/TagFormatter.js';
+import { CharacterStorage } from './utils/CharacterStorage.js';
+import { CreateCharacterCommand } from './commands/CreateCharacterCommand.js';
+import { RollCommand } from './commands/RollCommand.js';
 
 // Load environment variables
 dotenv.config();
@@ -9,8 +14,12 @@ dotenv.config();
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
   ],
 });
+
+// Role name that can edit rolls (set via environment variable or default)
+const ROLL_EDITOR_ROLE = process.env.ROLL_EDITOR_ROLE || 'Narrator';
 
 // Create a map of command names to command instances for quick lookup
 const commandMap = new Map();
@@ -24,29 +33,682 @@ client.once(Events.ClientReady, (readyClient) => {
   console.log(`Ready! Logged in as ${readyClient.user.tag}`);
 });
 
+// Initialize tag removal selections and item type maps
+client.tagRemovalSelections = new Map();
+client.tagRemovalItemTypes = new Map();
+// Initialize character creation state map
+client.characterCreation = new Map();
+// Initialize roll states map
+client.rollStates = new Map();
+
 // Handle slash command interactions
 client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
+  if (interaction.isChatInputCommand()) {
+    const command = commandMap.get(interaction.commandName);
 
-  const command = commandMap.get(interaction.commandName);
+    if (!command) {
+      console.error(`No command matching ${interaction.commandName} was found.`);
+      return;
+    }
 
-  if (!command) {
-    console.error(`No command matching ${interaction.commandName} was found.`);
-    return;
+    try {
+      await command.execute(interaction);
+    } catch (error) {
+      console.error(`Error executing ${interaction.commandName}:`, error);
+      const errorMessage = { content: 'There was an error while executing this command!', flags: MessageFlags.Ephemeral };
+      if (interaction.replied || interaction.deferred) {
+        await interaction.followUp(errorMessage);
+      } else {
+        await interaction.reply(errorMessage);
+      }
+    }
+  } else if (interaction.isButton()) {
+    // Handle button interactions
+    if (interaction.customId.startsWith('roll_now_')) {
+      await handleRollButton(interaction);
+    } else {
+      // Handle tag removal button
+      await handleTagRemovalButton(interaction);
+    }
+  } else if (interaction.isStringSelectMenu()) {
+    // Handle select menu interactions
+    if (interaction.customId.startsWith('select_active_character_')) {
+      await handleSelectActiveCharacter(interaction);
+    } else if (interaction.customId.startsWith('roll_help_') || interaction.customId.startsWith('roll_hinder_')) {
+      await handleRollSelect(interaction);
+    } else {
+      // Handle tag removal select menu
+      await handleTagRemovalSelect(interaction);
+    }
+  } else if (interaction.isModalSubmit()) {
+    // Handle modal submissions
+    await handleModalSubmit(interaction);
+  }
+});
+
+/**
+ * Handle select menu interactions for item removal (tags, statuses, limits)
+ */
+async function handleTagRemovalSelect(interaction) {
+  const customId = interaction.customId;
+
+  if (customId.startsWith('select_items_to_remove_')) {
+    const sceneId = customId.split('_').slice(4).join('_');
+    const selectionKey = `${interaction.user.id}-${sceneId}`;
+
+    if (!client.tagRemovalSelections.has(selectionKey)) {
+      await interaction.reply({
+        content: 'This selection session has expired. Please run /remove-tags again.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Update selected items from the select menu values
+    const selectedItems = interaction.values;
+    const selectedSet = new Set(selectedItems);
+    client.tagRemovalSelections.set(selectionKey, selectedSet);
+
+    // Get item type mapping for this scene
+    const itemTypeMap = client.tagRemovalItemTypes?.get(selectionKey) || new Map();
+
+    // Separate selected items by type using the mapping
+    const selectedTags = [];
+    const selectedStatuses = [];
+    const selectedLimits = [];
+
+    selectedItems.forEach(item => {
+      const type = itemTypeMap.get(item);
+      if (type === 'tag') {
+        selectedTags.push(item);
+      } else if (type === 'status') {
+        selectedStatuses.push(item);
+      } else if (type === 'limit') {
+        selectedLimits.push(item);
+      }
+    });
+
+    // Build display of selected items in a single code block
+    const totalSelected = selectedTags.length + selectedStatuses.length + selectedLimits.length;
+    const selectedText = totalSelected > 0
+      ? `\n\n**Selected items:**\n${TagFormatter.formatSceneStatusInCodeBlock(selectedTags, selectedStatuses, selectedLimits)}`
+      : '\n\n*No items selected*';
+
+    const content = `**Select items to remove:**\n` +
+      `Use the dropdown below to select multiple tags, statuses, or limits. Then click "Confirm Removal" to remove them.` +
+      selectedText;
+
+    await interaction.update({
+      content,
+    });
+  }
+}
+
+/**
+ * Handle button interactions for tag removal
+ */
+async function handleTagRemovalButton(interaction) {
+  const customId = interaction.customId;
+
+  // Handle confirm button
+  if (customId.startsWith('confirm_remove_tags_')) {
+    const sceneId = customId.split('_').slice(3).join('_');
+    const selectionKey = `${interaction.user.id}-${sceneId}`;
+
+    if (!client.tagRemovalSelections.has(selectionKey)) {
+      await interaction.reply({
+        content: 'This selection session has expired. Please run /remove-tags again.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const selectedSet = client.tagRemovalSelections.get(selectionKey);
+    const selectedItems = Array.from(selectedSet);
+
+    if (selectedItems.length === 0) {
+      await interaction.reply({
+        content: 'No items were selected for removal.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Get item type mapping for this scene
+    const itemTypeMap = client.tagRemovalItemTypes?.get(selectionKey) || new Map();
+
+    // Separate items by type using the mapping
+    const tagsToRemove = [];
+    const statusesToRemove = [];
+    const limitsToRemove = [];
+
+    selectedItems.forEach(item => {
+      const type = itemTypeMap.get(item);
+      if (type === 'tag') {
+        tagsToRemove.push(item);
+      } else if (type === 'status') {
+        statusesToRemove.push(item);
+      } else if (type === 'limit') {
+        limitsToRemove.push(item);
+      }
+    });
+
+    // Remove items from storage
+    const removedCounts = {};
+    const remainingCounts = {};
+
+    if (tagsToRemove.length > 0) {
+      const existingTags = StoryTagStorage.getTags(sceneId);
+      const updatedTags = StoryTagStorage.removeTags(sceneId, tagsToRemove);
+      removedCounts.tags = existingTags.length - updatedTags.length;
+      remainingCounts.tags = updatedTags.length;
+    }
+
+    if (statusesToRemove.length > 0) {
+      const existingStatuses = StoryTagStorage.getStatuses(sceneId);
+      const updatedStatuses = StoryTagStorage.removeStatuses(sceneId, statusesToRemove);
+      removedCounts.statuses = existingStatuses.length - updatedStatuses.length;
+      remainingCounts.statuses = updatedStatuses.length;
+    }
+
+    if (limitsToRemove.length > 0) {
+      const existingLimits = StoryTagStorage.getLimits(sceneId);
+      const updatedLimits = StoryTagStorage.removeLimits(sceneId, limitsToRemove);
+      removedCounts.limits = existingLimits.length - updatedLimits.length;
+      remainingCounts.limits = updatedLimits.length;
+    }
+
+    // Build response content
+    const totalRemoved = (removedCounts.tags || 0) + (removedCounts.statuses || 0) + (removedCounts.limits || 0);
+    const removedParts = [];
+    const remainingParts = [];
+
+    if (tagsToRemove.length > 0) {
+      removedParts.push(`**Tags Removed:**\n${TagFormatter.formatTagsInCodeBlock(tagsToRemove)}`);
+      if (remainingCounts.tags !== undefined) {
+        const remainingTags = StoryTagStorage.getTags(sceneId);
+        remainingParts.push(`**Remaining Tags (${remainingCounts.tags}):**\n${TagFormatter.formatTagsInCodeBlock(remainingTags)}`);
+      }
+    }
+
+    if (statusesToRemove.length > 0) {
+      removedParts.push(`**Statuses Removed:**\n${TagFormatter.formatStatusesInCodeBlock(statusesToRemove)}`);
+      if (remainingCounts.statuses !== undefined) {
+        const remainingStatuses = StoryTagStorage.getStatuses(sceneId);
+        remainingParts.push(`**Remaining Statuses (${remainingCounts.statuses}):**\n${TagFormatter.formatStatusesInCodeBlock(remainingStatuses)}`);
+      }
+    }
+
+    if (limitsToRemove.length > 0) {
+      removedParts.push(`**Limits Removed:**\n${TagFormatter.formatLimitsInCodeBlock(limitsToRemove)}`);
+      if (remainingCounts.limits !== undefined) {
+        const remainingLimits = StoryTagStorage.getLimits(sceneId);
+        remainingParts.push(`**Remaining Limits (${remainingCounts.limits}):**\n${TagFormatter.formatLimitsInCodeBlock(remainingLimits)}`);
+      }
+    }
+
+    // Clean up selection and type mapping
+    client.tagRemovalSelections.delete(selectionKey);
+    client.tagRemovalItemTypes?.delete(selectionKey);
+
+    // Clean up the ephemeral message by removing all components
+    await interaction.update({
+      content: `**Removed ${totalRemoved} item${totalRemoved !== 1 ? 's' : ''}**`,
+      components: [],
+    });
+
+    // Get updated scene data for public message
+    const updatedTags = StoryTagStorage.getTags(sceneId);
+    const updatedStatuses = StoryTagStorage.getStatuses(sceneId);
+    const updatedLimits = StoryTagStorage.getLimits(sceneId);
+
+    // Post public message with updated scene status
+    const totalCount = updatedTags.length + updatedStatuses.length + updatedLimits.length;
+    const counts = [];
+    if (updatedTags.length > 0) counts.push(`${updatedTags.length} tag${updatedTags.length !== 1 ? 's' : ''}`);
+    if (updatedStatuses.length > 0) counts.push(`${updatedStatuses.length} status${updatedStatuses.length !== 1 ? 'es' : ''}`);
+    if (updatedLimits.length > 0) counts.push(`${updatedLimits.length} limit${updatedLimits.length !== 1 ? 's' : ''}`);
+    
+    const formatted = TagFormatter.formatSceneStatusInCodeBlock(updatedTags, updatedStatuses, updatedLimits);
+    const publicContent = `**Scene Status (${totalCount} total${counts.length > 0 ? ': ' + counts.join(', ') : ''})**\n${formatted}`;
+
+    await interaction.followUp({
+      content: publicContent,
+      flags: undefined, // Public message
+    });
+  }
+  // Handle cancel button
+  else if (customId.startsWith('cancel_remove_tags_')) {
+    const sceneId = customId.split('_').slice(3).join('_');
+    const selectionKey = `${interaction.user.id}-${sceneId}`;
+
+    client.tagRemovalSelections.delete(selectionKey);
+    client.tagRemovalItemTypes?.delete(selectionKey);
+
+    // Clean up the ephemeral message by removing all components
+    await interaction.update({
+      content: 'Tag removal cancelled.',
+      components: [],
+    });
+  }
+}
+
+/**
+ * Handle modal submissions
+ */
+async function handleModalSubmit(interaction) {
+  const customId = interaction.customId;
+
+  if (customId === 'create_character_modal') {
+    const userId = interaction.user.id;
+    const name = interaction.fields.getTextInputValue('character_name');
+    const theme1Input = interaction.fields.getTextInputValue('theme_1');
+    const theme2Input = interaction.fields.getTextInputValue('theme_2');
+    const theme3Input = interaction.fields.getTextInputValue('theme_3');
+    const theme4Input = interaction.fields.getTextInputValue('theme_4');
+
+    if (!name || name.trim().length === 0) {
+      await interaction.reply({
+        content: 'Character name cannot be empty.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Parse all themes
+    const themes = [
+      CreateCharacterCommand.parseTheme(theme1Input),
+      CreateCharacterCommand.parseTheme(theme2Input),
+      CreateCharacterCommand.parseTheme(theme3Input),
+      CreateCharacterCommand.parseTheme(theme4Input),
+    ];
+
+    // Validate themes
+    const validationErrors = [];
+    themes.forEach((theme, index) => {
+      if (!theme.name || theme.name.length === 0) {
+        validationErrors.push(`Theme ${index + 1} must have a name.`);
+      }
+      if (theme.tags.length === 0 && theme.weaknesses.length === 0) {
+        validationErrors.push(`Theme ${index + 1} must have at least one tag or weakness.`);
+      }
+    });
+
+    if (validationErrors.length > 0) {
+      await interaction.reply({
+        content: `**Validation Error:**\n${validationErrors.join('\n')}`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Create the character
+    const character = CharacterStorage.createCharacter(userId, name.trim(), themes);
+
+    // Build response showing the character
+    const themeParts = [];
+    character.themes.forEach((theme) => {
+      if (theme.tags.length > 0 || theme.weaknesses.length > 0) {
+        const formatted = TagFormatter.formatTagsAndWeaknessesInCodeBlock(theme.tags, theme.weaknesses);
+        themeParts.push(`**${theme.name}:**\n${formatted}`);
+      }
+    });
+
+    const content = `**Character Created: ${character.name}**\n\n` +
+      themeParts.join('\n\n') +
+      `\n\n*Backpack: Empty*\n*Statuses: None*`;
+
+    await interaction.reply({
+      content,
+      flags: MessageFlags.Ephemeral,
+    });
+  } else if (customId.startsWith('edit_character_modal_')) {
+    // Handle character edit modal submission
+    const characterId = parseInt(customId.split('_')[3]);
+    const userId = interaction.user.id;
+    
+    const character = CharacterStorage.getCharacter(userId, characterId);
+    if (!character) {
+      await interaction.reply({
+        content: 'Character not found.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const name = interaction.fields.getTextInputValue('character_name');
+    const theme1Input = interaction.fields.getTextInputValue('theme_1');
+    const theme2Input = interaction.fields.getTextInputValue('theme_2');
+    const theme3Input = interaction.fields.getTextInputValue('theme_3');
+    const theme4Input = interaction.fields.getTextInputValue('theme_4');
+
+    if (!name || name.trim().length === 0) {
+      await interaction.reply({
+        content: 'Character name cannot be empty.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Parse all themes
+    const themes = [
+      CreateCharacterCommand.parseTheme(theme1Input),
+      CreateCharacterCommand.parseTheme(theme2Input),
+      CreateCharacterCommand.parseTheme(theme3Input),
+      CreateCharacterCommand.parseTheme(theme4Input),
+    ];
+
+    // Validate themes
+    const validationErrors = [];
+    themes.forEach((theme, index) => {
+      if (!theme.name || theme.name.length === 0) {
+        validationErrors.push(`Theme ${index + 1} must have a name.`);
+      }
+      if (theme.tags.length === 0 && theme.weaknesses.length === 0) {
+        validationErrors.push(`Theme ${index + 1} must have at least one tag or weakness.`);
+      }
+    });
+
+    if (validationErrors.length > 0) {
+      await interaction.reply({
+        content: `**Validation Error:**\n${validationErrors.join('\n')}`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Update the character
+    const updatedCharacter = CharacterStorage.updateCharacter(userId, characterId, {
+      name: name.trim(),
+      themes: themes.map(theme => ({
+        name: theme.name || '',
+        tags: theme.tags || [],
+        weaknesses: theme.weaknesses || [],
+      })),
+    });
+
+    if (!updatedCharacter) {
+      await interaction.reply({
+        content: 'Failed to update character.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Build response showing the updated character
+    const themeParts = [];
+    updatedCharacter.themes.forEach((theme) => {
+      if (theme.tags.length > 0 || theme.weaknesses.length > 0) {
+        const formatted = TagFormatter.formatTagsAndWeaknessesInCodeBlock(theme.tags, theme.weaknesses);
+        themeParts.push(`**${theme.name}:**\n${formatted}`);
+      }
+    });
+
+    const content = `**Character Updated: ${updatedCharacter.name}**\n\n` +
+      themeParts.join('\n') +
+      `\n\n*Backpack: ${updatedCharacter.backpack.length > 0 ? updatedCharacter.backpack.join(', ') : 'Empty'}*\n*Statuses: ${updatedCharacter.tempStatuses.length > 0 ? updatedCharacter.tempStatuses.join(', ') : 'None'}*`;
+
+    await interaction.reply({
+      content,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+}
+
+/**
+ * Handle select menu for active character selection
+ */
+async function handleSelectActiveCharacter(interaction) {
+  const customId = interaction.customId;
+  const userId = interaction.user.id;
+  
+  if (customId.startsWith('select_active_character_')) {
+    const selectedValue = interaction.values[0];
+    const characterId = parseInt(selectedValue);
+    
+    const character = CharacterStorage.getCharacter(userId, characterId);
+    if (!character) {
+      await interaction.reply({
+        content: 'Character not found.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Set as active character
+    const success = CharacterStorage.setActiveCharacter(userId, characterId);
+    
+    if (!success) {
+      await interaction.reply({
+        content: 'Failed to set active character.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Update the message to show the active character
+    await interaction.update({
+      content: `**Active Character: ${character.name}**\n\nThis character is now your active character.`,
+      components: [],
+    });
+  }
+}
+
+/**
+ * Check if a user can edit a roll (creator or has editor role)
+ * @param {import('discord.js').Interaction} interaction - The interaction
+ * @param {Object} rollState - The roll state object
+ * @returns {Promise<boolean>} True if user can edit
+ */
+async function canEditRoll(interaction, rollState) {
+  // Creator can always edit
+  if (interaction.user.id === rollState.creatorId) {
+    return true;
+  }
+
+  // Check if user has the editor role
+  if (!interaction.member || !interaction.guild) {
+    return false;
   }
 
   try {
-    await command.execute(interaction);
+    const member = await interaction.guild.members.fetch(interaction.user.id);
+    return member.roles.cache.some(role => role.name === ROLL_EDITOR_ROLE);
   } catch (error) {
-    console.error(`Error executing ${interaction.commandName}:`, error);
-    const errorMessage = { content: 'There was an error while executing this command!', flags: MessageFlags.Ephemeral };
-    if (interaction.replied || interaction.deferred) {
-      await interaction.followUp(errorMessage);
-    } else {
-      await interaction.reply(errorMessage);
-    }
+    console.error('Error checking user roles:', error);
+    return false;
   }
-});
+}
+
+/**
+ * Handle roll select menu interactions (help/hinder tags)
+ */
+async function handleRollSelect(interaction) {
+  const customId = interaction.customId;
+  
+  if (customId.startsWith('roll_help_') || customId.startsWith('roll_hinder_')) {
+    // Extract rollKey: format is "roll_help_userId-sceneId" or "roll_hinder_userId-sceneId"
+    const rollKey = customId.replace('roll_help_', '').replace('roll_hinder_', '');
+    
+    if (!client.rollStates.has(rollKey)) {
+      await interaction.reply({
+        content: 'This roll session has expired. Please run /roll again.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const rollState = client.rollStates.get(rollKey);
+    
+    if (rollState.rolled) {
+      await interaction.reply({
+        content: 'This roll has already been completed. Tags can no longer be edited.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Check if user can edit this roll
+    const hasPermission = await canEditRoll(interaction, rollState);
+    if (!hasPermission) {
+      await interaction.reply({
+        content: `You don't have permission to edit this roll. Only the creator or users with the "${ROLL_EDITOR_ROLE}" role can edit.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const selectedTags = new Set(interaction.values);
+    
+    if (customId.startsWith('roll_help_')) {
+      rollState.helpTags = selectedTags;
+    } else {
+      rollState.hinderTags = selectedTags;
+    }
+
+    client.rollStates.set(rollKey, rollState);
+
+    // Get character and scene for formatting
+    const userId = rollKey.split('-')[0];
+    const sceneId = rollKey.split('-').slice(1).join('-');
+    const character = CharacterStorage.getActiveCharacter(userId);
+
+    // Format content with selected tags
+    const content = RollCommand.formatRollProposalContent(rollState.helpTags, rollState.hinderTags);
+
+    await interaction.update({ content });
+  }
+}
+
+/**
+ * Handle roll button - perform the dice roll
+ */
+async function handleRollButton(interaction) {
+  const customId = interaction.customId;
+  
+  if (customId.startsWith('roll_now_')) {
+    // Extract rollKey: format is "roll_now_userId-sceneId"
+    const rollKey = customId.replace('roll_now_', '');
+    
+    if (!client.rollStates.has(rollKey)) {
+      await interaction.reply({
+        content: 'This roll session has expired. Please run /roll again.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const rollState = client.rollStates.get(rollKey);
+    
+    if (rollState.rolled) {
+      await interaction.reply({
+        content: 'This roll has already been completed.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Check if user can edit this roll
+    const hasPermission = await canEditRoll(interaction, rollState);
+    if (!hasPermission) {
+      await interaction.reply({
+        content: `You don't have permission to roll. Only the creator or users with the "${ROLL_EDITOR_ROLE}" role can roll.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Mark as rolled
+    rollState.rolled = true;
+    client.rollStates.set(rollKey, rollState);
+
+    // Roll 2d6
+    const die1 = Math.floor(Math.random() * 6) + 1;
+    const die2 = Math.floor(Math.random() * 6) + 1;
+    const baseRoll = die1 + die2;
+
+    // Calculate modifier using status values
+    const modifier = RollCommand.calculateModifier(rollState.helpTags, rollState.hinderTags);
+    const finalResult = baseRoll + modifier;
+
+    // Parse help tags (extract actual names)
+    const helpItemNames = Array.from(rollState.helpTags).map(value => {
+      // Remove prefix (theme:, tag:, backpack:, etc.)
+      const parts = value.split(':');
+      return parts.length > 1 ? parts.slice(1).join(':') : value;
+    });
+
+    // Parse hinder tags (extract actual names, separate weaknesses)
+    const hinderItemNames = [];
+    const hinderWeaknesses = [];
+    
+    Array.from(rollState.hinderTags).forEach(value => {
+      const parts = value.split(':');
+      const name = parts.length > 1 ? parts.slice(1).join(':') : value;
+      
+      if (value.startsWith('weakness:')) {
+        hinderWeaknesses.push(name);
+      } else {
+        hinderItemNames.push(name);
+      }
+    });
+
+    // Categorize help items
+    const helpCategorized = RollCommand.categorizeItems(helpItemNames);
+    
+    // Categorize hinder items
+    const hinderCategorized = RollCommand.categorizeItems(hinderItemNames);
+
+    // Format help items (tags, statuses)
+    const helpFormatted = (helpCategorized.tags.length > 0 || 
+                          helpCategorized.statuses.length > 0)
+      ? TagFormatter.formatSceneStatusInCodeBlock(
+          helpCategorized.tags,
+          helpCategorized.statuses,
+          [] // No limits
+        )
+      : 'None';
+    
+    // Format hinder items (tags, statuses, plus weaknesses)
+    const hinderParts = [];
+    if (hinderCategorized.tags.length > 0) {
+      hinderParts.push(TagFormatter.formatStoryTags(hinderCategorized.tags));
+    }
+    if (hinderCategorized.statuses.length > 0) {
+      hinderParts.push(TagFormatter.formatStatuses(hinderCategorized.statuses));
+    }
+    if (hinderWeaknesses.length > 0) {
+      hinderParts.push(TagFormatter.formatWeaknesses(hinderWeaknesses));
+    }
+    
+    const hinderFormatted = hinderParts.length > 0
+      ? `\`\`\`ansi\n${hinderParts.join(', ')}\n\`\`\``
+      : 'None';
+
+    const modifierText = modifier >= 0 ? `+${modifier}` : `${modifier}`;
+
+    // Determine result classification
+    let resultType;
+    if (finalResult >= 10) {
+      resultType = 'Success';
+    } else if (finalResult >= 7) {
+      resultType = 'Success & Consequences';
+    } else {
+      resultType = 'Consequences';
+    }
+
+    const content = `**Roll Result: ${finalResult}** (${resultType})\n\n` +
+      `**Dice:** ${die1} + ${die2} = ${baseRoll}\n` +
+      `**Power:** ${modifierText}\n` +
+      `**Help Tags:**\n${helpFormatted}\n` +
+      `**Hinder Tags:**\n${hinderFormatted}`;
+
+    await interaction.update({
+      content,
+      components: [], // Hide all components
+    });
+  }
+}
 
 // Log in to Discord with your client's token
 const token = process.env.DISCORD_TOKEN;

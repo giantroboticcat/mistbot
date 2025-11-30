@@ -1,11 +1,11 @@
 import { AddTagsCommand } from './AddTagsCommand.js';
 import { RemoveTagsCommand } from './RemoveTagsCommand.js';
-import { AddStatusCommand } from './AddStatusCommand.js';
-import { RemoveStatusCommand } from './RemoveStatusCommand.js';
-import { AddLimitCommand } from './AddLimitCommand.js';
-import { RemoveLimitCommand } from './RemoveLimitCommand.js';
 import { ListSceneStatusCommand } from './ListSceneStatusCommand.js';
 import { ClearSceneCommand } from './ClearSceneCommand.js';
+import { CreateCharacterCommand } from './CreateCharacterCommand.js';
+import { EditCharacterCommand } from './EditCharacterCommand.js';
+import { SelectCharacterCommand } from './SelectCharacterCommand.js';
+import { RollCommand } from './RollCommand.js';
 
 /**
  * Array of all command classes
@@ -14,11 +14,11 @@ import { ClearSceneCommand } from './ClearSceneCommand.js';
 export const commands = [
   new AddTagsCommand(),
   new RemoveTagsCommand(),
-  new AddStatusCommand(),
-  new RemoveStatusCommand(),
-  new AddLimitCommand(),
-  new RemoveLimitCommand(),
   new ListSceneStatusCommand(),
   new ClearSceneCommand(),
+  new CreateCharacterCommand(),
+  new EditCharacterCommand(),
+  new SelectCharacterCommand(),
+  new RollCommand(),
 ];
 

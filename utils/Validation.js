@@ -30,7 +30,11 @@ export class Validation {
     }
 
     // Check that it's not just "-5" (needs at least one character before the dash)
-    if (trimmed.length <= 2 || trimmed.indexOf('-') === trimmed.length - 2) {
+    // Find the last dash (the one before the number)
+    const lastDashIndex = trimmed.lastIndexOf('-');
+    // The last dash should be at position length-2 or earlier (to have at least one char before it)
+    // If lastDashIndex >= length-1, that means the dash is at the end or there's no number
+    if (trimmed.length <= 2 || lastDashIndex === -1 || lastDashIndex >= trimmed.length - 1) {
       return { 
         valid: false, 
         error: 'Status must have text before the dash-number (e.g., "concerned-5")' 

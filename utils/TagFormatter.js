@@ -5,6 +5,7 @@ export class TagFormatter {
   static BOLD_YELLOW = '\x1b[1;33m';
   static BOLD_RED = '\x1b[1;31m';
   static BOLD_GREEN = '\x1b[1;32m';
+  static ORANGE_BACKGROUND = '\x1b[0;41m';
   static RESET = '\x1b[0m';
 
   /**
@@ -120,6 +121,50 @@ export class TagFormatter {
     
     if (limits.length > 0) {
       parts.push(this.formatLimits(limits));
+    }
+    
+    if (parts.length === 0) {
+      return 'None';
+    }
+    
+    const formatted = parts.join(', ');
+    return `\`\`\`ansi\n${formatted}\n\`\`\``;
+  }
+
+  /**
+   * Format a single weakness with orange background
+   * @param {string} weakness - The weakness to format
+   * @returns {string} Formatted weakness
+   */
+  static formatWeakness(weakness) {
+    return `${this.ORANGE_BACKGROUND}${weakness}${this.RESET}`;
+  }
+
+  /**
+   * Format an array of weaknesses with orange background, joined by commas
+   * @param {string[]} weaknesses - Array of weaknesses to format
+   * @returns {string} Formatted weaknesses joined by commas
+   */
+  static formatWeaknesses(weaknesses) {
+    return weaknesses.map(weakness => this.formatWeakness(weakness)).join(', ');
+  }
+
+  /**
+   * Format tags and weaknesses together in a single ANSI code block
+   * Tags are yellow text, weaknesses have orange background
+   * @param {string[]} tags - Array of tags to format (yellow)
+   * @param {string[]} weaknesses - Array of weaknesses to format (orange background)
+   * @returns {string} Formatted tags and weaknesses in a single ansi code block
+   */
+  static formatTagsAndWeaknessesInCodeBlock(tags, weaknesses) {
+    const parts = [];
+    
+    if (tags.length > 0) {
+      parts.push(this.formatStoryTags(tags));
+    }
+    
+    if (weaknesses.length > 0) {
+      parts.push(this.formatWeaknesses(weaknesses));
     }
     
     if (parts.length === 0) {
