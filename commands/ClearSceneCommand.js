@@ -8,7 +8,7 @@ import { StoryTagStorage } from '../utils/StoryTagStorage.js';
 export class ClearSceneCommand extends Command {
   getData() {
     return new SlashCommandBuilder()
-      .setName('clear-scene')
+      .setName('scene-clear')
       .setDescription('Clear all tags, statuses, and limits from the current scene')
       .addBooleanOption(option =>
         option

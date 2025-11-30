@@ -10,7 +10,7 @@ import { Validation } from '../utils/Validation.js';
 export class AddTagsCommand extends Command {
   getData() {
     return new SlashCommandBuilder()
-      .setName('add-tags')
+      .setName('scene-add')
       .setDescription('Add tags, statuses, and/or limits to the current scene (auto-detects type from format)')
       .addStringOption(option =>
         option

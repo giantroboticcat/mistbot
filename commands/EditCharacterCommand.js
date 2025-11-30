@@ -9,7 +9,7 @@ import { CreateCharacterCommand } from './CreateCharacterCommand.js';
 export class EditCharacterCommand extends Command {
   getData() {
     return new SlashCommandBuilder()
-      .setName('edit-character')
+      .setName('char-edit')
       .setDescription('Edit one of your existing characters');
   }
 
@@ -19,7 +19,7 @@ export class EditCharacterCommand extends Command {
 
     if (!activeCharacter) {
       await interaction.reply({
-        content: 'You don\'t have an active character. Use `/create-character` to create one, or `/select-character` to select an active character.',
+        content: 'You don\'t have an active character. Use `/char-create` to create one, or `/char-select` to select an active character.',
         flags: MessageFlags.Ephemeral,
       });
       return;

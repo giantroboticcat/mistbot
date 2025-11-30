@@ -12,7 +12,12 @@ export class RollCommand extends Command {
   getData() {
     return new SlashCommandBuilder()
       .setName('roll')
-      .setDescription('Roll 2d6 with tag modifiers (default: 2d6)');
+      .setDescription('Roll 2d6 and apply tag modifiers')
+      .addStringOption(option =>
+        option
+          .setName('description')
+          .setDescription('What this roll is for (optional)')
+          .setRequired(false));
   }
 
   async execute(interaction) {
@@ -23,7 +28,7 @@ export class RollCommand extends Command {
     const character = CharacterStorage.getActiveCharacter(userId);
     if (!character) {
       await interaction.reply({
-        content: 'You don\'t have an active character. Use `/create-character` to create one.',
+        content: 'You don\'t have an active character. Use `/char-create` to create one.',
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -35,12 +40,14 @@ export class RollCommand extends Command {
     }
 
     const rollKey = `${userId}-${sceneId}`;
+    const description = interaction.options.getString('description') || null;
     interaction.client.rollStates.set(rollKey, {
       creatorId: userId,
       characterId: character.id,
       helpTags: new Set(),
       hinderTags: new Set(),
       rolled: false,
+      description: description,
     });
 
     // Collect all available tags for help dropdown
@@ -71,11 +78,17 @@ export class RollCommand extends Command {
       .setLabel('Roll Now')
       .setStyle(ButtonStyle.Primary);
 
+    // Create cancel button
+    const cancelButton = new ButtonBuilder()
+      .setCustomId(`roll_cancel_${rollKey}`)
+      .setLabel('Cancel')
+      .setStyle(ButtonStyle.Secondary);
+
     const helpRow = new ActionRowBuilder().setComponents([helpSelect]);
     const hinderRow = new ActionRowBuilder().setComponents([hinderSelect]);
-    const buttonRow = new ActionRowBuilder().setComponents([rollButton]);
+    const buttonRow = new ActionRowBuilder().setComponents([rollButton, cancelButton]);
 
-    const content = RollCommand.formatRollProposalContent(new Set(), new Set());
+    const content = RollCommand.formatRollProposalContent(new Set(), new Set(), description);
 
     await interaction.reply({
       content,
@@ -213,28 +226,59 @@ export class RollCommand extends Command {
 
   /**
    * Calculate modifier from selected tags
-   * Statuses contribute their numeric value, other tags contribute 1
+   * Only the highest status value is used per side, plus all non-status tags count as ±1
    * @param {Set<string>} helpTags - Set of help tag values (with prefixes)
    * @param {Set<string>} hinderTags - Set of hinder tag values (with prefixes)
    * @returns {number} The calculated modifier
    */
   static calculateModifier(helpTags, hinderTags) {
-    let helpModifier = 0;
-    let hinderModifier = 0;
-
     // Calculate help modifier
+    const helpStatuses = [];
+    let helpTagCount = 0;
+
     Array.from(helpTags).forEach(value => {
       const parts = value.split(':');
       const tagName = parts.length > 1 ? parts.slice(1).join(':') : value;
-      helpModifier += this.extractStatusValue(tagName);
+      
+      if (Validation.validateStatus(tagName).valid) {
+        // It's a status, extract its value
+        helpStatuses.push(this.extractStatusValue(tagName));
+      } else {
+        // It's a non-status tag, count it
+        helpTagCount++;
+      }
     });
 
+    // Use only the highest status value (or 0 if no statuses)
+    const highestHelpStatus = helpStatuses.length > 0 ? Math.max(...helpStatuses) : 0;
+    const helpModifier = highestHelpStatus + helpTagCount;
+
     // Calculate hinder modifier
+    const hinderStatuses = [];
+    let hinderTagCount = 0;
+
     Array.from(hinderTags).forEach(value => {
+      // Skip weaknesses for modifier calculation (they're just tags)
+      if (value.startsWith('weakness:')) {
+        hinderTagCount++;
+        return;
+      }
+
       const parts = value.split(':');
       const tagName = parts.length > 1 ? parts.slice(1).join(':') : value;
-      hinderModifier += this.extractStatusValue(tagName);
+      
+      if (Validation.validateStatus(tagName).valid) {
+        // It's a status, extract its value
+        hinderStatuses.push(this.extractStatusValue(tagName));
+      } else {
+        // It's a non-status tag, count it
+        hinderTagCount++;
+      }
     });
+
+    // Use only the highest status value (or 0 if no statuses)
+    const highestHinderStatus = hinderStatuses.length > 0 ? Math.max(...hinderStatuses) : 0;
+    const hinderModifier = highestHinderStatus + hinderTagCount;
 
     return helpModifier - hinderModifier;
   }
@@ -263,9 +307,10 @@ export class RollCommand extends Command {
    * Format roll proposal content with selected tags
    * @param {Set<string>} helpTags - Set of help tag values (with prefixes)
    * @param {Set<string>} hinderTags - Set of hinder tag values (with prefixes)
+   * @param {string|null} description - Optional description of what the roll is for
    * @returns {string} Formatted content string
    */
-  static formatRollProposalContent(helpTags, hinderTags) {
+  static formatRollProposalContent(helpTags, hinderTags, description = null) {
     // Parse help tags (extract actual names)
     const helpItemNames = Array.from(helpTags).map(value => {
       // Remove prefix (theme:, tag:, backpack:, etc.)
@@ -324,11 +369,16 @@ export class RollCommand extends Command {
       ? `\`\`\`ansi\n${hinderParts.join(', ')}\n\`\`\``
       : 'None';
 
-    return `**Roll Proposal: 2d6**\n\n` +
-      `Select tags that help or hinder your roll.\n` +
+    let content = `**Roll Proposal: 2d6**\n\n`;
+    if (description) {
+      content += `**${description}**\n\n`;
+    }
+    content += `Select tags that help or hinder your roll.\n` +
       `**Help Tags:**\n${helpFormatted}\n` +
       `**Hinder Tags:**\n${hinderFormatted}\n` +
       `**Power:** ${modifierText}`;
+    
+    return content;
   }
 }
 

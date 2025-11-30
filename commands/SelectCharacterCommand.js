@@ -8,7 +8,7 @@ import { CharacterStorage } from '../utils/CharacterStorage.js';
 export class SelectCharacterCommand extends Command {
   getData() {
     return new SlashCommandBuilder()
-      .setName('select-character')
+      .setName('char-select')
       .setDescription('Select which character is currently active');
   }
 
@@ -18,7 +18,7 @@ export class SelectCharacterCommand extends Command {
 
     if (characters.length === 0) {
       await interaction.reply({
-        content: 'You don\'t have any characters yet. Use `/create-character` to create one.',
+        content: 'You don\'t have any characters yet. Use `/char-create` to create one.',
         flags: MessageFlags.Ephemeral,
       });
       return;

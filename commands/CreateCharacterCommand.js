@@ -9,7 +9,7 @@ import { TagFormatter } from '../utils/TagFormatter.js';
 export class CreateCharacterCommand extends Command {
   getData() {
     return new SlashCommandBuilder()
-      .setName('create-character')
+      .setName('char-create')
       .setDescription('Create a new character with 4 themes');
   }
 

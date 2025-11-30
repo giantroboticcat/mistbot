@@ -9,7 +9,7 @@ import { TagFormatter } from '../utils/TagFormatter.js';
 export class RemoveTagsCommand extends Command {
   getData() {
     return new SlashCommandBuilder()
-      .setName('remove-tags')
+      .setName('scene-remove')
       .setDescription('Remove story tags, statuses, or limits from the current scene (interactive)');
   }
 

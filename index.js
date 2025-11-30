@@ -18,8 +18,10 @@ const client = new Client({
   ],
 });
 
-// Role name that can edit rolls (set via environment variable or default)
-const ROLL_EDITOR_ROLE = process.env.ROLL_EDITOR_ROLE || 'Narrator';
+// Role ID that can edit rolls (set via environment variable)
+const ROLL_EDITOR_ROLE_ID = process.env.ROLL_EDITOR_ROLE_ID || null;
+// Role name for error messages (optional, set via environment variable)
+const ROLL_EDITOR_ROLE = process.env.ROLL_EDITOR_ROLE || 'editor role';
 
 // Create a map of command names to command instances for quick lookup
 const commandMap = new Map();
@@ -66,6 +68,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // Handle button interactions
     if (interaction.customId.startsWith('roll_now_')) {
       await handleRollButton(interaction);
+    } else if (interaction.customId.startsWith('roll_cancel_')) {
+      await handleRollCancel(interaction);
     } else {
       // Handle tag removal button
       await handleTagRemovalButton(interaction);
@@ -98,7 +102,7 @@ async function handleTagRemovalSelect(interaction) {
 
     if (!client.tagRemovalSelections.has(selectionKey)) {
       await interaction.reply({
-        content: 'This selection session has expired. Please run /remove-tags again.',
+        content: 'This selection session has expired. Please run /scene-remove again.',
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -157,7 +161,7 @@ async function handleTagRemovalButton(interaction) {
 
     if (!client.tagRemovalSelections.has(selectionKey)) {
       await interaction.reply({
-        content: 'This selection session has expired. Please run /remove-tags again.',
+        content: 'This selection session has expired. Please run /scene-remove again.',
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -507,13 +511,17 @@ async function canEditRoll(interaction, rollState) {
   }
 
   // Check if user has the editor role
-  if (!interaction.member || !interaction.guild) {
+  if (!interaction.member) {
+    return false;
+  }
+
+  // If no role ID is configured, only creator can edit
+  if (!ROLL_EDITOR_ROLE_ID) {
     return false;
   }
 
   try {
-    const member = await interaction.guild.members.fetch(interaction.user.id);
-    return member.roles.cache.some(role => role.name === ROLL_EDITOR_ROLE);
+    return interaction.member.roles.includes(ROLL_EDITOR_ROLE_ID);
   } catch (error) {
     console.error('Error checking user roles:', error);
     return false;
@@ -568,15 +576,17 @@ async function handleRollSelect(interaction) {
 
     client.rollStates.set(rollKey, rollState);
 
-    // Get character and scene for formatting
-    const userId = rollKey.split('-')[0];
-    const sceneId = rollKey.split('-').slice(1).join('-');
-    const character = CharacterStorage.getActiveCharacter(userId);
+    // Update the message with new tag selections
+    const content = RollCommand.formatRollProposalContent(
+      rollState.helpTags,
+      rollState.hinderTags,
+      rollState.description
+    );
 
-    // Format content with selected tags
-    const content = RollCommand.formatRollProposalContent(rollState.helpTags, rollState.hinderTags);
-
-    await interaction.update({ content });
+    await interaction.update({
+      content,
+      components: interaction.message.components,
+    });
   }
 }
 
@@ -697,8 +707,11 @@ async function handleRollButton(interaction) {
       resultType = 'Consequences';
     }
 
-    const content = `**Roll Result: ${finalResult}** (${resultType})\n\n` +
-      `**Dice:** ${die1} + ${die2} = ${baseRoll}\n` +
+    let content = `**Roll Result: ${finalResult}** (${resultType})\n\n`;
+    if (rollState.description) {
+      content += `**${rollState.description}**\n\n`;
+    }
+    content += `**Dice:** ${die1} + ${die2} = ${baseRoll}\n` +
       `**Power:** ${modifierText}\n` +
       `**Help Tags:**\n${helpFormatted}\n` +
       `**Hinder Tags:**\n${hinderFormatted}`;
@@ -708,6 +721,51 @@ async function handleRollButton(interaction) {
       components: [], // Hide all components
     });
   }
+}
+
+/**
+ * Handle roll cancel button interaction
+ */
+async function handleRollCancel(interaction) {
+  const customId = interaction.customId;
+  // Extract rollKey: format is "roll_cancel_userId-sceneId"
+  const rollKey = customId.replace('roll_cancel_', '');
+  
+  if (!client.rollStates.has(rollKey)) {
+    await interaction.reply({
+      content: 'This roll session has expired.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const rollState = client.rollStates.get(rollKey);
+  
+  // Only the creator can cancel
+  if (interaction.user.id !== rollState.creatorId) {
+    await interaction.reply({
+      content: 'Only the creator of this roll can cancel it.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (rollState.rolled) {
+    await interaction.reply({
+      content: 'This roll has already been completed.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Clean up roll state
+  client.rollStates.delete(rollKey);
+
+  // Update message to show cancellation
+  await interaction.update({
+    content: '**Roll Canceled**',
+    components: [], // Hide all components
+  });
 }
 
 // Log in to Discord with your client's token
