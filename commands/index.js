@@ -6,7 +6,9 @@ import { CreateCharacterCommand } from './CreateCharacterCommand.js';
 import { EditCharacterCommand } from './EditCharacterCommand.js';
 import { SelectCharacterCommand } from './SelectCharacterCommand.js';
 import { ViewCharacterCommand } from './ViewCharacterCommand.js';
-import { RollCommand } from './RollCommand.js';
+import { RollProposeCommand } from './RollProposeCommand.js';
+import { RollConfirmCommand } from './RollConfirmCommand.js';
+import { RollExecuteCommand } from './RollExecuteCommand.js';
 
 /**
  * Array of all command classes
@@ -21,6 +23,8 @@ export const commands = [
   new EditCharacterCommand(),
   new SelectCharacterCommand(),
   new ViewCharacterCommand(),
-  new RollCommand(),
+  new RollProposeCommand(),
+  new RollConfirmCommand(),
+  new RollExecuteCommand(),
 ];
 

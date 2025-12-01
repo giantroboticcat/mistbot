@@ -7,7 +7,8 @@ import { Validation } from './utils/Validation.js';
 import { CharacterStorage } from './utils/CharacterStorage.js';
 import { CreateCharacterCommand } from './commands/CreateCharacterCommand.js';
 import { EditCharacterCommand } from './commands/EditCharacterCommand.js';
-import { RollCommand } from './commands/RollCommand.js';
+import { RollView } from './utils/RollView.js';
+import { RollStorage } from './utils/RollStorage.js';
 
 // Load environment variables
 dotenv.config();
@@ -114,7 +115,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   } else if (interaction.isButton()) {
     // Handle button interactions
-    if (interaction.customId.startsWith('roll_now_')) {
+    if (interaction.customId.startsWith('roll_submit_')) {
+      await handleRollSubmit(interaction);
+    } else if (interaction.customId.startsWith('roll_confirm_')) {
+      await handleRollConfirm(interaction);
+    } else if (interaction.customId.startsWith('roll_reject_')) {
+      await handleRollReject(interaction);
+    } else if (interaction.customId.startsWith('roll_now_')) {
       await handleRollButton(interaction);
     } else if (interaction.customId.startsWith('roll_cancel_')) {
       await handleRollCancel(interaction);
@@ -820,16 +827,29 @@ async function handleRollPageSelect(interaction) {
 
     const rollState = client.rollStates.get(rollKey);
     
-    if (rollState.rolled) {
-      await interaction.reply({
-        content: 'This roll has already been completed. Tags can no longer be edited.',
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
+    // Check if user can edit this roll (for confirm views, check narrator permissions)
+    let hasPermission = false;
+    if (rollKey.startsWith('confirm_')) {
+      // For confirm views, only narrators can edit
+      const ROLL_EDITOR_ROLE_ID = process.env.ROLL_EDITOR_ROLE_ID || null;
+      if (ROLL_EDITOR_ROLE_ID) {
+        try {
+          hasPermission = interaction.member.roles.includes(ROLL_EDITOR_ROLE_ID);
+        } catch (error) {
+          hasPermission = false;
+        }
+      }
+    } else {
+      if (rollState.rolled) {
+        await interaction.reply({
+          content: 'This roll has already been completed. Tags can no longer be edited.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+      hasPermission = await canEditRoll(interaction, rollState);
     }
-
-    // Check if user can edit this roll
-    const hasPermission = await canEditRoll(interaction, rollState);
+    
     if (!hasPermission) {
       await interaction.reply({
         content: `You don't have permission to edit this roll. Only the creator or users with the "${ROLL_EDITOR_ROLE}" role can edit.`,
@@ -851,11 +871,21 @@ async function handleRollPageSelect(interaction) {
     // Rebuild components with updated page
     const components = rebuildRollComponents(rollState, rollKey);
     
-    const content = RollCommand.formatRollProposalContent(
-      rollState.helpTags,
-      rollState.hinderTags,
-      rollState.description
-    );
+    let content = '';
+    if (rollKey.startsWith('confirm_')) {
+      const rollId = rollKey.replace('confirm_', '');
+      content = `**Reviewing Roll Proposal #${rollId}**\n\n` +
+        `**Player:** <@${rollState.creatorId}>\n` +
+        RollView.formatRollProposalContent(rollState.helpTags, rollState.hinderTags, rollState.description, true) +
+        `\n\n*You can edit the tags above before confirming.*`;
+    } else {
+      content = RollView.formatRollProposalContent(
+        rollState.helpTags,
+        rollState.hinderTags,
+        rollState.description,
+        true
+      );
+    }
 
     await interaction.update({
       content,
@@ -869,7 +899,42 @@ async function handleRollPageSelect(interaction) {
  */
 function rebuildRollComponents(rollState, rollKey) {
   const { helpOptions, hinderOptions, helpPage, hinderPage, helpTags, hinderTags } = rollState;
-  return RollCommand.buildRollComponents(rollKey, helpOptions, hinderOptions, helpPage, hinderPage, helpTags, hinderTags);
+  // Check if this is a confirmation view (no buttons) or proposal view (with buttons)
+  const includeButtons = !rollKey.startsWith('confirm_') && !rollKey.startsWith('temp_');
+  const components = RollView.buildRollComponents(rollKey, helpOptions, hinderOptions, helpPage, hinderPage, helpTags, hinderTags, includeButtons);
+  
+  // For temp rolls (proposals), add submit/cancel buttons
+  if (rollKey.startsWith('temp_')) {
+    const submitButton = new ButtonBuilder()
+      .setCustomId(`roll_submit_${rollKey}`)
+      .setLabel('Submit Proposal')
+      .setStyle(ButtonStyle.Primary);
+    
+    const cancelButton = new ButtonBuilder()
+      .setCustomId(`roll_cancel_${rollKey}`)
+      .setLabel('Cancel')
+      .setStyle(ButtonStyle.Secondary);
+    
+    components.push(new ActionRowBuilder().setComponents([submitButton, cancelButton]));
+  }
+  
+  // For confirm rolls (narrator review), add confirm/reject buttons
+  if (rollKey.startsWith('confirm_')) {
+    const rollId = rollKey.replace('confirm_', '');
+    const confirmButton = new ButtonBuilder()
+      .setCustomId(`roll_confirm_${rollId}`)
+      .setLabel('Confirm Roll')
+      .setStyle(ButtonStyle.Success);
+    
+    const rejectButton = new ButtonBuilder()
+      .setCustomId(`roll_reject_${rollId}`)
+      .setLabel('Reject')
+      .setStyle(ButtonStyle.Danger);
+    
+    components.push(new ActionRowBuilder().setComponents([confirmButton, rejectButton]));
+  }
+  
+  return components;
 }
 
 /**
@@ -892,16 +957,29 @@ async function handleRollSelect(interaction) {
 
     const rollState = client.rollStates.get(rollKey);
     
-    if (rollState.rolled) {
-      await interaction.reply({
-        content: 'This roll has already been completed. Tags can no longer be edited.',
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
+    // Check if user can edit this roll (for confirm views, check narrator permissions)
+    let hasPermission = false;
+    if (rollKey.startsWith('confirm_')) {
+      // For confirm views, only narrators can edit
+      const ROLL_EDITOR_ROLE_ID = process.env.ROLL_EDITOR_ROLE_ID || null;
+      if (ROLL_EDITOR_ROLE_ID) {
+        try {
+          hasPermission = interaction.member.roles.includes(ROLL_EDITOR_ROLE_ID);
+        } catch (error) {
+          hasPermission = false;
+        }
+      }
+    } else {
+      if (rollState.rolled) {
+        await interaction.reply({
+          content: 'This roll has already been completed. Tags can no longer be edited.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+      hasPermission = await canEditRoll(interaction, rollState);
     }
-
-    // Check if user can edit this roll
-    const hasPermission = await canEditRoll(interaction, rollState);
+    
     if (!hasPermission) {
       await interaction.reply({
         content: `You don't have permission to edit this roll. Only the creator or users with the "${ROLL_EDITOR_ROLE}" role can edit.`,
@@ -962,11 +1040,21 @@ async function handleRollSelect(interaction) {
     const components = rebuildRollComponents(rollState, rollKey);
     
     // Update the message with new tag selections
-    const content = RollCommand.formatRollProposalContent(
-      rollState.helpTags,
-      rollState.hinderTags,
-      rollState.description
-    );
+    let content = '';
+    if (rollKey.startsWith('confirm_')) {
+      const rollId = rollKey.replace('confirm_', '');
+      content = `**Reviewing Roll Proposal #${rollId}**\n\n` +
+        `**Player:** <@${rollState.creatorId}>\n` +
+        RollView.formatRollProposalContent(rollState.helpTags, rollState.hinderTags, rollState.description, true) +
+        `\n\n*You can edit the tags above before confirming.*`;
+    } else {
+      content = RollView.formatRollProposalContent(
+        rollState.helpTags,
+        rollState.hinderTags,
+        rollState.description,
+        true
+      );
+    }
 
     await interaction.update({
       content,
@@ -1023,7 +1111,7 @@ async function handleRollButton(interaction) {
     const baseRoll = die1 + die2;
 
     // Calculate modifier using status values
-    const modifier = RollCommand.calculateModifier(rollState.helpTags, rollState.hinderTags);
+    const modifier = RollView.calculateModifier(rollState.helpTags, rollState.hinderTags);
     const finalResult = baseRoll + modifier;
 
     // Parse help tags (extract actual names)
@@ -1049,10 +1137,10 @@ async function handleRollButton(interaction) {
     });
 
     // Categorize help items
-    const helpCategorized = RollCommand.categorizeItems(helpItemNames);
+    const helpCategorized = RollView.categorizeItems(helpItemNames);
     
     // Categorize hinder items
-    const hinderCategorized = RollCommand.categorizeItems(hinderItemNames);
+    const hinderCategorized = RollView.categorizeItems(hinderItemNames);
 
     // Format help items (tags, statuses)
     const helpFormatted = (helpCategorized.tags.length > 0 || 
@@ -1155,6 +1243,193 @@ async function handleRollCancel(interaction) {
   // Update message to show cancellation
   await interaction.update({
     content: '**Roll Canceled**',
+    components: [], // Hide all components
+  });
+}
+
+/**
+ * Handle roll submit button (submit proposal for narrator approval)
+ */
+async function handleRollSubmit(interaction) {
+  const customId = interaction.customId;
+  const rollKey = customId.replace('roll_submit_', '');
+  
+  if (!client.rollStates.has(rollKey)) {
+    await interaction.reply({
+      content: 'This roll session has expired. Please run /roll-propose again.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const rollState = client.rollStates.get(rollKey);
+  
+  // Only the creator can submit
+  if (interaction.user.id !== rollState.creatorId) {
+    await interaction.reply({
+      content: 'Only the creator of this roll can submit it.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Create the roll proposal in storage
+  const rollId = RollStorage.createRoll({
+    creatorId: rollState.creatorId,
+    characterId: rollState.characterId,
+    sceneId: interaction.channelId,
+    helpTags: rollState.helpTags,
+    hinderTags: rollState.hinderTags,
+    description: rollState.description,
+  });
+
+  // Clean up temporary state
+  client.rollStates.delete(rollKey);
+
+  // Update ephemeral message to show submission
+  await interaction.update({
+    content: `**Roll Proposal #${rollId} Submitted!**\n\n` +
+      `Your roll proposal has been submitted for narrator approval.`,
+    components: [], // Hide all components
+  });
+
+  // Post public message to channel with narrator ping
+  const ROLL_EDITOR_ROLE_ID = process.env.ROLL_EDITOR_ROLE_ID || null;
+  const narratorMention = ROLL_EDITOR_ROLE_ID ? `<@&${ROLL_EDITOR_ROLE_ID}>` : 'Narrators';
+  
+  const proposalContent = RollView.formatRollProposalContent(
+    rollState.helpTags,
+    rollState.hinderTags,
+    rollState.description,
+    true
+  );
+
+  await interaction.followUp({
+    content: `${narratorMention} **Roll Proposal #${rollId}** from <@${rollState.creatorId}>\n\n${proposalContent}\n\n*Use \`/roll-confirm ${rollId}\` to review and confirm.*`,
+  });
+}
+
+/**
+ * Handle roll confirm button (narrator confirms a proposal)
+ */
+async function handleRollConfirm(interaction) {
+  const customId = interaction.customId;
+  const rollId = parseInt(customId.replace('roll_confirm_', ''), 10);
+  
+  // Check narrator permissions
+  const ROLL_EDITOR_ROLE_ID = process.env.ROLL_EDITOR_ROLE_ID || null;
+  if (!ROLL_EDITOR_ROLE_ID) {
+    await interaction.reply({
+      content: 'Roll confirmation is not configured.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  try {
+    if (!interaction.member.roles.includes(ROLL_EDITOR_ROLE_ID)) {
+      await interaction.reply({
+        content: 'Only narrators can confirm roll proposals.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+  } catch (error) {
+    await interaction.reply({
+      content: 'Error checking permissions.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Get the current roll state (may have been edited)
+  const rollKey = `confirm_${rollId}`;
+  const rollState = client.rollStates.get(rollKey);
+  
+  if (!rollState) {
+    await interaction.reply({
+      content: 'Roll session expired. Please run /roll-confirm again.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Update the roll with any edits made
+  RollStorage.updateRoll(rollId, {
+    status: 'confirmed',
+    helpTags: rollState.helpTags,
+    hinderTags: rollState.hinderTags,
+    description: rollState.description,
+    confirmedBy: interaction.user.id,
+  });
+
+  // Clean up temporary state
+  client.rollStates.delete(rollKey);
+
+  // Update ephemeral message
+  await interaction.update({
+    content: `**Roll Proposal #${rollId} Confirmed!**`,
+    components: [], // Hide all components
+  });
+
+  // Post public message to channel with creator ping
+  const confirmedContent = RollView.formatRollProposalContent(
+    rollState.helpTags,
+    rollState.hinderTags,
+    rollState.description,
+    true
+  );
+
+  await interaction.followUp({
+    content: `<@${rollState.creatorId}> **Roll Proposal #${rollId} Confirmed!**\n\n${confirmedContent}\n\n*You can now execute this roll with \`/roll ${rollId}\`.*`,
+  });
+}
+
+/**
+ * Handle roll reject button (narrator rejects a proposal)
+ */
+async function handleRollReject(interaction) {
+  const customId = interaction.customId;
+  const rollId = parseInt(customId.replace('roll_reject_', ''), 10);
+  
+  // Check narrator permissions
+  const ROLL_EDITOR_ROLE_ID = process.env.ROLL_EDITOR_ROLE_ID || null;
+  if (!ROLL_EDITOR_ROLE_ID) {
+    await interaction.reply({
+      content: 'Roll rejection is not configured.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  try {
+    if (!interaction.member.roles.includes(ROLL_EDITOR_ROLE_ID)) {
+      await interaction.reply({
+        content: 'Only narrators can reject roll proposals.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+  } catch (error) {
+    await interaction.reply({
+      content: 'Error checking permissions.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Delete the roll proposal
+  RollStorage.deleteRoll(rollId);
+
+  // Clean up temporary state if it exists
+  const rollKey = `confirm_${rollId}`;
+  if (client.rollStates.has(rollKey)) {
+    client.rollStates.delete(rollKey);
+  }
+
+  // Update message
+  await interaction.update({
+    content: `**Roll Proposal #${rollId} Rejected**`,
     components: [], // Hide all components
   });
 }
