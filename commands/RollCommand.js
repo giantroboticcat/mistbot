@@ -479,10 +479,8 @@ export class RollCommand extends Command {
       ? `\`\`\`ansi\n${hinderParts.join(', ')}\n\`\`\``
       : 'None';
 
-    let content = `**Roll Proposal: 2d6**\n\n`;
-    if (description) {
-      content += `**${description}**\n\n`;
-    }
+    let content = `**Roll Proposal: ${description}**\n\n`;
+    
     content += `Select tags that help or hinder your roll.\n` +
       `**Help Tags:**\n${helpFormatted}\n` +
       `**Hinder Tags:**\n${hinderFormatted}\n` +

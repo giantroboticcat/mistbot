@@ -1181,9 +1181,8 @@ async function handleRollButton(interaction) {
     }
 
     let content = `**Roll Result: ${finalResult}** (${resultType})\n\n`;
-    if (rollState.description) {
       content += `**${rollState.description}**\n\n`;
-    }
+    
     content += `**Dice:** ${die1} + ${die2} = ${baseRoll}\n` +
       `**Power:** ${modifierText}\n` +
       `**Help Tags:**\n${helpFormatted}\n` +
