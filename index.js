@@ -1101,9 +1101,15 @@ async function handleRollButton(interaction) {
       `**Help Tags:**\n${helpFormatted}\n` +
       `**Hinder Tags:**\n${hinderFormatted}`;
 
+    // Update the ephemeral message to hide components
     await interaction.update({
-      content,
+      content: '**Roll completed!** See the result below.',
       components: [], // Hide all components
+    });
+
+    // Send a public follow-up message with the roll result
+    await interaction.followUp({
+      content,
     });
   }
 }

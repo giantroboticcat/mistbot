@@ -71,6 +71,7 @@ export class RollCommand extends Command {
     await interaction.reply({
       content,
       components,
+      flags: MessageFlags.Ephemeral,
     });
   }
 
