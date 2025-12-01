@@ -41,59 +41,159 @@ export class RollCommand extends Command {
 
     const rollKey = `${userId}-${sceneId}`;
     const description = interaction.options.getString('description') || null;
-    interaction.client.rollStates.set(rollKey, {
-      creatorId: userId,
-      characterId: character.id,
-      helpTags: new Set(),
-      hinderTags: new Set(),
-      rolled: false,
-      description: description,
-    });
-
+    
     // Collect all available tags for help dropdown
     const helpOptions = this.collectHelpTags(character, sceneId);
     
     // Collect all available tags + weaknesses for hinder dropdown
     const hinderOptions = this.collectHinderTags(character, sceneId);
+    
+    const initialHelpTags = new Set();
+    const initialHinderTags = new Set();
+    
+    interaction.client.rollStates.set(rollKey, {
+      creatorId: userId,
+      characterId: character.id,
+      helpTags: initialHelpTags,
+      hinderTags: initialHinderTags,
+      rolled: false,
+      description: description,
+      helpOptions: helpOptions,
+      hinderOptions: hinderOptions,
+      helpPage: 0,
+      hinderPage: 0,
+    });
 
-    // Create help select menu
+    const components = RollCommand.buildRollComponents(rollKey, helpOptions, hinderOptions, 0, 0, initialHelpTags, initialHinderTags);
+
+    const content = RollCommand.formatRollProposalContent(initialHelpTags, initialHinderTags, description);
+
+    await interaction.reply({
+      content,
+      components,
+    });
+  }
+
+  /**
+   * Build roll components with pagination support
+   * @param {string} rollKey - Unique identifier for this roll
+   * @param {Array} helpOptions - All available help tag options
+   * @param {Array} hinderOptions - All available hinder tag options
+   * @param {number} helpPage - Current help page (0-indexed)
+   * @param {number} hinderPage - Current hinder page (0-indexed)
+   * @param {Set<string>} selectedHelpTags - Currently selected help tags
+   * @param {Set<string>} selectedHinderTags - Currently selected hinder tags
+   * @returns {Array} Array of ActionRowBuilder components
+   */
+  static buildRollComponents(rollKey, helpOptions, hinderOptions, helpPage, hinderPage, selectedHelpTags = new Set(), selectedHinderTags = new Set()) {
+    // Show all options, but mark selected ones as default
+    const helpPages = Math.ceil(helpOptions.length / 25);
+    const hinderPages = Math.ceil(hinderOptions.length / 25);
+    
+    // Clamp page indices to valid ranges
+    const clampedHelpPage = Math.min(helpPage, Math.max(0, helpPages - 1));
+    const clampedHinderPage = Math.min(hinderPage, Math.max(0, hinderPages - 1));
+    
+    const rows = [];
+    
+    // Help dropdown row
+    if (helpPages > 1) {
+      // Create help page selector
+      const helpPageOptions = [];
+      for (let i = 0; i < helpPages; i++) {
+        const start = i * 25;
+        const end = Math.min(start + 25, helpOptions.length);
+        helpPageOptions.push(new StringSelectMenuOptionBuilder()
+          .setLabel(`Help Page ${i + 1} (${start + 1}-${end})`)
+          .setValue(`${i}`)
+          .setDescription(`View options ${start + 1} to ${end}`)
+          .setDefault(i === clampedHelpPage));
+      }
+      const helpPageSelect = new StringSelectMenuBuilder()
+        .setCustomId(`roll_help_page_${rollKey}`)
+        .setPlaceholder('Select page...')
+        .setMinValues(1)
+        .setMaxValues(1)
+        .addOptions(helpPageOptions);
+      rows.push(new ActionRowBuilder().setComponents([helpPageSelect]));
+    }
+    
+    // Help tag select menu (current page) - show all options, mark selected ones
+    const helpStart = clampedHelpPage * 25;
+    const helpEnd = Math.min(helpStart + 25, helpOptions.length);
+    const helpPageOptions = helpOptions.slice(helpStart, helpEnd).map(opt => {
+      const isSelected = selectedHelpTags.has(opt.data.value);
+      return new StringSelectMenuOptionBuilder()
+        .setLabel(opt.data.label)
+        .setValue(opt.data.value)
+        .setDescription(opt.data.description)
+        .setDefault(isSelected);
+    });
+    
     const helpSelect = new StringSelectMenuBuilder()
       .setCustomId(`roll_help_${rollKey}`)
       .setPlaceholder('Select tags that help the roll...')
       .setMinValues(0)
-      .setMaxValues(Math.min(helpOptions.length, 25))
-      .addOptions(helpOptions.slice(0, 25));
-
-    // Create hinder select menu
+      .setMaxValues(Math.min(helpPageOptions.length, 25))
+      .addOptions(helpPageOptions);
+    rows.push(new ActionRowBuilder().setComponents([helpSelect]));
+    
+    // Hinder dropdown row
+    if (hinderPages > 1) {
+      // Create hinder page selector
+      const hinderPageOptions = [];
+      for (let i = 0; i < hinderPages; i++) {
+        const start = i * 25;
+        const end = Math.min(start + 25, hinderOptions.length);
+        hinderPageOptions.push(new StringSelectMenuOptionBuilder()
+          .setLabel(`Hinder Page ${i + 1} (${start + 1}-${end})`)
+          .setValue(`${i}`)
+          .setDescription(`View options ${start + 1} to ${end}`)
+          .setDefault(i === clampedHinderPage));
+      }
+      const hinderPageSelect = new StringSelectMenuBuilder()
+        .setCustomId(`roll_hinder_page_${rollKey}`)
+        .setPlaceholder('Select page...')
+        .setMinValues(1)
+        .setMaxValues(1)
+        .addOptions(hinderPageOptions);
+      rows.push(new ActionRowBuilder().setComponents([hinderPageSelect]));
+    }
+    
+    // Hinder tag select menu (current page) - show all options, mark selected ones
+    const hinderStart = clampedHinderPage * 25;
+    const hinderEnd = Math.min(hinderStart + 25, hinderOptions.length);
+    const hinderPageOptions = hinderOptions.slice(hinderStart, hinderEnd).map(opt => {
+      const isSelected = selectedHinderTags.has(opt.data.value);
+      return new StringSelectMenuOptionBuilder()
+        .setLabel(opt.data.label)
+        .setValue(opt.data.value)
+        .setDescription(opt.data.description)
+        .setDefault(isSelected);
+    });
+    
     const hinderSelect = new StringSelectMenuBuilder()
       .setCustomId(`roll_hinder_${rollKey}`)
       .setPlaceholder('Select tags that hinder the roll...')
       .setMinValues(0)
-      .setMaxValues(Math.min(hinderOptions.length, 25))
-      .addOptions(hinderOptions.slice(0, 25));
-
-    // Create roll button
+      .setMaxValues(Math.min(hinderPageOptions.length, 25))
+      .addOptions(hinderPageOptions);
+    rows.push(new ActionRowBuilder().setComponents([hinderSelect]));
+    
+    // Button row
     const rollButton = new ButtonBuilder()
       .setCustomId(`roll_now_${rollKey}`)
       .setLabel('Roll Now')
       .setStyle(ButtonStyle.Primary);
-
-    // Create cancel button
+    
     const cancelButton = new ButtonBuilder()
       .setCustomId(`roll_cancel_${rollKey}`)
       .setLabel('Cancel')
       .setStyle(ButtonStyle.Secondary);
-
-    const helpRow = new ActionRowBuilder().setComponents([helpSelect]);
-    const hinderRow = new ActionRowBuilder().setComponents([hinderSelect]);
-    const buttonRow = new ActionRowBuilder().setComponents([rollButton, cancelButton]);
-
-    const content = RollCommand.formatRollProposalContent(new Set(), new Set(), description);
-
-    await interaction.reply({
-      content,
-      components: [helpRow, hinderRow, buttonRow],
-    });
+    
+    rows.push(new ActionRowBuilder().setComponents([rollButton, cancelButton]));
+    
+    return rows;
   }
 
   /**
@@ -104,83 +204,92 @@ export class RollCommand extends Command {
     const options = [];
     const seen = new Set();
 
-    // Theme names (as tags)
+    // Theme names (as tags) - yellow tag icon
     character.themes.forEach(theme => {
       if (theme.name && !seen.has(`theme:${theme.name}`)) {
+        const isStatus = Validation.validateStatus(theme.name).valid;
+        const icon = isStatus ? '🟢' : '🟡'; // Green for status, yellow for tag
+        const type = isStatus ? 'Status' : 'Tag';
         options.push(new StringSelectMenuOptionBuilder()
-          .setLabel(`🏷️ ${theme.name}`)
+          .setLabel(`${icon} ${theme.name}`)
           .setValue(`theme:${theme.name}`)
-          .setDescription('Theme name'));
+          .setDescription(`Theme: ${theme.name}`));
         seen.add(`theme:${theme.name}`);
       }
     });
 
-    // Theme tags
+    // Theme tags - yellow tag icon, show which theme
     character.themes.forEach(theme => {
       theme.tags.forEach(tag => {
         if (!seen.has(`tag:${tag}`)) {
           options.push(new StringSelectMenuOptionBuilder()
-            .setLabel(`🏷️ ${tag}`)
+            .setLabel(`🟡 ${tag}`)
             .setValue(`tag:${tag}`)
-            .setDescription('Theme tag'));
+            .setDescription(`Theme: ${theme.name}`));
           seen.add(`tag:${tag}`);
         }
       });
     });
 
-    // Backpack tags
+    // Backpack tags - yellow tag icon
     character.backpack.forEach(tag => {
       if (!seen.has(`backpack:${tag}`)) {
+        const isStatus = Validation.validateStatus(tag).valid;
+        const icon = isStatus ? '🟢' : '🟡'; // Green for status, yellow for tag
+        const type = isStatus ? 'Status' : 'Tag';
         options.push(new StringSelectMenuOptionBuilder()
-          .setLabel(`🎒 ${tag}`)
+          .setLabel(`${icon} ${tag}`)
           .setValue(`backpack:${tag}`)
-          .setDescription('Backpack'));
+          .setDescription('Backpack Item'));
         seen.add(`backpack:${tag}`);
       }
     });
 
-    // Character story tags
+    // Character story tags - yellow tag icon
     character.storyTags.forEach(tag => {
       if (!seen.has(`story:${tag}`)) {
+        const isStatus = Validation.validateStatus(tag).valid;
+        const icon = isStatus ? '🟢' : '🟡'; // Green for status, yellow for tag
+        const type = isStatus ? 'Status' : 'Tag';
         options.push(new StringSelectMenuOptionBuilder()
-          .setLabel(`⭐ ${tag}`)
+          .setLabel(`${icon} ${tag}`)
           .setValue(`story:${tag}`)
-          .setDescription('Story tag'));
+          .setDescription('Character Story Tag'));
         seen.add(`story:${tag}`);
       }
     });
 
-    // Character temp statuses
+    // Character temp statuses - green status icon
     character.tempStatuses.forEach(status => {
       if (!seen.has(`tempStatus:${status}`)) {
         options.push(new StringSelectMenuOptionBuilder()
-          .setLabel(`📋 ${status}`)
+          .setLabel(`🟢 ${status}`)
           .setValue(`tempStatus:${status}`)
-          .setDescription('Temporary status'));
+          .setDescription('Character Status'));
         seen.add(`tempStatus:${status}`);
       }
     });
 
-    // Scene tags
+    // Scene tags - yellow tag icon
     const sceneTags = StoryTagStorage.getTags(sceneId);
     sceneTags.forEach(tag => {
       if (!seen.has(`sceneTag:${tag}`)) {
         options.push(new StringSelectMenuOptionBuilder()
-          .setLabel(`📍 ${tag}`)
+          .setLabel(`🟡 ${tag}`)
           .setValue(`sceneTag:${tag}`)
-          .setDescription('Scene tag'));
+          .setDescription('Scene Tag'));
         seen.add(`sceneTag:${tag}`);
       }
     });
 
-    // Scene statuses
+    // Scene statuses - green status icon
     const sceneStatuses = StoryTagStorage.getStatuses(sceneId);
     sceneStatuses.forEach(status => {
       if (!seen.has(`sceneStatus:${status}`)) {
         options.push(new StringSelectMenuOptionBuilder()
-          .setLabel(`📍 ${status}`)
+          .setLabel(`🟢 ${status}`)
           .setValue(`sceneStatus:${status}`)
-          .setDescription('Scene status'));
+          .setDescription('Scene Status'));
         seen.add(`sceneStatus:${status}`);
       }
     });
@@ -196,14 +305,14 @@ export class RollCommand extends Command {
     const options = this.collectHelpTags(character, sceneId);
     const seen = new Set(options.map(opt => opt.data.value));
 
-    // Add theme weaknesses
+    // Add theme weaknesses - orange weakness icon, show which theme
     character.themes.forEach(theme => {
       theme.weaknesses.forEach(weakness => {
         if (!seen.has(`weakness:${weakness}`)) {
           options.push(new StringSelectMenuOptionBuilder()
-            .setLabel(`⚠️ ${weakness}`)
+            .setLabel(`🟠 ${weakness}`)
             .setValue(`weakness:${weakness}`)
-            .setDescription('Theme weakness'));
+            .setDescription(`Weakness: ${theme.name}`));
           seen.add(`weakness:${weakness}`);
         }
       });

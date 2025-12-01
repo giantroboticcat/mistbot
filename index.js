@@ -132,6 +132,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // Handle select menu interactions
     if (interaction.customId.startsWith('select_active_character_')) {
       await handleSelectActiveCharacter(interaction);
+    } else if (interaction.customId.startsWith('roll_help_page_') || interaction.customId.startsWith('roll_hinder_page_')) {
+      await handleRollPageSelect(interaction);
     } else if (interaction.customId.startsWith('roll_help_') || interaction.customId.startsWith('roll_hinder_')) {
       await handleRollSelect(interaction);
     } else {
@@ -799,6 +801,78 @@ async function canEditRoll(interaction, rollState) {
 }
 
 /**
+ * Handle roll page selection (for pagination when >25 options)
+ */
+async function handleRollPageSelect(interaction) {
+  const customId = interaction.customId;
+  
+  if (customId.startsWith('roll_help_page_') || customId.startsWith('roll_hinder_page_')) {
+    // Extract rollKey: format is "roll_help_page_userId-sceneId" or "roll_hinder_page_userId-sceneId"
+    const rollKey = customId.replace('roll_help_page_', '').replace('roll_hinder_page_', '');
+    
+    if (!client.rollStates.has(rollKey)) {
+      await interaction.reply({
+        content: 'This roll session has expired. Please run /roll again.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const rollState = client.rollStates.get(rollKey);
+    
+    if (rollState.rolled) {
+      await interaction.reply({
+        content: 'This roll has already been completed. Tags can no longer be edited.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Check if user can edit this roll
+    const hasPermission = await canEditRoll(interaction, rollState);
+    if (!hasPermission) {
+      await interaction.reply({
+        content: `You don't have permission to edit this roll. Only the creator or users with the "${ROLL_EDITOR_ROLE}" role can edit.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const selectedPage = parseInt(interaction.values[0]);
+    
+    if (customId.startsWith('roll_help_page_')) {
+      rollState.helpPage = selectedPage;
+    } else {
+      rollState.hinderPage = selectedPage;
+    }
+
+    client.rollStates.set(rollKey, rollState);
+
+    // Rebuild components with updated page
+    const components = rebuildRollComponents(rollState, rollKey);
+    
+    const content = RollCommand.formatRollProposalContent(
+      rollState.helpTags,
+      rollState.hinderTags,
+      rollState.description
+    );
+
+    await interaction.update({
+      content,
+      components,
+    });
+  }
+}
+
+/**
+ * Rebuild roll components with current page state
+ */
+function rebuildRollComponents(rollState, rollKey) {
+  const { helpOptions, hinderOptions, helpPage, hinderPage, helpTags, hinderTags } = rollState;
+  return RollCommand.buildRollComponents(rollKey, helpOptions, hinderOptions, helpPage, hinderPage, helpTags, hinderTags);
+}
+
+/**
  * Handle roll select menu interactions (help/hinder tags)
  */
 async function handleRollSelect(interaction) {
@@ -836,16 +910,57 @@ async function handleRollSelect(interaction) {
       return;
     }
 
-    const selectedTags = new Set(interaction.values);
+    // Update selected tags based on what's currently selected in the dropdown
+    // Only update selections for items on the current page, preserve selections from other pages
+    const selectedInDropdown = new Set(interaction.values);
     
     if (customId.startsWith('roll_help_')) {
-      rollState.helpTags = selectedTags;
+      // Get options on the current page
+      const helpStart = rollState.helpPage * 25;
+      const helpEnd = Math.min(helpStart + 25, rollState.helpOptions.length);
+      const currentPageOptions = rollState.helpOptions.slice(helpStart, helpEnd);
+      const currentPageValues = new Set(currentPageOptions.map(opt => opt.data.value));
+      
+      // Remove selections for items on the current page that are no longer selected
+      for (const value of rollState.helpTags) {
+        if (currentPageValues.has(value) && !selectedInDropdown.has(value)) {
+          rollState.helpTags.delete(value);
+        }
+      }
+      
+      // Add selections for items on the current page that are now selected
+      for (const value of selectedInDropdown) {
+        if (currentPageValues.has(value)) {
+          rollState.helpTags.add(value);
+        }
+      }
     } else {
-      rollState.hinderTags = selectedTags;
+      // Get options on the current page
+      const hinderStart = rollState.hinderPage * 25;
+      const hinderEnd = Math.min(hinderStart + 25, rollState.hinderOptions.length);
+      const currentPageOptions = rollState.hinderOptions.slice(hinderStart, hinderEnd);
+      const currentPageValues = new Set(currentPageOptions.map(opt => opt.data.value));
+      
+      // Remove selections for items on the current page that are no longer selected
+      for (const value of rollState.hinderTags) {
+        if (currentPageValues.has(value) && !selectedInDropdown.has(value)) {
+          rollState.hinderTags.delete(value);
+        }
+      }
+      
+      // Add selections for items on the current page that are now selected
+      for (const value of selectedInDropdown) {
+        if (currentPageValues.has(value)) {
+          rollState.hinderTags.add(value);
+        }
+      }
     }
 
     client.rollStates.set(rollKey, rollState);
 
+    // Rebuild components to reflect current selection state
+    const components = rebuildRollComponents(rollState, rollKey);
+    
     // Update the message with new tag selections
     const content = RollCommand.formatRollProposalContent(
       rollState.helpTags,
@@ -855,7 +970,7 @@ async function handleRollSelect(interaction) {
 
     await interaction.update({
       content,
-      components: interaction.message.components,
+      components,
     });
   }
 }
