@@ -1367,7 +1367,7 @@ async function handleRollConfirm(interaction) {
 
   // Update ephemeral message
   await interaction.update({
-    content: `**Roll Proposal #${rollId} Confirmed!**`,
+    content: `**Roll Proposal #${rollId} Confirmed by <@${interaction.user.id}>!**`,
     components: [], // Hide all components
   });
 
@@ -1380,7 +1380,7 @@ async function handleRollConfirm(interaction) {
   );
 
   await interaction.followUp({
-    content: `<@${rollState.creatorId}> **Roll Proposal #${rollId} Confirmed!**\n\n${confirmedContent}\n\n*You can now execute this roll with \`/roll ${rollId}\`.*`,
+    content: `<@${rollState.creatorId}> **Roll Proposal #${rollId} Confirmed by <@${interaction.user.id}>!**\n\n${confirmedContent}\n\n*You can now execute this roll with \`/roll ${rollId}\`.*`,
   });
 }
 
