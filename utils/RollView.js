@@ -593,5 +593,183 @@ export class RollView {
 
     return { tags, statuses };
   }
+
+  /**
+   * Parse and format help tags with burned indicators
+   * @param {Set<string>} helpTags - Set of help tag values (with prefixes)
+   * @param {Set<string>} burnedTags - Set of burned tag values (with prefixes)
+   * @returns {string} Formatted help tags string
+   */
+  static formatHelpTagsForResult(helpTags, burnedTags = new Set()) {
+    // Parse help tags (extract actual names)
+    const helpItemNames = Array.from(helpTags).map(value => {
+      const parts = value.split(':');
+      return parts.length > 1 ? parts.slice(1).join(':') : value;
+    });
+
+    // Identify burned help tag names
+    const burnedHelpTagNames = new Set();
+    Array.from(helpTags).forEach(tagValue => {
+      if (burnedTags.has(tagValue)) {
+        const parts = tagValue.split(':');
+        const tagName = parts.length > 1 ? parts.slice(1).join(':') : tagValue;
+        burnedHelpTagNames.add(tagName);
+      }
+    });
+
+    // Categorize help items
+    const helpCategorized = this.categorizeItems(helpItemNames);
+
+    // Format help items (tags, statuses) with fire emojis around burned tags
+    let helpFormatted = 'None';
+    if (helpCategorized.tags.length > 0 || helpCategorized.statuses.length > 0) {
+      // Format tags with fire emojis for burned ones
+      const formattedTags = helpCategorized.tags.map(tag => {
+        const isBurned = burnedHelpTagNames.has(tag);
+        const formatted = TagFormatter.formatStoryTag(tag);
+        return isBurned ? `🔥 ${formatted} 🔥` : formatted;
+      });
+      
+      // Format statuses (statuses can't be burned)
+      const formattedStatuses = helpCategorized.statuses.map(status => 
+        TagFormatter.formatStatus(status)
+      );
+      
+      const parts = [];
+      if (formattedTags.length > 0) {
+        parts.push(formattedTags.join(', '));
+      }
+      if (formattedStatuses.length > 0) {
+        parts.push(formattedStatuses.join(', '));
+      }
+      
+      if (parts.length > 0) {
+        helpFormatted = `\`\`\`ansi\n${parts.join(', ')}\n\`\`\``;
+      }
+    }
+
+    return helpFormatted;
+  }
+
+  /**
+   * Parse and format hinder tags
+   * @param {Set<string>} hinderTags - Set of hinder tag values (with prefixes)
+   * @returns {string} Formatted hinder tags string
+   */
+  static formatHinderTagsForResult(hinderTags) {
+    // Parse hinder tags (extract actual names, separate weaknesses)
+    const hinderItemNames = [];
+    const hinderWeaknesses = [];
+    
+    Array.from(hinderTags).forEach(value => {
+      const parts = value.split(':');
+      const name = parts.length > 1 ? parts.slice(1).join(':') : value;
+      
+      if (value.startsWith('weakness:')) {
+        hinderWeaknesses.push(name);
+      } else {
+        hinderItemNames.push(name);
+      }
+    });
+
+    // Categorize hinder items
+    const hinderCategorized = this.categorizeItems(hinderItemNames);
+
+    // Format hinder items (tags, statuses, plus weaknesses)
+    const hinderParts = [];
+    if (hinderCategorized.tags.length > 0) {
+      hinderParts.push(TagFormatter.formatStoryTags(hinderCategorized.tags));
+    }
+    if (hinderCategorized.statuses.length > 0) {
+      hinderParts.push(TagFormatter.formatStatuses(hinderCategorized.statuses));
+    }
+    if (hinderWeaknesses.length > 0) {
+      hinderParts.push(TagFormatter.formatWeaknesses(hinderWeaknesses));
+    }
+    
+    const hinderFormatted = hinderParts.length > 0
+      ? `\`\`\`ansi\n${hinderParts.join(', ')}\n\`\`\``
+      : 'None';
+
+    return hinderFormatted;
+  }
+
+  /**
+   * Format roll result using Components V2
+   * @param {number} die1 - First die result
+   * @param {number} die2 - Second die result
+   * @param {number} baseRoll - Sum of dice
+   * @param {number} modifier - Power modifier
+   * @param {number} finalResult - Final roll result
+   * @param {Set<string>} helpTags - Set of help tag values (with prefixes)
+   * @param {Set<string>} hinderTags - Set of hinder tag values (with prefixes)
+   * @param {Set<string>} burnedTags - Set of burned tag values (with prefixes)
+   * @param {string|null} description - Optional description of what the roll is for
+   * @param {string|null} narratorMention - Optional narrator mention to include
+   * @returns {Object} Object with components array and IsComponentsV2 flag
+   */
+  static formatRollResult(die1, die2, baseRoll, modifier, finalResult, helpTags, hinderTags, burnedTags = new Set(), description = null, narratorMention = null) {
+    const modifierText = modifier >= 0 ? `+${modifier}` : `${modifier}`;
+
+    // Determine result classification
+    let resultType;
+    if (finalResult >= 10) {
+      resultType = 'Success';
+    } else if (finalResult >= 7) {
+      resultType = 'Success & Consequences';
+    } else {
+      resultType = 'Consequences';
+    }
+
+    // Format tags
+    const helpFormatted = this.formatHelpTagsForResult(helpTags, burnedTags);
+    const hinderFormatted = this.formatHinderTagsForResult(hinderTags);
+
+    // Build Components V2 structure for roll result
+    const container = new ContainerBuilder();
+    
+    // Add title text display
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder()
+        .setContent(`## ${description || 'Roll Result'}\n**Result: ${finalResult}** (${resultType})`)
+    );
+    
+    // Add dice text display
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder()
+        .setContent(`### Dice\n${die1} + ${die2} = **${baseRoll}**`)
+    );
+    
+    // Add power text display
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder()
+        .setContent(`### Power **${modifierText}**`)
+    );
+    
+    // Add help tags text display
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder()
+        .setContent(`### Help Tags\n${helpFormatted}`)
+    );
+    
+    // Add hinder tags text display
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder()
+        .setContent(`### Hinder Tags\n${hinderFormatted}`)
+    );
+
+    // Add narrator mention if provided
+    if (narratorMention) {
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(`Confirmed by: ${narratorMention}`)
+      );
+    }
+
+    return {
+      components: [container],
+      flags: MessageFlags.IsComponentsV2
+    };
+  }
 }
 

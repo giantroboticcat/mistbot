@@ -114,11 +114,6 @@ export class RollConfirmCommand extends Command {
       .setLabel('Confirm Roll')
       .setStyle(ButtonStyle.Success);
     
-    const cancelButton = new ButtonBuilder()
-      .setCustomId(`roll_reject_${rollId}`)
-      .setLabel('Reject')
-      .setStyle(ButtonStyle.Danger);
-    
     components.push(new ActionRowBuilder().setComponents([confirmButton, cancelButton]));
 
     const displayData = RollView.formatRollProposalContent(
