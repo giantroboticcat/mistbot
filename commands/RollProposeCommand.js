@@ -41,14 +41,16 @@ export class RollProposeCommand extends Command {
 
     const description = interaction.options.getString('description', true);
     
-    // Collect all available tags for help dropdown
-    const helpOptions = RollView.collectHelpTags(character, sceneId, StoryTagStorage);
+    // Exclude burned tags from roll selection (they can't be used until refreshed)
+    // Collect all available tags for help dropdown (exclude burned tags)
+    const helpOptions = RollView.collectHelpTags(character, sceneId, StoryTagStorage, false);
     
-    // Collect all available tags + weaknesses for hinder dropdown
-    const hinderOptions = RollView.collectHinderTags(character, sceneId, StoryTagStorage);
+    // Collect all available tags + weaknesses for hinder dropdown (exclude burned tags)
+    const hinderOptions = RollView.collectHinderTags(character, sceneId, StoryTagStorage, false);
     
     const initialHelpTags = new Set();
     const initialHinderTags = new Set();
+    const initialBurnedTags = new Set();
     
     // Create a temporary roll key for the interaction
     const tempRollKey = `temp_${userId}_${Date.now()}`;
@@ -58,6 +60,7 @@ export class RollProposeCommand extends Command {
       characterId: character.id,
       helpTags: initialHelpTags,
       hinderTags: initialHinderTags,
+      burnedTags: initialBurnedTags,
       description: description,
       helpOptions: helpOptions,
       hinderOptions: hinderOptions,
@@ -65,7 +68,7 @@ export class RollProposeCommand extends Command {
       hinderPage: 0,
     });
 
-    const components = RollView.buildRollComponents(tempRollKey, helpOptions, hinderOptions, 0, 0, initialHelpTags, initialHinderTags, false);
+    const components = RollView.buildRollComponents(tempRollKey, helpOptions, hinderOptions, 0, 0, initialHelpTags, initialHinderTags, false, initialBurnedTags);
 
     // Add a "Submit Proposal" button instead of "Roll Now"
     const submitButton = new ButtonBuilder()
@@ -80,12 +83,14 @@ export class RollProposeCommand extends Command {
     
     components.push(new ActionRowBuilder().setComponents([submitButton, cancelButton]));
 
-    const content = RollView.formatRollProposalContent(initialHelpTags, initialHinderTags, description, true);
+    const displayData = RollView.formatRollProposalContent(initialHelpTags, initialHinderTags, description, true, initialBurnedTags);
+
+    // Combine Components V2 display components with interactive components
+    const allComponents = [...(displayData.components || []), ...components];
 
     await interaction.reply({
-      content,
-      components,
-      flags: MessageFlags.Ephemeral,
+      components: allComponents,
+      flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
     });
   }
 }

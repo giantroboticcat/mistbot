@@ -134,6 +134,7 @@ export class CharacterStorage {
       backpack: [],
       storyTags: [],
       tempStatuses: [],
+      burnedTags: [], // Array of tag identifiers (e.g., "theme:name", "tag:tagName", "backpack:item", "story:tag")
       createdAt: new Date().toISOString(),
     };
 

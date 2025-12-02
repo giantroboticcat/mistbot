@@ -84,11 +84,12 @@ export class RollConfirmCommand extends Command {
 
     const rollKey = `confirm_${rollId}`;
     
-    // Collect all available tags
-    const helpOptions = RollView.collectHelpTags(character, roll.sceneId, StoryTagStorage);
-    const hinderOptions = RollView.collectHinderTags(character, roll.sceneId, StoryTagStorage);
+    // Collect all available tags (exclude burned tags - they can't be used until refreshed)
+    const helpOptions = RollView.collectHelpTags(character, roll.sceneId, StoryTagStorage, false);
+    const hinderOptions = RollView.collectHinderTags(character, roll.sceneId, StoryTagStorage, false);
     
     // Store the roll state for editing
+    const burnedTags = roll.burnedTags || new Set();
     interaction.client.rollStates.set(rollKey, {
       rollId: rollId,
       creatorId: roll.creatorId,
@@ -96,6 +97,7 @@ export class RollConfirmCommand extends Command {
       sceneId: roll.sceneId,
       helpTags: roll.helpTags,
       hinderTags: roll.hinderTags,
+      burnedTags: burnedTags,
       description: roll.description,
       helpOptions: helpOptions,
       hinderOptions: hinderOptions,
@@ -104,7 +106,7 @@ export class RollConfirmCommand extends Command {
     });
 
     // Build components for editing
-    const components = RollView.buildRollComponents(rollKey, helpOptions, hinderOptions, 0, 0, roll.helpTags, roll.hinderTags, false);
+    const components = RollView.buildRollComponents(rollKey, helpOptions, hinderOptions, 0, 0, roll.helpTags, roll.hinderTags, false, burnedTags);
 
     // Add confirm/cancel buttons
     const confirmButton = new ButtonBuilder()
@@ -119,15 +121,25 @@ export class RollConfirmCommand extends Command {
     
     components.push(new ActionRowBuilder().setComponents([confirmButton, cancelButton]));
 
-    const content = `**Reviewing Roll Proposal #${rollId}**\n\n` +
-      `**Player:** <@${roll.creatorId}>\n` +
-      RollView.formatRollProposalContent(roll.helpTags, roll.hinderTags, roll.description, true) +
-      `\n\n*You can edit the tags above before confirming.*`;
+    const displayData = RollView.formatRollProposalContent(
+      roll.helpTags, 
+      roll.hinderTags, 
+      roll.description, 
+      true, 
+      burnedTags,
+      {
+        title: `Reviewing Roll Proposal #${rollId}`,
+        descriptionText: `**Player:** <@${roll.creatorId}>`,
+        footer: 'You can edit the tags above before confirming.'
+      }
+    );
+
+    // Combine Components V2 display components with interactive components
+    const allComponents = [...(displayData.components || []), ...components];
 
     await interaction.reply({
-      content,
-      components,
-      flags: MessageFlags.Ephemeral,
+      components: allComponents,
+      flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
     });
   }
 }

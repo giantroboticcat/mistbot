@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Events, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } from 'discord.js';
+import { Client, GatewayIntentBits, Events, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, ContainerBuilder, TextDisplayBuilder } from 'discord.js';
 import dotenv from 'dotenv';
 import { commands } from './commands/index.js';
 import { StoryTagStorage } from './utils/StoryTagStorage.js';
@@ -129,6 +129,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await handleEditCharacterButton(interaction);
     } else if (interaction.customId.startsWith('edit_backpack_')) {
       await handleEditBackpackButton(interaction);
+    } else if (interaction.customId.startsWith('burn_refresh_')) {
+      await handleBurnRefreshButton(interaction);
     } else if (interaction.customId.startsWith('retry_create_character_')) {
       await handleRetryCreateCharacter(interaction);
     } else {
@@ -139,8 +141,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // Handle select menu interactions
     if (interaction.customId.startsWith('select_active_character_')) {
       await handleSelectActiveCharacter(interaction);
+    } else if (interaction.customId.startsWith('burn_refresh_select_')) {
+      await handleBurnRefreshSelect(interaction);
     } else if (interaction.customId.startsWith('roll_help_page_') || interaction.customId.startsWith('roll_hinder_page_')) {
       await handleRollPageSelect(interaction);
+    } else if (interaction.customId.startsWith('roll_burn_')) {
+      await handleRollBurn(interaction);
     } else if (interaction.customId.startsWith('roll_help_') || interaction.customId.startsWith('roll_hinder_')) {
       await handleRollSelect(interaction);
     } else {
@@ -739,6 +745,196 @@ async function handleEditBackpackButton(interaction) {
 }
 
 /**
+ * Handle burn/refresh tags button interaction
+ */
+async function handleBurnRefreshButton(interaction) {
+  const customId = interaction.customId;
+  // Extract character ID: format is "burn_refresh_123"
+  const characterId = parseInt(customId.replace('burn_refresh_', ''));
+  const userId = interaction.user.id;
+  
+  const character = CharacterStorage.getCharacter(userId, characterId);
+  if (!character) {
+    await interaction.reply({
+      content: 'Character not found.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Collect all burnable tags (non-status tags)
+  const burnedTags = new Set(character.burnedTags || []);
+  const options = [];
+  const seen = new Set();
+
+  // Theme names
+  character.themes.forEach(theme => {
+    if (theme.name) {
+      const tagValue = `theme:${theme.name}`;
+      if (!seen.has(tagValue)) {
+        const isBurned = burnedTags.has(tagValue);
+        const isStatus = Validation.validateStatus(theme.name).valid;
+        // Only non-status tags can be burned
+        if (!isStatus) {
+          options.push(new StringSelectMenuOptionBuilder()
+            .setLabel(`${isBurned ? '🔥 ' : ''}${theme.name} (Theme)`)
+            .setValue(tagValue)
+            .setDescription(isBurned ? 'Currently burned - select to refresh' : 'Select to burn')
+            .setDefault(isBurned));
+          seen.add(tagValue);
+        }
+      }
+    }
+  });
+
+  // Theme tags
+  character.themes.forEach(theme => {
+    theme.tags.forEach(tag => {
+      const tagValue = `tag:${tag}`;
+      if (!seen.has(tagValue)) {
+        const isBurned = burnedTags.has(tagValue);
+        const isStatus = Validation.validateStatus(tag).valid;
+        if (!isStatus) {
+          options.push(new StringSelectMenuOptionBuilder()
+            .setLabel(`${isBurned ? '🔥 ' : ''}${tag} (${theme.name})`)
+            .setValue(tagValue)
+            .setDescription(isBurned ? 'Currently burned - select to refresh' : 'Select to burn')
+            .setDefault(isBurned));
+          seen.add(tagValue);
+        }
+      }
+    });
+  });
+
+  // Backpack items
+  character.backpack.forEach(tag => {
+    const tagValue = `backpack:${tag}`;
+    if (!seen.has(tagValue)) {
+      const isBurned = burnedTags.has(tagValue);
+      const isStatus = Validation.validateStatus(tag).valid;
+      if (!isStatus) {
+        options.push(new StringSelectMenuOptionBuilder()
+          .setLabel(`${isBurned ? '🔥 ' : ''}${tag} (Backpack)`)
+          .setValue(tagValue)
+          .setDescription(isBurned ? 'Currently burned - select to refresh' : 'Select to burn')
+          .setDefault(isBurned));
+        seen.add(tagValue);
+      }
+    }
+  });
+
+  // Story tags
+  character.storyTags.forEach(tag => {
+    const tagValue = `story:${tag}`;
+    if (!seen.has(tagValue)) {
+      const isBurned = burnedTags.has(tagValue);
+      const isStatus = Validation.validateStatus(tag).valid;
+      if (!isStatus) {
+        options.push(new StringSelectMenuOptionBuilder()
+          .setLabel(`${isBurned ? '🔥 ' : ''}${tag} (Story Tag)`)
+          .setValue(tagValue)
+          .setDescription(isBurned ? 'Currently burned - select to refresh' : 'Select to burn')
+          .setDefault(isBurned));
+        seen.add(tagValue);
+      }
+    }
+  });
+
+  if (options.length === 0) {
+    await interaction.reply({
+      content: 'No burnable tags found. Only non-status tags can be burned.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Create select menu (split into pages if needed)
+  const maxOptions = 25;
+  const pages = Math.ceil(options.length / maxOptions);
+  
+  if (pages > 1) {
+    // For now, just show first page - can be enhanced with pagination later
+    const firstPageOptions = options.slice(0, maxOptions);
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId(`burn_refresh_select_${characterId}`)
+      .setPlaceholder('Select tags to burn/refresh...')
+      .setMinValues(0)
+      .setMaxValues(Math.min(firstPageOptions.length, 25))
+      .addOptions(firstPageOptions);
+    
+    await interaction.reply({
+      content: `**Burn/Refresh Tags**\n\nSelect tags to burn (for +3 modifier in rolls) or refresh (if already burned).\n\n*Showing page 1 of ${pages}*`,
+      components: [new ActionRowBuilder().setComponents([selectMenu])],
+      flags: MessageFlags.Ephemeral,
+    });
+  } else {
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId(`burn_refresh_select_${characterId}`)
+      .setPlaceholder('Select tags to burn/refresh...')
+      .setMinValues(0)
+      .setMaxValues(Math.min(options.length, 25))
+      .addOptions(options);
+    
+    await interaction.reply({
+      content: '**Burn/Refresh Tags**\n\nSelect tags to burn (for +3 modifier in rolls) or refresh (if already burned).',
+      components: [new ActionRowBuilder().setComponents([selectMenu])],
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+}
+
+/**
+ * Handle burn/refresh select menu interaction
+ */
+async function handleBurnRefreshSelect(interaction) {
+  const customId = interaction.customId;
+  // Extract character ID: format is "burn_refresh_select_123"
+  const characterId = parseInt(customId.replace('burn_refresh_select_', ''));
+  const userId = interaction.user.id;
+  
+  const character = CharacterStorage.getCharacter(userId, characterId);
+  if (!character) {
+    await interaction.reply({
+      content: 'Character not found.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Get currently selected tags (these will toggle burn status)
+  const selectedTags = new Set(interaction.values);
+  const currentBurnedTags = new Set(character.burnedTags || []);
+  const newBurnedTags = [];
+
+  // Toggle burn status: if selected and not burned, add to burned. If selected and burned, remove from burned.
+  // If not selected and burned, remove from burned. If not selected and not burned, leave as is.
+  for (const tagValue of selectedTags) {
+    if (!currentBurnedTags.has(tagValue)) {
+      // Tag is selected and not currently burned - burn it
+      newBurnedTags.push(tagValue);
+    }
+    // If tag is selected and already burned, we don't add it (effectively refreshing it)
+  }
+
+  // Keep tags that are burned but not selected (they stay burned)
+  for (const tagValue of currentBurnedTags) {
+    if (!selectedTags.has(tagValue)) {
+      // Tag is not selected but was burned - keep it burned
+      newBurnedTags.push(tagValue);
+    }
+    // If tag is selected and was burned, we don't add it (refreshed)
+  }
+
+  // Update character with new burned tags
+  CharacterStorage.updateCharacter(userId, characterId, {
+    burnedTags: newBurnedTags,
+  });
+
+  // Refresh character display
+  await EditCharacterCommand.displayCharacter(interaction, CharacterStorage.getCharacter(userId, characterId), true, userId);
+}
+
+/**
  * Handle select menu for active character selection
  */
 async function handleSelectActiveCharacter(interaction) {
@@ -871,25 +1067,37 @@ async function handleRollPageSelect(interaction) {
     // Rebuild components with updated page
     const components = rebuildRollComponents(rollState, rollKey);
     
-    let content = '';
+    let displayData;
     if (rollKey.startsWith('confirm_')) {
       const rollId = rollKey.replace('confirm_', '');
-      content = `**Reviewing Roll Proposal #${rollId}**\n\n` +
-        `**Player:** <@${rollState.creatorId}>\n` +
-        RollView.formatRollProposalContent(rollState.helpTags, rollState.hinderTags, rollState.description, true) +
-        `\n\n*You can edit the tags above before confirming.*`;
-    } else {
-      content = RollView.formatRollProposalContent(
+      displayData = RollView.formatRollProposalContent(
         rollState.helpTags,
         rollState.hinderTags,
         rollState.description,
-        true
+        true,
+        rollState.burnedTags || new Set(),
+        {
+          title: `Reviewing Roll Proposal #${rollId}`,
+          descriptionText: `**Player:** <@${rollState.creatorId}>`,
+          footer: 'You can edit the tags above before confirming.'
+        }
+      );
+    } else {
+      displayData = RollView.formatRollProposalContent(
+        rollState.helpTags,
+        rollState.hinderTags,
+        rollState.description,
+        true,
+        rollState.burnedTags || new Set()
       );
     }
 
+    // Combine Components V2 display components with interactive components
+    const allComponents = [...(displayData.components || []), ...components];
+
     await interaction.update({
-      content,
-      components,
+      components: allComponents,
+      flags: MessageFlags.IsComponentsV2,
     });
   }
 }
@@ -898,10 +1106,10 @@ async function handleRollPageSelect(interaction) {
  * Rebuild roll components with current page state
  */
 function rebuildRollComponents(rollState, rollKey) {
-  const { helpOptions, hinderOptions, helpPage, hinderPage, helpTags, hinderTags } = rollState;
+  const { helpOptions, hinderOptions, helpPage, hinderPage, helpTags, hinderTags, burnedTags = new Set() } = rollState;
   // Check if this is a confirmation view (no buttons) or proposal view (with buttons)
   const includeButtons = !rollKey.startsWith('confirm_') && !rollKey.startsWith('temp_');
-  const components = RollView.buildRollComponents(rollKey, helpOptions, hinderOptions, helpPage, hinderPage, helpTags, hinderTags, includeButtons);
+  const components = RollView.buildRollComponents(rollKey, helpOptions, hinderOptions, helpPage, hinderPage, helpTags, hinderTags, includeButtons, burnedTags);
   
   // For temp rolls (proposals), add submit/cancel buttons
   if (rollKey.startsWith('temp_')) {
@@ -1040,27 +1248,139 @@ async function handleRollSelect(interaction) {
     const components = rebuildRollComponents(rollState, rollKey);
     
     // Update the message with new tag selections
-    let content = '';
+    let displayData;
     if (rollKey.startsWith('confirm_')) {
       const rollId = rollKey.replace('confirm_', '');
-      content = `**Reviewing Roll Proposal #${rollId}**\n\n` +
-        `**Player:** <@${rollState.creatorId}>\n` +
-        RollView.formatRollProposalContent(rollState.helpTags, rollState.hinderTags, rollState.description, true) +
-        `\n\n*You can edit the tags above before confirming.*`;
-    } else {
-      content = RollView.formatRollProposalContent(
+      displayData = RollView.formatRollProposalContent(
         rollState.helpTags,
         rollState.hinderTags,
         rollState.description,
-        true
+        true,
+        rollState.burnedTags || new Set(),
+        {
+          title: `Reviewing Roll Proposal #${rollId}`,
+          descriptionText: `**Player:** <@${rollState.creatorId}>`,
+          footer: 'You can edit the tags above before confirming.'
+        }
+      );
+    } else {
+      displayData = RollView.formatRollProposalContent(
+        rollState.helpTags,
+        rollState.hinderTags,
+        rollState.description,
+        true,
+        rollState.burnedTags || new Set()
       );
     }
 
+    // Combine Components V2 display components with interactive components
+    const allComponents = [...(displayData.components || []), ...components];
+
     await interaction.update({
-      content,
-      components,
+      components: allComponents,
+      flags: MessageFlags.IsComponentsV2,
     });
   }
+}
+
+/**
+ * Handle roll burn selection (selecting which tags to burn)
+ */
+async function handleRollBurn(interaction) {
+  const customId = interaction.customId;
+  // Extract rollKey: format is "roll_burn_userId-sceneId" or "roll_burn_confirm_rollId"
+  const rollKey = customId.replace('roll_burn_', '');
+  
+  if (!client.rollStates.has(rollKey)) {
+    await interaction.reply({
+      content: 'This roll session has expired. Please run /roll-propose again.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const rollState = client.rollStates.get(rollKey);
+  
+  // Check if user can edit this roll (for confirm views, check narrator permissions)
+  let hasPermission = false;
+  if (rollKey.startsWith('confirm_')) {
+    // For confirm views, only narrators can edit
+    const ROLL_EDITOR_ROLE_ID = process.env.ROLL_EDITOR_ROLE_ID || null;
+    if (ROLL_EDITOR_ROLE_ID) {
+      try {
+        hasPermission = interaction.member.roles.includes(ROLL_EDITOR_ROLE_ID);
+      } catch (error) {
+        hasPermission = false;
+      }
+    }
+  } else {
+    hasPermission = interaction.user.id === rollState.creatorId;
+  }
+  
+  if (!hasPermission) {
+    await interaction.reply({
+      content: `You don't have permission to edit this roll.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Initialize burnedTags if it doesn't exist
+  if (!rollState.burnedTags) {
+    rollState.burnedTags = new Set();
+  }
+
+  // Only one tag can be burned per roll
+  // Clear all burned tags first
+  rollState.burnedTags.clear();
+  
+  // If a tag is selected, add only that one tag (must be in helpTags)
+  if (interaction.values.length > 0) {
+    const selectedTag = interaction.values[0];
+    if (rollState.helpTags.has(selectedTag)) {
+      rollState.burnedTags.add(selectedTag);
+    }
+  }
+
+  client.rollStates.set(rollKey, rollState);
+
+  // Rebuild components to reflect current selection state
+  const components = rebuildRollComponents(rollState, rollKey);
+  
+  // Update the message with new tag selections
+  let content = '';
+  let displayData;
+  if (rollKey.startsWith('confirm_')) {
+    const rollId = rollKey.replace('confirm_', '');
+    displayData = RollView.formatRollProposalContent(
+      rollState.helpTags,
+      rollState.hinderTags,
+      rollState.description,
+      true,
+      rollState.burnedTags || new Set(),
+      {
+        title: `Reviewing Roll Proposal #${rollId}`,
+        descriptionText: `**Player:** <@${rollState.creatorId}>`,
+        footer: 'You can edit the tags above before confirming.'
+      }
+    );
+  } else {
+    displayData = RollView.formatRollProposalContent(
+      rollState.helpTags,
+      rollState.hinderTags,
+      rollState.description,
+      true,
+      rollState.burnedTags || new Set()
+    );
+  }
+
+  // Combine Components V2 display components with interactive components
+  const allComponents = [...(displayData.components || []), ...components];
+
+  await interaction.update({
+    components: allComponents,
+    flags: MessageFlags.IsComponentsV2,
+  });
 }
 
 /**
@@ -1279,32 +1599,45 @@ async function handleRollSubmit(interaction) {
     sceneId: interaction.channelId,
     helpTags: rollState.helpTags,
     hinderTags: rollState.hinderTags,
+    burnedTags: rollState.burnedTags || new Set(),
     description: rollState.description,
   });
 
   // Clean up temporary state
   client.rollStates.delete(rollKey);
 
-  // Update ephemeral message to show submission
+  // Update ephemeral message to show submission (use Components V2 to match original message)
+  const submitContainer = new ContainerBuilder();
+  submitContainer.addTextDisplayComponents(
+    new TextDisplayBuilder()
+      .setContent(`**Roll Proposal #${rollId} Submitted!**\n\nYour roll proposal has been submitted for narrator approval.`)
+  );
+
   await interaction.update({
-    content: `**Roll Proposal #${rollId} Submitted!**\n\n` +
-      `Your roll proposal has been submitted for narrator approval.`,
-    components: [], // Hide all components
+    components: [submitContainer],
+    flags: MessageFlags.IsComponentsV2,
   });
 
   // Post public message to channel with narrator ping
   const ROLL_EDITOR_ROLE_ID = process.env.ROLL_EDITOR_ROLE_ID || null;
   const narratorMention = ROLL_EDITOR_ROLE_ID ? `<@&${ROLL_EDITOR_ROLE_ID}>` : 'Narrators';
   
-  const proposalContent = RollView.formatRollProposalContent(
+  const displayData = RollView.formatRollProposalContent(
     rollState.helpTags,
     rollState.hinderTags,
     rollState.description,
-    true
+    true,
+    rollState.burnedTags || new Set(),
+    {
+      title: `Roll Proposal #${rollId}`,
+      descriptionText: `${narratorMention}\n**From:** <@${rollState.creatorId}>`,
+      footer: `Use /roll-confirm ${rollId} to review and confirm.`
+    }
   );
 
   await interaction.followUp({
-    content: `${narratorMention} **Roll Proposal #${rollId}** from <@${rollState.creatorId}>\n\n${proposalContent}\n\n*Use \`/roll-confirm ${rollId}\` to review and confirm.*`,
+    components: displayData.components,
+    flags: MessageFlags.IsComponentsV2,
   });
 }
 
@@ -1358,6 +1691,7 @@ async function handleRollConfirm(interaction) {
     status: 'confirmed',
     helpTags: rollState.helpTags,
     hinderTags: rollState.hinderTags,
+    burnedTags: rollState.burnedTags || new Set(),
     description: rollState.description,
     confirmedBy: interaction.user.id,
   });
@@ -1365,22 +1699,35 @@ async function handleRollConfirm(interaction) {
   // Clean up temporary state
   client.rollStates.delete(rollKey);
 
-  // Update ephemeral message
+  // Update ephemeral message (use Components V2 to match original message)
+  const confirmContainer = new ContainerBuilder();
+  confirmContainer.addTextDisplayComponents(
+    new TextDisplayBuilder()
+      .setContent(`**Roll Proposal #${rollId} Confirmed by <@${interaction.user.id}>!**`)
+  );
+
   await interaction.update({
-    content: `**Roll Proposal #${rollId} Confirmed by <@${interaction.user.id}>!**`,
-    components: [], // Hide all components
+    components: [confirmContainer],
+    flags: MessageFlags.IsComponentsV2,
   });
 
   // Post public message to channel with creator ping
-  const confirmedContent = RollView.formatRollProposalContent(
+  const displayData = RollView.formatRollProposalContent(
     rollState.helpTags,
     rollState.hinderTags,
     rollState.description,
-    true
+    true,
+    rollState.burnedTags || new Set(),
+    {
+      title: `Roll Proposal #${rollId} Confirmed`,
+      descriptionText: `<@${rollState.creatorId}>\n**Confirmed by:** <@${interaction.user.id}>`,
+      footer: `You can now execute this roll with /roll ${rollId}`
+    }
   );
 
   await interaction.followUp({
-    content: `<@${rollState.creatorId}> **Roll Proposal #${rollId} Confirmed by <@${interaction.user.id}>!**\n\n${confirmedContent}\n\n*You can now execute this roll with \`/roll ${rollId}\`.*`,
+    components: displayData.components,
+    flags: MessageFlags.IsComponentsV2,
   });
 }
 

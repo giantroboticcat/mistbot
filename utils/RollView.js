@@ -1,4 +1,4 @@
-import { ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder } from 'discord.js';
 import { TagFormatter } from './TagFormatter.js';
 import { Validation } from './Validation.js';
 
@@ -7,14 +7,19 @@ import { Validation } from './Validation.js';
  */
 export class RollView {
   /**
-   * Format roll proposal content with selected tags
+   * Format roll proposal content with selected tags using Components V2
    * @param {Set<string>} helpTags - Set of help tag values (with prefixes)
    * @param {Set<string>} hinderTags - Set of hinder tag values (with prefixes)
    * @param {string|null} description - Optional description of what the roll is for
    * @param {boolean} showPower - Whether to show the power modifier
-   * @returns {string} Formatted content string
+   * @param {Set<string>} burnedTags - Set of burned tag values (with prefixes)
+   * @param {Object} options - Additional options
+   * @param {string} options.title - Custom title
+   * @param {string} options.footer - Footer text
+   * @param {string} options.descriptionText - Additional text to insert after title
+   * @returns {Object} Object with components array and IsComponentsV2 flag
    */
-  static formatRollProposalContent(helpTags, hinderTags, description = null, showPower = true) {
+  static formatRollProposalContent(helpTags, hinderTags, description = null, showPower = true, burnedTags = new Set(), options = {}) {
     // Parse help tags (extract actual names)
     const helpItemNames = Array.from(helpTags).map(value => {
       // Remove prefix (theme:, tag:, backpack:, etc.)
@@ -43,19 +48,47 @@ export class RollView {
     // Categorize hinder items
     const hinderCategorized = this.categorizeItems(hinderItemNames);
 
-    // Calculate modifier using status values
-    const modifier = this.calculateModifier(helpTags, hinderTags);
+    // Calculate modifier using status values and burned tags
+    const modifier = this.calculateModifier(helpTags, hinderTags, burnedTags);
     const modifierText = modifier >= 0 ? `+${modifier}` : `${modifier}`;
 
-    // Format help items (tags, statuses)
-    const helpFormatted = (helpCategorized.tags.length > 0 || 
-                          helpCategorized.statuses.length > 0)
-      ? TagFormatter.formatSceneStatusInCodeBlock(
-          helpCategorized.tags,
-          helpCategorized.statuses,
-          [] // No limits
-        )
-      : 'None';
+    // Identify burned help tags and add fire emojis around them
+    const burnedHelpTagNames = new Set();
+    Array.from(helpTags).forEach(tagValue => {
+      if (burnedTags.has(tagValue)) {
+        const parts = tagValue.split(':');
+        const tagName = parts.length > 1 ? parts.slice(1).join(':') : tagValue;
+        burnedHelpTagNames.add(tagName);
+      }
+    });
+
+    // Format help items (tags, statuses) with fire emojis around burned tags
+    const helpParts = [];
+    if (helpCategorized.tags.length > 0 || helpCategorized.statuses.length > 0) {
+      // Format tags with fire emojis for burned ones
+      const formattedTags = helpCategorized.tags.map(tag => {
+        const isBurned = burnedHelpTagNames.has(tag);
+        const formatted = TagFormatter.formatStoryTag(tag);
+        return isBurned ? `🔥 ${formatted} 🔥` : formatted;
+      });
+      
+      // Format statuses (statuses can't be burned)
+      const formattedStatuses = helpCategorized.statuses.map(status => 
+        TagFormatter.formatStatus(status)
+      );
+      
+      
+      if (formattedTags.length > 0) {
+        helpParts.push(formattedTags.join(', '));
+      }
+      if (formattedStatuses.length > 0) {
+        helpParts.push(formattedStatuses.join(', '));
+      }   
+
+    }
+    const helpFormatted = helpParts.length > 0
+      ? `\`\`\`ansi\n${helpParts.join(', ')}\n\`\`\``
+      : `\`\`\`\nNone\n\`\`\``;
     
     // Format hinder items (tags, statuses, plus weaknesses)
     const hinderParts = [];
@@ -71,18 +104,62 @@ export class RollView {
     
     const hinderFormatted = hinderParts.length > 0
       ? `\`\`\`ansi\n${hinderParts.join(', ')}\n\`\`\``
-      : 'None';
+      : `\`\`\`\nNone\n\`\`\``;
 
-    let content = `**Roll Proposal:** ${description}\n\n`;
-
-    content += `**Help Tags:**\n${helpFormatted}\n` +
-      `**Hinder Tags:**\n${hinderFormatted}`;
+    // Build Components V2 structure
+    const components = [];
     
-    if (showPower) {
-      content += `\n**Power:** ${modifierText}`;
+    // Create a container for the roll display
+    const container = new ContainerBuilder();
+    
+    // Add title text display directly to container
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder()
+        .setContent(`## ${options.title || description || 'Roll Proposal'}`)
+    );
+    
+    // Add description text if provided (e.g., player mention, confirmed by, etc.)
+    if (options.descriptionText) {
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(options.descriptionText)
+      );
     }
     
-    return content;
+    // Add help tags text display
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder()
+        .setContent(`### Help Tags\n${helpFormatted}`)
+    );
+    
+    // Add hinder tags text display
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder()
+        .setContent(`### Hinder Tags\n${hinderFormatted}`)
+    );
+    
+    // Add power text display if requested
+    if (showPower) {
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(`### Power **${modifierText}**`)
+      );
+    }
+    
+    // Add footer text display if provided
+    if (options.footer) {
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(`*${options.footer}*`)
+      );
+    }
+    
+    components.push(container);
+    
+    return { 
+      components,
+      flags: MessageFlags.IsComponentsV2
+    };
   }
 
   /**
@@ -95,9 +172,10 @@ export class RollView {
    * @param {Set<string>} selectedHelpTags - Currently selected help tags
    * @param {Set<string>} selectedHinderTags - Currently selected hinder tags
    * @param {boolean} includeButtons - Whether to include Roll/Cancel buttons
+   * @param {Set<string>} burnedTags - Currently selected tags to burn
    * @returns {Array} Array of ActionRowBuilder components
    */
-  static buildRollComponents(rollKeyOrId, helpOptions, hinderOptions, helpPage, hinderPage, selectedHelpTags = new Set(), selectedHinderTags = new Set(), includeButtons = true) {
+  static buildRollComponents(rollKeyOrId, helpOptions, hinderOptions, helpPage, hinderPage, selectedHelpTags = new Set(), selectedHinderTags = new Set(), includeButtons = true, burnedTags = new Set()) {
     // Show all options, but mark selected ones as default
     const helpPages = Math.ceil(helpOptions.length / 25);
     const hinderPages = Math.ceil(hinderOptions.length / 25);
@@ -107,28 +185,6 @@ export class RollView {
     const clampedHinderPage = Math.min(hinderPage, Math.max(0, hinderPages - 1));
     
     const rows = [];
-    
-    // Help dropdown row
-    if (helpPages > 1) {
-      // Create help page selector
-      const helpPageOptions = [];
-      for (let i = 0; i < helpPages; i++) {
-        const start = i * 25;
-        const end = Math.min(start + 25, helpOptions.length);
-        helpPageOptions.push(new StringSelectMenuOptionBuilder()
-          .setLabel(`Help Page ${i + 1} (${start + 1}-${end})`)
-          .setValue(`${i}`)
-          .setDescription(`View options ${start + 1} to ${end}`)
-          .setDefault(i === clampedHelpPage));
-      }
-      const helpPageSelect = new StringSelectMenuBuilder()
-        .setCustomId(`roll_help_page_${rollKeyOrId}`)
-        .setPlaceholder('Select page...')
-        .setMinValues(1)
-        .setMaxValues(1)
-        .addOptions(helpPageOptions);
-      rows.push(new ActionRowBuilder().setComponents([helpPageSelect]));
-    }
     
     // Help tag select menu (current page) - show all options, mark selected ones
     const helpStart = clampedHelpPage * 25;
@@ -148,28 +204,70 @@ export class RollView {
       .setMinValues(0)
       .setMaxValues(Math.min(helpPageOptions.length, 25))
       .addOptions(helpPageOptions);
+    
+    // Main help dropdown on its own row (one select per row)
     rows.push(new ActionRowBuilder().setComponents([helpSelect]));
     
-    // Hinder dropdown row
-    if (hinderPages > 1) {
-      // Create hinder page selector
-      const hinderPageOptions = [];
-      for (let i = 0; i < hinderPages; i++) {
+    // Help page selector on its own row if needed
+    if (helpPages > 1) {
+      const helpPageOptions = [];
+      for (let i = 0; i < helpPages; i++) {
         const start = i * 25;
-        const end = Math.min(start + 25, hinderOptions.length);
-        hinderPageOptions.push(new StringSelectMenuOptionBuilder()
-          .setLabel(`Hinder Page ${i + 1} (${start + 1}-${end})`)
+        const end = Math.min(start + 25, helpOptions.length);
+        helpPageOptions.push(new StringSelectMenuOptionBuilder()
+          .setLabel(`Help Page ${i + 1} (${start + 1}-${end})`)
           .setValue(`${i}`)
           .setDescription(`View options ${start + 1} to ${end}`)
-          .setDefault(i === clampedHinderPage));
+          .setDefault(i === clampedHelpPage));
       }
-      const hinderPageSelect = new StringSelectMenuBuilder()
-        .setCustomId(`roll_hinder_page_${rollKeyOrId}`)
+      const helpPageSelect = new StringSelectMenuBuilder()
+        .setCustomId(`roll_help_page_${rollKeyOrId}`)
         .setPlaceholder('Select page...')
         .setMinValues(1)
         .setMaxValues(1)
-        .addOptions(hinderPageOptions);
-      rows.push(new ActionRowBuilder().setComponents([hinderPageSelect]));
+        .addOptions(helpPageOptions);
+      rows.push(new ActionRowBuilder().setComponents([helpPageSelect]));
+    }
+    
+    // Burn selection dropdown - only show selected help tags that are burnable (non-status tags)
+    // Put on its own row (one select per row)
+    const burnableTags = Array.from(selectedHelpTags).filter(tagValue => {
+      const parts = tagValue.split(':');
+      const tagName = parts.length > 1 ? parts.slice(1).join(':') : tagValue;
+      // Only non-status tags can be burned
+      return !Validation.validateStatus(tagName).valid;
+    });
+    
+    if (burnableTags.length > 0) {
+      // Find the labels for burnable tags from helpOptions
+      const burnOptions = burnableTags.map(tagValue => {
+        const option = helpOptions.find(opt => opt.data.value === tagValue);
+        const label = option ? option.data.label.replace(' 🔥', '') : tagValue; // Remove existing burn indicator
+        const isBurned = burnedTags.has(tagValue);
+        return new StringSelectMenuOptionBuilder()
+          .setLabel(`${isBurned ? '🔥 ' : ''}${label}`)
+          .setValue(tagValue)
+          .setDescription('Burn this tag for +3 modifier (instead of +1)')
+          .setDefault(isBurned);
+      });
+      
+      // Add burn selection dropdown (first page only for now, will be enhanced if needed)
+      const burnPageOptions = burnOptions.slice(0, 25).map(opt => {
+        const isBurned = burnedTags.has(opt.data.value);
+        return new StringSelectMenuOptionBuilder()
+          .setLabel(opt.data.label)
+          .setValue(opt.data.value)
+          .setDescription(opt.data.description)
+          .setDefault(isBurned);
+      });
+      
+      const burnSelect = new StringSelectMenuBuilder()
+        .setCustomId(`roll_burn_${rollKeyOrId}`)
+        .setPlaceholder('Select ONE tag to burn (+3 modifier)...')
+        .setMinValues(0)
+        .setMaxValues(1)
+        .addOptions(burnPageOptions);
+      rows.push(new ActionRowBuilder().setComponents([burnSelect]));
     }
     
     // Hinder tag select menu (current page) - show all options, mark selected ones
@@ -190,7 +288,30 @@ export class RollView {
       .setMinValues(0)
       .setMaxValues(Math.min(hinderPageOptions.length, 25))
       .addOptions(hinderPageOptions);
+    
+    // Main hinder dropdown on its own row (one select per row)
     rows.push(new ActionRowBuilder().setComponents([hinderSelect]));
+    
+    // Hinder page selector on its own row if needed
+    if (hinderPages > 1) {
+      const hinderPageOptions = [];
+      for (let i = 0; i < hinderPages; i++) {
+        const start = i * 25;
+        const end = Math.min(start + 25, hinderOptions.length);
+        hinderPageOptions.push(new StringSelectMenuOptionBuilder()
+          .setLabel(`Hinder Page ${i + 1} (${start + 1}-${end})`)
+          .setValue(`${i}`)
+          .setDescription(`View options ${start + 1} to ${end}`)
+          .setDefault(i === clampedHinderPage));
+      }
+      const hinderPageSelect = new StringSelectMenuBuilder()
+        .setCustomId(`roll_hinder_page_${rollKeyOrId}`)
+        .setPlaceholder('Select page...')
+        .setMinValues(1)
+        .setMaxValues(1)
+        .addOptions(hinderPageOptions);
+      rows.push(new ActionRowBuilder().setComponents([hinderPageSelect]));
+    }
     
     // Button row (if requested)
     if (includeButtons) {
@@ -213,60 +334,90 @@ export class RollView {
   /**
    * Collect all tags available for helping a roll
    * Includes: theme tags, theme names, backpack, storyTags, tempStatuses, scene tags, scene statuses
+   * Excludes: burned tags (unless includeBurned is true)
+   * @param {Object} character - Character object
+   * @param {string} sceneId - Scene ID
+   * @param {Object} StoryTagStorage - StoryTagStorage class
+   * @param {boolean} includeBurned - Whether to include burned tags (default: false)
    */
-  static collectHelpTags(character, sceneId, StoryTagStorage) {
+  static collectHelpTags(character, sceneId, StoryTagStorage, includeBurned = false) {
     const options = [];
     const seen = new Set();
+    const burnedTags = new Set(character.burnedTags || []);
 
     // Theme names (as tags) - yellow tag icon
     character.themes.forEach(theme => {
-      if (theme.name && !seen.has(`theme:${theme.name}`)) {
+      const tagValue = `theme:${theme.name}`;
+      if (theme.name && !seen.has(tagValue)) {
+        // Skip if burned and not including burned tags
+        if (!includeBurned && burnedTags.has(tagValue)) {
+          return;
+        }
         const isStatus = Validation.validateStatus(theme.name).valid;
         const icon = isStatus ? '🟢' : '🟡'; // Green for status, yellow for tag
+        const isBurned = burnedTags.has(tagValue);
         options.push(new StringSelectMenuOptionBuilder()
-          .setLabel(`${icon} ${theme.name}`)
-          .setValue(`theme:${theme.name}`)
-          .setDescription(`Theme: ${theme.name}`));
-        seen.add(`theme:${theme.name}`);
+          .setLabel(`${icon} ${theme.name}${isBurned ? ' 🔥' : ''}`)
+          .setValue(tagValue)
+          .setDescription(`Theme: ${theme.name}${isBurned ? ' (Burned)' : ''}`));
+        seen.add(tagValue);
       }
     });
 
     // Theme tags - yellow tag icon, show which theme
     character.themes.forEach(theme => {
       theme.tags.forEach(tag => {
-        if (!seen.has(`tag:${tag}`)) {
+        const tagValue = `tag:${tag}`;
+        if (!seen.has(tagValue)) {
+          // Skip if burned and not including burned tags
+          if (!includeBurned && burnedTags.has(tagValue)) {
+            return;
+          }
+          const isBurned = burnedTags.has(tagValue);
           options.push(new StringSelectMenuOptionBuilder()
-            .setLabel(`🟡 ${tag}`)
-            .setValue(`tag:${tag}`)
-            .setDescription(`Theme: ${theme.name}`));
-          seen.add(`tag:${tag}`);
+            .setLabel(`🟡 ${tag}${isBurned ? ' 🔥' : ''}`)
+            .setValue(tagValue)
+            .setDescription(`Theme: ${theme.name}${isBurned ? ' (Burned)' : ''}`));
+          seen.add(tagValue);
         }
       });
     });
 
     // Backpack tags - yellow tag icon
     character.backpack.forEach(tag => {
-      if (!seen.has(`backpack:${tag}`)) {
+      const tagValue = `backpack:${tag}`;
+      if (!seen.has(tagValue)) {
+        // Skip if burned and not including burned tags
+        if (!includeBurned && burnedTags.has(tagValue)) {
+          return;
+        }
         const isStatus = Validation.validateStatus(tag).valid;
         const icon = isStatus ? '🟢' : '🟡'; // Green for status, yellow for tag
+        const isBurned = burnedTags.has(tagValue);
         options.push(new StringSelectMenuOptionBuilder()
-          .setLabel(`${icon} ${tag}`)
-          .setValue(`backpack:${tag}`)
-          .setDescription('Backpack Item'));
-        seen.add(`backpack:${tag}`);
+          .setLabel(`${icon} ${tag}${isBurned ? ' 🔥' : ''}`)
+          .setValue(tagValue)
+          .setDescription(`Backpack Item${isBurned ? ' (Burned)' : ''}`));
+        seen.add(tagValue);
       }
     });
 
     // Character story tags - yellow tag icon
     character.storyTags.forEach(tag => {
-      if (!seen.has(`story:${tag}`)) {
+      const tagValue = `story:${tag}`;
+      if (!seen.has(tagValue)) {
+        // Skip if burned and not including burned tags
+        if (!includeBurned && burnedTags.has(tagValue)) {
+          return;
+        }
         const isStatus = Validation.validateStatus(tag).valid;
         const icon = isStatus ? '🟢' : '🟡'; // Green for status, yellow for tag
+        const isBurned = burnedTags.has(tagValue);
         options.push(new StringSelectMenuOptionBuilder()
-          .setLabel(`${icon} ${tag}`)
-          .setValue(`story:${tag}`)
-          .setDescription('Character Story Tag'));
-        seen.add(`story:${tag}`);
+          .setLabel(`${icon} ${tag}${isBurned ? ' 🔥' : ''}`)
+          .setValue(tagValue)
+          .setDescription(`Character Story Tag${isBurned ? ' (Burned)' : ''}`));
+        seen.add(tagValue);
       }
     });
 
@@ -284,24 +435,28 @@ export class RollView {
     // Scene tags - yellow tag icon
     const sceneTags = StoryTagStorage.getTags(sceneId);
     sceneTags.forEach(tag => {
-      if (!seen.has(`sceneTag:${tag}`)) {
+      const tagValue = `sceneTag:${tag}`;
+      if (!seen.has(tagValue)) {
+        // Scene tags can't be burned (they're not character-owned)
         options.push(new StringSelectMenuOptionBuilder()
           .setLabel(`🟡 ${tag}`)
-          .setValue(`sceneTag:${tag}`)
+          .setValue(tagValue)
           .setDescription('Scene Tag'));
-        seen.add(`sceneTag:${tag}`);
+        seen.add(tagValue);
       }
     });
 
     // Scene statuses - green status icon
     const sceneStatuses = StoryTagStorage.getStatuses(sceneId);
     sceneStatuses.forEach(status => {
-      if (!seen.has(`sceneStatus:${status}`)) {
+      const tagValue = `sceneStatus:${status}`;
+      if (!seen.has(tagValue)) {
+        // Scene statuses can't be burned (they're not character-owned)
         options.push(new StringSelectMenuOptionBuilder()
           .setLabel(`🟢 ${status}`)
-          .setValue(`sceneStatus:${status}`)
+          .setValue(tagValue)
           .setDescription('Scene Status'));
-        seen.add(`sceneStatus:${status}`);
+        seen.add(tagValue);
       }
     });
 
@@ -311,12 +466,18 @@ export class RollView {
   /**
    * Collect all tags + weaknesses available for hindering a roll
    * Includes: everything from help tags PLUS theme weaknesses
+   * @param {Object} character - Character object
+   * @param {string} sceneId - Scene ID
+   * @param {Object} StoryTagStorage - StoryTagStorage class
+   * @param {boolean} includeBurned - Whether to include burned tags (default: false)
    */
-  static collectHinderTags(character, sceneId, StoryTagStorage) {
-    const options = this.collectHelpTags(character, sceneId, StoryTagStorage);
+  static collectHinderTags(character, sceneId, StoryTagStorage, includeBurned = false) {
+    const options = this.collectHelpTags(character, sceneId, StoryTagStorage, includeBurned);
     const seen = new Set(options.map(opt => opt.data.value));
+    const burnedTags = new Set(character.burnedTags || []);
 
     // Add theme weaknesses - orange weakness icon, show which theme
+    // Weaknesses can't be burned
     character.themes.forEach(theme => {
       theme.weaknesses.forEach(weakness => {
         if (!seen.has(`weakness:${weakness}`)) {
@@ -347,31 +508,41 @@ export class RollView {
   /**
    * Calculate modifier from selected tags
    * Only the highest status value is used per side, plus all non-status tags count as ±1
+   * Burned tags give +3 instead of +1
    * @param {Set<string>} helpTags - Set of help tag values (with prefixes)
    * @param {Set<string>} hinderTags - Set of hinder tag values (with prefixes)
+   * @param {Set<string>} burnedTags - Set of burned tag values (with prefixes)
    * @returns {number} The calculated modifier
    */
-  static calculateModifier(helpTags, hinderTags) {
+  static calculateModifier(helpTags, hinderTags, burnedTags = new Set()) {
     // Calculate help modifier
     const helpStatuses = [];
     let helpTagCount = 0;
+    let burnedHelpCount = 0;
 
     Array.from(helpTags).forEach(value => {
       const parts = value.split(':');
       const tagName = parts.length > 1 ? parts.slice(1).join(':') : value;
+      const isBurned = burnedTags.has(value);
       
       if (Validation.validateStatus(tagName).valid) {
         // It's a status, extract its value
+        // Note: Statuses can't be burned (only tags can be burned)
         helpStatuses.push(this.extractStatusValue(tagName));
       } else {
-        // It's a non-status tag, count it
-        helpTagCount++;
+        // It's a non-status tag
+        if (isBurned) {
+          burnedHelpCount++;
+        } else {
+          helpTagCount++;
+        }
       }
     });
 
     // Use only the highest status value (or 0 if no statuses)
     const highestHelpStatus = helpStatuses.length > 0 ? Math.max(...helpStatuses) : 0;
-    const helpModifier = highestHelpStatus + helpTagCount;
+    // Burned tags give +3 each, regular tags give +1 each
+    const helpModifier = highestHelpStatus + helpTagCount + (burnedHelpCount * 3);
 
     // Calculate hinder modifier
     const hinderStatuses = [];

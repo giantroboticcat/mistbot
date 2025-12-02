@@ -1,8 +1,9 @@
-import { SlashCommandBuilder, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder } from 'discord.js';
 import { Command } from './Command.js';
 import { RollStorage } from '../utils/RollStorage.js';
 import { RollView } from '../utils/RollView.js';
 import { TagFormatter } from '../utils/TagFormatter.js';
+import { CharacterStorage } from '../utils/CharacterStorage.js';
 
 /**
  * Execute a confirmed roll
@@ -53,13 +54,29 @@ export class RollExecuteCommand extends Command {
     // Mark as executed
     RollStorage.updateRoll(rollId, { status: 'executed' });
 
+    // Mark burned tags as burned in the character
+    const burnedTags = roll.burnedTags || new Set();
+    if (burnedTags.size > 0) {
+      const character = CharacterStorage.getCharacter(roll.creatorId, roll.characterId);
+      if (character) {
+        const currentBurnedTags = new Set(character.burnedTags || []);
+        // Add all burned tags from this roll to the character's burned tags
+        for (const tagValue of burnedTags) {
+          currentBurnedTags.add(tagValue);
+        }
+        CharacterStorage.updateCharacter(roll.creatorId, roll.characterId, {
+          burnedTags: Array.from(currentBurnedTags),
+        });
+      }
+    }
+
     // Roll 2d6
     const die1 = Math.floor(Math.random() * 6) + 1;
     const die2 = Math.floor(Math.random() * 6) + 1;
     const baseRoll = die1 + die2;
 
-    // Calculate modifier using status values
-    const modifier = RollView.calculateModifier(roll.helpTags, roll.hinderTags);
+    // Calculate modifier using status values and burned tags
+    const modifier = RollView.calculateModifier(roll.helpTags, roll.hinderTags, burnedTags);
     const finalResult = baseRoll + modifier;
 
     // Parse help tags (extract actual names)
@@ -89,16 +106,44 @@ export class RollExecuteCommand extends Command {
     // Categorize hinder items
     const hinderCategorized = RollView.categorizeItems(hinderItemNames);
 
-    // Format help items (tags, statuses)
-    const helpFormatted = (helpCategorized.tags.length > 0 || 
-                          helpCategorized.statuses.length > 0)
-      ? TagFormatter.formatSceneStatusInCodeBlock(
-          helpCategorized.tags,
-          helpCategorized.statuses,
-          [] // No limits
-        )
-      : 'None';
-    
+    // Identify burned help tag names
+    const burnedHelpTagNames = new Set();
+    Array.from(roll.helpTags).forEach(tagValue => {
+      if (burnedTags.has(tagValue)) {
+        const parts = tagValue.split(':');
+        const tagName = parts.length > 1 ? parts.slice(1).join(':') : tagValue;
+        burnedHelpTagNames.add(tagName);
+      }
+    });
+
+    // Format help items (tags, statuses) with fire emojis around burned tags
+    let helpFormatted = 'None';
+    if (helpCategorized.tags.length > 0 || helpCategorized.statuses.length > 0) {
+      // Format tags with fire emojis for burned ones
+      const formattedTags = helpCategorized.tags.map(tag => {
+        const isBurned = burnedHelpTagNames.has(tag);
+        const formatted = TagFormatter.formatStoryTag(tag);
+        return isBurned ? `🔥 ${formatted} 🔥` : formatted;
+      });
+      
+      // Format statuses (statuses can't be burned)
+      const formattedStatuses = helpCategorized.statuses.map(status => 
+        TagFormatter.formatStatus(status)
+      );
+      
+      const parts = [];
+      if (formattedTags.length > 0) {
+        parts.push(formattedTags.join(', '));
+      }
+      if (formattedStatuses.length > 0) {
+        parts.push(formattedStatuses.join(', '));
+      }
+      
+      if (parts.length > 0) {
+        helpFormatted = `\`\`\`ansi\n${parts.join(', ')}\n\`\`\``;
+      }
+    }
+
     // Format hinder items (tags, statuses, plus weaknesses)
     const hinderParts = [];
     if (hinderCategorized.tags.length > 0) {
@@ -119,32 +164,57 @@ export class RollExecuteCommand extends Command {
 
     // Determine result classification
     let resultType;
+    let resultColor;
     if (finalResult >= 10) {
       resultType = 'Success';
+      resultColor = 0x57F287; // Green
     } else if (finalResult >= 7) {
       resultType = 'Success & Consequences';
+      resultColor = 0xFEE75C; // Yellow
     } else {
       resultType = 'Consequences';
+      resultColor = 0xED4245; // Red
     }
 
-    let content = `**Roll Result: ${finalResult}** (${resultType})\n\n`;
-    if (roll.description) {
-      content += `**${roll.description}**\n\n`;
-    }
-    content += `**Dice:** ${die1} + ${die2} = ${baseRoll}\n` +
-      `**Power:** ${modifierText}\n` +
-      `**Help Tags:**\n${helpFormatted}\n` +
-      `**Hinder Tags:**\n${hinderFormatted}`;
+    // Build Components V2 structure for roll result
+    const container = new ContainerBuilder();
+    
+    // Add title text display directly to container
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder()
+        .setContent(`## ${roll.description || 'Roll Result'}\n**Result: ${finalResult}** (${resultType})`)
+    );
+    
+    // Add dice and power text display
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder()
+        .setContent(`### 🎲 Dice\n${die1} + ${die2} = **${baseRoll}**\n\n### ⚡ Power\n**${modifierText}**`)
+    );
+    
+    // Add help tags text display
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder()
+        .setContent(`### 🟢 Help Tags\n${helpFormatted}`)
+    );
+    
+    // Add hinder tags text display
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder()
+        .setContent(`### 🔴 Hinder Tags\n${hinderFormatted}`)
+    );
 
-    // Ping the narrator who confirmed the roll
-    let narratorMention = '';
+    // Add narrator mention to the container if they confirmed the roll
     if (roll.confirmedBy) {
-      narratorMention = `<@${roll.confirmedBy}> `;
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(`<@${roll.confirmedBy}>`)
+      );
     }
 
     // Send as a public message
     await interaction.reply({
-      content: `${narratorMention}${content}`,
+      components: [container],
+      flags: MessageFlags.IsComponentsV2,
     });
   }
 }

@@ -23,6 +23,7 @@ export class RollStorage {
       for (const roll of Object.values(parsed)) {
         if (roll.helpTags) roll.helpTags = new Set(roll.helpTags);
         if (roll.hinderTags) roll.hinderTags = new Set(roll.hinderTags);
+        if (roll.burnedTags) roll.burnedTags = new Set(roll.burnedTags);
       }
       return parsed;
     } catch (error) {
@@ -50,6 +51,7 @@ export class RollStorage {
           ...roll,
           helpTags: roll.helpTags ? Array.from(roll.helpTags) : [],
           hinderTags: roll.hinderTags ? Array.from(roll.hinderTags) : [],
+          burnedTags: roll.burnedTags ? Array.from(roll.burnedTags) : [],
         };
       }
       writeFileSync(STORAGE_FILE, JSON.stringify(serializable, null, 2), 'utf-8');
@@ -106,6 +108,7 @@ export class RollStorage {
     // Convert arrays back to Sets
     if (roll.helpTags) roll.helpTags = new Set(roll.helpTags);
     if (roll.hinderTags) roll.hinderTags = new Set(roll.hinderTags);
+    if (roll.burnedTags) roll.burnedTags = new Set(roll.burnedTags);
     return roll;
   }
 
@@ -148,6 +151,7 @@ export class RollStorage {
     return Object.values(data).map(roll => {
       if (roll.helpTags) roll.helpTags = new Set(roll.helpTags);
       if (roll.hinderTags) roll.hinderTags = new Set(roll.hinderTags);
+      if (roll.burnedTags) roll.burnedTags = new Set(roll.burnedTags);
       return roll;
     });
   }

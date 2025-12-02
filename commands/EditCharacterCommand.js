@@ -72,9 +72,19 @@ export class EditCharacterCommand extends Command {
       }
     }
 
+    // Format burned tags for display
+    const burnedTags = character.burnedTags || [];
+    const burnedTagsDisplay = burnedTags.length > 0 
+      ? burnedTags.map(tag => {
+          // Extract tag name from prefix format (e.g., "theme:name" -> "name")
+          const parts = tag.split(':');
+          return parts.length > 1 ? parts.slice(1).join(':') : tag;
+        }).join(', ')
+      : 'None';
+    
     const content = `**Character: ${character.name}**${ownerInfo}\n\n` +
       themeParts.join('\n\n') +
-      `\n\n*Backpack: ${character.backpack.length > 0 ? character.backpack.join(', ') : 'Empty'}*\n*Story Tags: ${character.storyTags.length > 0 ? character.storyTags.join(', ') : 'None'}*\n*Statuses: ${character.tempStatuses.length > 0 ? character.tempStatuses.join(', ') : 'None'}*`;
+      `\n\n*Backpack: ${character.backpack.length > 0 ? character.backpack.join(', ') : 'Empty'}*\n*Story Tags: ${character.storyTags.length > 0 ? character.storyTags.join(', ') : 'None'}*\n*Statuses: ${character.tempStatuses.length > 0 ? character.tempStatuses.join(', ') : 'None'}*\n*🔥 Burned Tags: ${burnedTagsDisplay}*`;
 
     if (showEditButtons) {
       // Create edit buttons
@@ -88,7 +98,12 @@ export class EditCharacterCommand extends Command {
         .setLabel('Edit Backpack, Story Tags & Statuses')
         .setStyle(ButtonStyle.Secondary);
 
-      const buttonRow = new ActionRowBuilder().setComponents([editButton, backpackButton]);
+      const burnRefreshButton = new ButtonBuilder()
+        .setCustomId(`burn_refresh_${character.id}`)
+        .setLabel('Burn/Refresh Tags')
+        .setStyle(ButtonStyle.Secondary);
+
+      const buttonRow = new ActionRowBuilder().setComponents([editButton, backpackButton, burnRefreshButton]);
 
       await interaction.reply({
         content,
