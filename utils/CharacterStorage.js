@@ -448,7 +448,7 @@ export class CharacterStorage {
 
       // Check if sheet URL is set
       if (!character.google_sheet_url) {
-        return { success: false, message: 'No Google Sheet URL configured for this character. Use /char-set-sheet-url first.' };
+        return { success: false, message: 'No Google Sheet URL configured for this character.' };
       }
 
       // Check if sheets service is ready
@@ -482,7 +482,7 @@ export class CharacterStorage {
 
       // Check if sheet URL is set
       if (!character.google_sheet_url) {
-        return { success: false, message: 'No Google Sheet URL configured for this character. Use /char-set-sheet-url first.' };
+        return { success: false, message: 'No Google Sheet URL configured for this character.' };
       }
 
       // Check if sheets service is ready

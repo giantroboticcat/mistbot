@@ -109,13 +109,13 @@ export class RollConfirmCommand extends Command {
     // Build components for editing
     const components = RollView.buildRollComponents(rollKey, helpOptions, hinderOptions, 0, 0, roll.helpTags, roll.hinderTags, false, burnedTags);
 
-    // Add confirm/cancel buttons
+    // Add confirm button
     const confirmButton = new ButtonBuilder()
       .setCustomId(`roll_confirm_${rollId}`)
       .setLabel('Confirm Roll')
       .setStyle(ButtonStyle.Success);
     
-    components.push(new ActionRowBuilder().setComponents([confirmButton, cancelButton]));
+    components.push(new ActionRowBuilder().setComponents([confirmButton]));
 
     const displayData = RollView.formatRollProposalContent(
       roll.helpTags, 

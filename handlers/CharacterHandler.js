@@ -1,10 +1,7 @@
-import { MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } from 'discord.js';
+import { MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
 import { CharacterStorage } from '../utils/CharacterStorage.js';
 import { CreateCharacterCommand } from '../commands/CreateCharacterCommand.js';
 import { EditCharacterCommand } from '../commands/EditCharacterCommand.js';
-import { SetSheetUrlCommand } from '../commands/SetSheetUrlCommand.js';
-import { SyncToSheetCommand } from '../commands/SyncToSheetCommand.js';
-import { SyncFromSheetCommand } from '../commands/SyncFromSheetCommand.js';
 import { TagFormatter } from '../utils/TagFormatter.js';
 import { Validation } from '../utils/Validation.js';
 
@@ -679,9 +676,25 @@ export async function handleSetSheetUrlButton(interaction, client) {
     return;
   }
 
-  // Show the set sheet URL modal
-  const SetSheetUrlCmd = new SetSheetUrlCommand();
-  await SetSheetUrlCmd.execute(interaction);
+  // Show modal to input sheet URL
+  const modal = new ModalBuilder()
+    .setCustomId(`set_sheet_url_${activeCharacter.id}`)
+    .setTitle('Set Google Sheet URL');
+
+  const currentUrl = activeCharacter.google_sheet_url || '';
+
+  const urlInput = new TextInputBuilder()
+    .setCustomId('sheet_url')
+    .setLabel('Google Sheets URL')
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder('https://docs.google.com/spreadsheets/d/...')
+    .setValue(currentUrl)
+    .setRequired(true);
+
+  const actionRow = new ActionRowBuilder().addComponents(urlInput);
+  modal.addComponents(actionRow);
+
+  await interaction.showModal(modal);
 }
 
 /**
@@ -689,7 +702,33 @@ export async function handleSetSheetUrlButton(interaction, client) {
  */
 export async function handleSyncToSheetButton(interaction, client) {
   const characterId = parseInt(interaction.customId.split('_').pop());
-  await SyncToSheetCommand.handleButton(interaction, characterId);
+  const userId = interaction.user.id;
+  
+  // Verify character belongs to user
+  const character = CharacterStorage.getCharacter(userId, characterId);
+  if (!character) {
+    await interaction.reply({
+      content: '❌ Character not found or you don\'t have permission to sync it.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Defer reply
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  // Perform sync
+  const result = await CharacterStorage.syncToSheet(userId, characterId);
+
+  if (result.success) {
+    await interaction.editReply({
+      content: `✅ ${result.message}\n\n**Character:** ${character.name}`,
+    });
+  } else {
+    await interaction.editReply({
+      content: `❌ ${result.message}`,
+    });
+  }
 }
 
 /**
@@ -697,6 +736,66 @@ export async function handleSyncToSheetButton(interaction, client) {
  */
 export async function handleSyncFromSheetButton(interaction, client) {
   const characterId = parseInt(interaction.customId.split('_').pop());
-  await SyncFromSheetCommand.handleButton(interaction, characterId);
+  const userId = interaction.user.id;
+  
+  // Verify character belongs to user
+  const character = CharacterStorage.getCharacter(userId, characterId);
+  if (!character) {
+    await interaction.reply({
+      content: '❌ Character not found or you don\'t have permission to sync it.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Defer reply
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  // Perform sync
+  const result = await CharacterStorage.syncFromSheet(userId, characterId);
+
+  if (result.success) {
+    await interaction.editReply({
+      content: `✅ ${result.message}\n\n**Character:** ${character.name}\n\nUse \`/char-lookup\` to view the updated character sheet.`,
+    });
+  } else {
+    await interaction.editReply({
+      content: `❌ ${result.message}`,
+    });
+  }
+}
+
+/**
+ * Handle modal submit for setting sheet URL
+ */
+export async function handleSetSheetUrlModal(interaction) {
+  const characterId = parseInt(interaction.customId.split('_').pop());
+  const userId = interaction.user.id;
+  const sheetUrl = interaction.fields.getTextInputValue('sheet_url');
+
+  // Validate URL format
+  const urlPattern = /https:\/\/docs\.google\.com\/spreadsheets\/d\/[a-zA-Z0-9-_]+/;
+  if (!urlPattern.test(sheetUrl)) {
+    await interaction.reply({
+      content: '❌ Invalid Google Sheets URL format. Please use a URL like:\n`https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit`',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Update character
+  const success = CharacterStorage.setSheetUrl(userId, characterId, sheetUrl);
+
+  if (success) {
+    await interaction.reply({
+      content: '✅ Google Sheets URL updated successfully!\n\nYou can now use the sync buttons to push/pull your character data.',
+      flags: MessageFlags.Ephemeral,
+    });
+  } else {
+    await interaction.reply({
+      content: '❌ Failed to update sheet URL. Character not found.',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
 }
 

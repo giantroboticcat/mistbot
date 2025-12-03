@@ -1,3 +1,4 @@
+import { HelpCommand } from './HelpCommand.js';
 import { AddTagsCommand } from './AddTagsCommand.js';
 import { RemoveTagsCommand } from './RemoveTagsCommand.js';
 import { ListSceneStatusCommand } from './ListSceneStatusCommand.js';
@@ -9,15 +10,13 @@ import { ViewCharacterCommand } from './ViewCharacterCommand.js';
 import { RollProposeCommand } from './RollProposeCommand.js';
 import { RollConfirmCommand } from './RollConfirmCommand.js';
 import { RollExecuteCommand } from './RollExecuteCommand.js';
-import { SetSheetUrlCommand } from './SetSheetUrlCommand.js';
-import { SyncToSheetCommand } from './SyncToSheetCommand.js';
-import { SyncFromSheetCommand } from './SyncFromSheetCommand.js';
 
 /**
  * Array of all command classes
  * Add new commands here to register them
  */
 export const commands = [
+  new HelpCommand(),
   new AddTagsCommand(),
   new RemoveTagsCommand(),
   new ListSceneStatusCommand(),
@@ -29,8 +28,5 @@ export const commands = [
   new RollProposeCommand(),
   new RollConfirmCommand(),
   new RollExecuteCommand(),
-  new SetSheetUrlCommand(),
-  new SyncToSheetCommand(),
-  new SyncFromSheetCommand(),
 ];
 

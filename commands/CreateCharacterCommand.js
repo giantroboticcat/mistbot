@@ -91,7 +91,7 @@ export class CreateCharacterCommand extends Command {
       CharacterStorage.setSheetUrl(userId, character.id, sheetUrl);
 
       await interaction.editReply({
-        content: `✅ Character **${characterData.name}** created successfully from Google Sheet!\n\nThe sheet URL has been saved and you can sync updates with:\n• \`/char-sync-to-sheet\` - Push bot data to sheet\n• \`/char-sync-from-sheet\` - Pull sheet data to bot`,
+        content: `✅ Character **${characterData.name}** created successfully from Google Sheet!`,
       });
 
     } catch (error) {

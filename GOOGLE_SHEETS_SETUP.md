@@ -73,27 +73,6 @@ For each Google Sheet you want to sync:
 8. Uncheck "Notify people" (the service account won't receive emails)
 9. Click "Share"
 
-## Step 7: Configure Character Sheet URLs
-
-In Discord, use the bot commands to configure which sheet each character should sync with:
-
-```
-/char-set-sheet-url
-```
-
-This will prompt you to:
-1. Select a character
-2. Enter the Google Sheets URL
-
-## Step 8: Test the Integration
-
-Try syncing your character:
-
-```
-/char-sync-to-sheet    # Push bot data to sheet
-/char-sync-from-sheet  # Pull sheet data to bot
-```
-
 ## Security Notes
 
 ### Protecting Your Credentials
@@ -187,73 +166,3 @@ Your `google-credentials.json` should look like this:
 ```
 
 The most important field is `client_email` - this is what you share your sheets with.
-
-## Usage Examples
-
-### Setting Up a Character Sheet
-
-```
-1. /char-set-sheet-url
-   → Select your character
-   → Enter: https://docs.google.com/spreadsheets/d/1ABC123xyz/edit
-
-2. /char-sync-from-sheet
-   → Pulls data from the sheet to the bot
-
-3. /char-lookup
-   → Verify your character data was imported correctly
-```
-
-### Updating Your Sheet from the Bot
-
-```
-1. Make changes to your character in Discord using bot commands
-
-2. /char-sync-to-sheet
-   → Pushes your bot data to the Google Sheet
-
-3. Open your Google Sheet
-   → Verify the changes appear in the sheet
-```
-
-### Sync Strategy
-
-**Option A: Sheet is the source of truth**
-- Edit your character in the Google Sheet
-- Use `/char-sync-from-sheet` to import to bot
-- Use the bot for rolls and gameplay
-- Periodically sync from sheet to keep bot updated
-
-**Option B: Bot is the source of truth**
-- Edit your character using bot commands
-- Use `/char-sync-to-sheet` to backup to sheet
-- Use the sheet for viewing/sharing
-- Periodically sync to sheet to keep backup updated
-
-**Option C: Bidirectional** (be careful!)
-- Edit in either location
-- Sync manually when you've made changes
-- ⚠️ Note: Last sync wins - no conflict resolution!
-
-## Advanced: Multiple Bots or Environments
-
-If you're running the bot in multiple environments (dev, prod), you can:
-
-**Option 1**: Use the same service account for all environments
-- Share all sheets with one service account email
-- Use the same credentials file in all environments
-
-**Option 2**: Use different service accounts per environment
-- Create separate service accounts (e.g., `mistbot-sheets-dev`, `mistbot-sheets-prod`)
-- Share dev sheets with dev account, prod sheets with prod account
-- Use different credentials files per environment
-
-## Support
-
-If you encounter issues:
-1. Check the bot logs for detailed error messages
-2. Verify your credentials file is valid JSON
-3. Confirm the service account has access to your sheet
-4. Make sure Google Sheets API is enabled in your project
-5. Check that you're using the correct sheet URL format
-

@@ -116,8 +116,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   } else if (interaction.isModalSubmit()) {
     // Handle modal submissions
     if (interaction.customId.startsWith('set_sheet_url_')) {
-      const { SetSheetUrlCommand } = await import('./commands/SetSheetUrlCommand.js');
-      await SetSheetUrlCommand.handleModalSubmit(interaction);
+      await CharacterHandler.handleSetSheetUrlModal(interaction);
     } else {
       await CharacterHandler.handleModalSubmit(interaction, client);
     }
