@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { Command } from './Command.js';
 import { RollStorage } from '../utils/RollStorage.js';
+import RollStatus from '../constants/RollStatus.js';
 import { RollView } from '../utils/RollView.js';
 import { CharacterStorage } from '../utils/CharacterStorage.js';
 
@@ -42,7 +43,7 @@ export class RollExecuteCommand extends Command {
       return;
     }
 
-    if (roll.status !== 'confirmed') {
+    if (roll.status !== RollStatus.CONFIRMED) {
       await interaction.reply({
         content: `Roll #${rollId} is not confirmed. Current status: ${roll.status}`,
         flags: MessageFlags.Ephemeral,
@@ -51,7 +52,7 @@ export class RollExecuteCommand extends Command {
     }
 
     // Mark as executed
-    RollStorage.updateRoll(rollId, { status: 'executed' });
+    RollStorage.updateRoll(rollId, { status: RollStatus.EXECUTED });
 
     // Mark burned tags as burned in the character
     const burnedTags = roll.burnedTags || new Set();

@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { Command } from './Command.js';
 import { RollStorage } from '../utils/RollStorage.js';
+import RollStatus from '../constants/RollStatus.js';
 import { RollView } from '../utils/RollView.js';
 import { CharacterStorage } from '../utils/CharacterStorage.js';
 import { StoryTagStorage } from '../utils/StoryTagStorage.js';
@@ -59,7 +60,7 @@ export class RollConfirmCommand extends Command {
       return;
     }
 
-    if (roll.status !== 'proposed') {
+    if (roll.status !== RollStatus.PROPOSED) {
       await interaction.reply({
         content: `Roll proposal #${rollId} has already been ${roll.status}.`,
         flags: MessageFlags.Ephemeral,

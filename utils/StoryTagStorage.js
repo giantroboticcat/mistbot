@@ -1,46 +1,9 @@
 import { db } from './Database.js';
-import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
 
 /**
  * Storage utility for managing story tags, statuses, and limits per scene (channel/thread)
  */
 export class StoryTagStorage {
-  /**
-   * Legacy load method for backward compatibility (used by migration)
-   * @returns {Object} Map of sceneId -> { tags: [], statuses: [], limits: [] }
-   */
-  static loadFromJSON() {
-    const STORAGE_FILE = join(process.cwd(), 'data', 'story-tags.json');
-    if (!existsSync(STORAGE_FILE)) {
-      return {};
-    }
-
-    try {
-      const data = readFileSync(STORAGE_FILE, 'utf-8');
-      const parsed = JSON.parse(data);
-      // Migrate old format (array of tags) to new format (object with tags, statuses, limits)
-      const migrated = {};
-      for (const [sceneId, value] of Object.entries(parsed)) {
-        if (Array.isArray(value)) {
-          // Old format: just tags array
-          migrated[sceneId] = { tags: value, statuses: [], limits: [] };
-        } else {
-          // New format: object with tags, statuses, limits
-          migrated[sceneId] = {
-            tags: value.tags || [],
-            statuses: value.statuses || [],
-            limits: value.limits || [],
-          };
-        }
-      }
-      return migrated;
-    } catch (error) {
-      console.error('Error loading scene data from JSON:', error);
-      return {};
-    }
-  }
-
   /**
    * Ensure scene exists in database
    * @param {string} sceneId - Scene/channel ID

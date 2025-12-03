@@ -1,36 +1,10 @@
 import { db } from './Database.js';
-import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import RollStatus from '../constants/RollStatus.js';
 
 /**
  * Storage utility for managing roll proposals
  */
 export class RollStorage {
-  /**
-   * Legacy load method for backward compatibility (used by migration)
-   * @returns {Object} Map of rollId -> roll proposal data
-   */
-  static loadFromJSON() {
-    const STORAGE_FILE = join(process.cwd(), 'data', 'rolls.json');
-    if (!existsSync(STORAGE_FILE)) {
-      return {};
-    }
-
-    try {
-      const data = readFileSync(STORAGE_FILE, 'utf-8');
-      const parsed = JSON.parse(data);
-      // Convert Sets back from arrays
-      for (const roll of Object.values(parsed)) {
-        if (roll.helpTags) roll.helpTags = new Set(roll.helpTags);
-        if (roll.hinderTags) roll.hinderTags = new Set(roll.hinderTags);
-        if (roll.burnedTags) roll.burnedTags = new Set(roll.burnedTags);
-      }
-      return parsed;
-    } catch (error) {
-      console.error('Error loading roll data from JSON:', error);
-      return {};
-    }
-  }
 
   /**
    * Get the next sequential roll ID
@@ -52,7 +26,7 @@ export class RollStorage {
       // Insert roll
       const insertRoll = db.prepare(`
         INSERT INTO rolls (creator_id, character_id, scene_id, description, status)
-        VALUES (?, ?, ?, ?, 'pending')
+        VALUES (?, ?, ?, ?, 'proposed')
       `);
       
       const result = insertRoll.run(
@@ -140,7 +114,21 @@ export class RollStorage {
       tags.filter(t => t.tag_type === 'help' && t.is_burned === 1).map(t => t.tag)
     );
     
-    return roll;
+    // Map snake_case to camelCase for JavaScript conventions
+    return {
+      id: roll.id,
+      creatorId: roll.creator_id,
+      characterId: roll.character_id,
+      sceneId: roll.scene_id,
+      description: roll.description,
+      status: roll.status,
+      confirmedBy: roll.confirmed_by,
+      createdAt: roll.created_at,
+      updatedAt: roll.updated_at,
+      helpTags: roll.helpTags,
+      hinderTags: roll.hinderTags,
+      burnedTags: roll.burnedTags,
+    };
   }
 
   /**

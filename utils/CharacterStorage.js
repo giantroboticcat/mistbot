@@ -1,30 +1,10 @@
 import { db } from './Database.js';
-import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
 import sheetsService from './GoogleSheetsService.js';
 
 /**
  * Storage utility for managing characters per user
  */
 export class CharacterStorage {
-  /**
-   * Legacy load method for backward compatibility (used by migration)
-   * @returns {Object} Map of userId -> { characters: [...] }
-   */
-  static loadFromJSON() {
-    const STORAGE_FILE = join(process.cwd(), 'data', 'characters.json');
-    if (!existsSync(STORAGE_FILE)) {
-      return {};
-    }
-
-    try {
-      const data = readFileSync(STORAGE_FILE, 'utf-8');
-      return JSON.parse(data);
-    } catch (error) {
-      console.error('Error loading character data from JSON:', error);
-      return {};
-    }
-  }
 
   /**
    * Get user's characters

@@ -431,7 +431,8 @@ export async function handleBurnRefreshButton(interaction, client) {
 
   // Theme tags
   character.themes.forEach(theme => {
-    theme.tags.forEach(tag => {
+    theme.tags.forEach(tagObj => {
+      const tag = typeof tagObj === 'string' ? tagObj : tagObj.tag;
       const tagValue = `tag:${tag}`;
       if (!seen.has(tagValue)) {
         const isBurned = burnedTags.has(tagValue);

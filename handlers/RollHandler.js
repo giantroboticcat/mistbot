@@ -1,6 +1,7 @@
 import { MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, TextDisplayBuilder } from 'discord.js';
 import { RollView } from '../utils/RollView.js';
 import { RollStorage } from '../utils/RollStorage.js';
+import RollStatus from '../constants/RollStatus.js';
 
 // Role ID that can edit rolls (set via environment variable)
 const ROLL_EDITOR_ROLE_ID = process.env.ROLL_EDITOR_ROLE_ID || null;
@@ -662,7 +663,7 @@ export async function handleRollConfirm(interaction, client) {
 
   // Update the roll with any edits made
   RollStorage.updateRoll(rollId, {
-    status: 'confirmed',
+    status: RollStatus.CONFIRMED,
     helpTags: rollState.helpTags,
     hinderTags: rollState.hinderTags,
     burnedTags: rollState.burnedTags || new Set(),

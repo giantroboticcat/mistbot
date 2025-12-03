@@ -221,7 +221,8 @@ export class RollCommand extends Command {
 
     // Theme tags - yellow tag icon, show which theme
     character.themes.forEach(theme => {
-      theme.tags.forEach(tag => {
+      theme.tags.forEach(tagObj => {
+        const tag = typeof tagObj === 'string' ? tagObj : tagObj.tag;
         if (!seen.has(`tag:${tag}`)) {
           options.push(new StringSelectMenuOptionBuilder()
             .setLabel(`🟡 ${tag}`)
@@ -261,13 +262,29 @@ export class RollCommand extends Command {
     });
 
     // Character temp statuses - green status icon
-    character.tempStatuses.forEach(status => {
-      if (!seen.has(`tempStatus:${status}`)) {
+    character.tempStatuses.forEach(statusObj => {
+      // Extract status name and format with power level
+      let statusDisplay;
+      if (typeof statusObj === 'string') {
+        statusDisplay = statusObj;
+      } else {
+        // Find highest power level
+        let highestPower = 0;
+        for (let p = 6; p >= 1; p--) {
+          if (statusObj.powerLevels && statusObj.powerLevels[p]) {
+            highestPower = p;
+            break;
+          }
+        }
+        statusDisplay = highestPower > 0 ? `${statusObj.status}-${highestPower}` : statusObj.status;
+      }
+      
+      if (!seen.has(`tempStatus:${statusDisplay}`)) {
         options.push(new StringSelectMenuOptionBuilder()
-          .setLabel(`🟢 ${status}`)
-          .setValue(`tempStatus:${status}`)
+          .setLabel(`🟢 ${statusDisplay}`)
+          .setValue(`tempStatus:${statusDisplay}`)
           .setDescription('Character Status'));
-        seen.add(`tempStatus:${status}`);
+        seen.add(`tempStatus:${statusDisplay}`);
       }
     });
 
@@ -308,7 +325,8 @@ export class RollCommand extends Command {
 
     // Add theme weaknesses - orange weakness icon, show which theme
     character.themes.forEach(theme => {
-      theme.weaknesses.forEach(weakness => {
+      theme.weaknesses.forEach(weaknessObj => {
+        const weakness = typeof weaknessObj === 'string' ? weaknessObj : weaknessObj.tag;
         if (!seen.has(`weakness:${weakness}`)) {
           options.push(new StringSelectMenuOptionBuilder()
             .setLabel(`🟠 ${weakness}`)

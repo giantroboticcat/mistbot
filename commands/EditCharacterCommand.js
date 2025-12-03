@@ -189,8 +189,12 @@ export class EditCharacterCommand extends Command {
     for (let i = 0; i < 4; i++) {
       const theme = character.themes[i] || { name: '', tags: [], weaknesses: [] };
       
+      // Extract tag names from objects
+      const tagNames = theme.tags.map(t => typeof t === 'string' ? t : t.tag);
+      const weaknessNames = theme.weaknesses.map(w => typeof w === 'string' ? w : w.tag);
+      
       // Format theme data: "Name | tag1, tag2 | weakness1, weakness2"
-      const themeValue = `${theme.name || ''} | ${theme.tags.join(', ')} | ${theme.weaknesses.join(', ')}`;
+      const themeValue = `${theme.name || ''} | ${tagNames.join(', ')} | ${weaknessNames.join(', ')}`;
       
       const themeInput = new TextInputBuilder()
         .setCustomId(`theme_${i + 1}`)
@@ -252,7 +256,19 @@ export class EditCharacterCommand extends Command {
       .setTextInputComponent(storyTagsInput);
 
     // Statuses input (pre-filled with current statuses)
-    const statusesValue = character.tempStatuses.join(', ');
+    // Format statuses as "name-power" for display
+    const statusesValue = character.tempStatuses.map(s => {
+      if (typeof s === 'string') return s;
+      // Find highest power level
+      let highestPower = 0;
+      for (let p = 6; p >= 1; p--) {
+        if (s.powerLevels && s.powerLevels[p]) {
+          highestPower = p;
+          break;
+        }
+      }
+      return highestPower > 0 ? `${s.status}-${highestPower}` : s.status;
+    }).join(', ');
     
     const statusesInput = new TextInputBuilder()
       .setCustomId('statuses')
