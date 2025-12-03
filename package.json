@@ -10,6 +10,10 @@
     "deploy": "node deploy-commands.js",
     "deploy:guild": "node deploy-commands.js",
     "deploy:global": "GUILD_ID= node deploy-commands.js",
+    "migrate": "node migrate-to-sqlite.js",
+    "migration:run": "node scripts/run-migrations.js",
+    "migration:status": "node scripts/migration-status.js",
+    "migration:create": "node scripts/create-migration.js",
     "pm2:start": "pm2 start ecosystem.config.cjs",
     "pm2:stop": "pm2 stop mistbot",
     "pm2:restart": "pm2 restart mistbot",
@@ -26,6 +30,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "better-sqlite3": "^12.5.0",
     "discord.js": "^14.14.1",
     "dotenv": "^16.4.5"
   },
@@ -36,4 +41,3 @@
     "node": ">=18.0.0"
   }
 }
-

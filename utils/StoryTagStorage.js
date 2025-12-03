@@ -1,17 +1,17 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { db } from './Database.js';
+import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
-
-const STORAGE_FILE = join(process.cwd(), 'data', 'story-tags.json');
 
 /**
  * Storage utility for managing story tags, statuses, and limits per scene (channel/thread)
  */
 export class StoryTagStorage {
   /**
-   * Load scene data from storage file
+   * Legacy load method for backward compatibility (used by migration)
    * @returns {Object} Map of sceneId -> { tags: [], statuses: [], limits: [] }
    */
-  static load() {
+  static loadFromJSON() {
+    const STORAGE_FILE = join(process.cwd(), 'data', 'story-tags.json');
     if (!existsSync(STORAGE_FILE)) {
       return {};
     }
@@ -36,41 +36,44 @@ export class StoryTagStorage {
       }
       return migrated;
     } catch (error) {
-      console.error('Error loading scene data:', error);
+      console.error('Error loading scene data from JSON:', error);
       return {};
     }
   }
 
   /**
-   * Save scene data to storage file
-   * @param {Object} data - Map of sceneId -> { tags: [], statuses: [], limits: [] }
+   * Ensure scene exists in database
+   * @param {string} sceneId - Scene/channel ID
    */
-  static save(data) {
-    // Ensure data directory exists
-    const dataDir = join(process.cwd(), 'data');
-    if (!existsSync(dataDir)) {
-      mkdirSync(dataDir, { recursive: true });
-    }
-
-    try {
-      writeFileSync(STORAGE_FILE, JSON.stringify(data, null, 2), 'utf-8');
-    } catch (error) {
-      console.error('Error saving scene data:', error);
-      throw error;
-    }
+  static ensureScene(sceneId) {
+    const stmt = db.prepare(`
+      INSERT OR IGNORE INTO scenes (id)
+      VALUES (?)
+    `);
+    stmt.run(sceneId);
   }
 
   /**
-   * Get scene data, ensuring it exists
+   * Get scene data
    * @param {string} sceneId - Channel or thread ID
    * @returns {Object} { tags: [], statuses: [], limits: [] }
    */
   static getScene(sceneId) {
-    const data = this.load();
-    if (!data[sceneId]) {
-      data[sceneId] = { tags: [], statuses: [], limits: [] };
-    }
-    return data[sceneId];
+    this.ensureScene(sceneId);
+    
+    const stmt = db.prepare(`
+      SELECT tag, tag_type
+      FROM scene_tags
+      WHERE scene_id = ?
+    `);
+    
+    const allTags = stmt.all(sceneId);
+    
+    return {
+      tags: allTags.filter(t => t.tag_type === 'tag').map(t => t.tag),
+      statuses: allTags.filter(t => t.tag_type === 'status').map(t => t.tag),
+      limits: allTags.filter(t => t.tag_type === 'limit').map(t => t.tag),
+    };
   }
 
   /**
@@ -79,7 +82,8 @@ export class StoryTagStorage {
    * @returns {string[]} Array of tags
    */
   static getTags(sceneId) {
-    return this.getScene(sceneId).tags;
+    const scene = this.getScene(sceneId);
+    return scene.tags;
   }
 
   /**
@@ -88,7 +92,8 @@ export class StoryTagStorage {
    * @returns {string[]} Array of statuses
    */
   static getStatuses(sceneId) {
-    return this.getScene(sceneId).statuses;
+    const scene = this.getScene(sceneId);
+    return scene.statuses;
   }
 
   /**
@@ -97,68 +102,8 @@ export class StoryTagStorage {
    * @returns {string[]} Array of limits
    */
   static getLimits(sceneId) {
-    return this.getScene(sceneId).limits;
-  }
-
-  /**
-   * Helper method to add items to a list (tags, statuses, or limits)
-   * @param {string} sceneId - Channel or thread ID
-   * @param {string} type - 'tags', 'statuses', or 'limits'
-   * @param {string[]} items - Items to add
-   * @returns {string[]} Updated array
-   */
-  static addItems(sceneId, type, items) {
-    const data = this.load();
     const scene = this.getScene(sceneId);
-    const existing = scene[type] || [];
-    
-    // Add new items, removing duplicates (case-insensitive)
-    const itemSet = new Set(existing.map(t => t.toLowerCase()));
-    const newItems = items.filter(item => {
-      const lowerItem = item.trim().toLowerCase();
-      if (!lowerItem) return false; // Skip empty items
-      if (itemSet.has(lowerItem)) return false; // Skip duplicates
-      itemSet.add(lowerItem);
-      return true;
-    });
-
-    // Preserve original case of existing items, add new ones
-    const allItems = [...existing];
-    items.forEach(item => {
-      const trimmed = item.trim();
-      if (trimmed && !existing.some(t => t.toLowerCase() === trimmed.toLowerCase())) {
-        allItems.push(trimmed);
-      }
-    });
-
-    scene[type] = allItems;
-    data[sceneId] = scene;
-    this.save(data);
-    return allItems;
-  }
-
-  /**
-   * Helper method to remove items from a list
-   * @param {string} sceneId - Channel or thread ID
-   * @param {string} type - 'tags', 'statuses', or 'limits'
-   * @param {string[]} items - Items to remove
-   * @returns {string[]} Updated array
-   */
-  static removeItems(sceneId, type, items) {
-    const data = this.load();
-    const scene = this.getScene(sceneId);
-    const existing = scene[type] || [];
-    
-    // Remove items (case-insensitive)
-    const itemsToRemove = new Set(items.map(t => t.trim().toLowerCase()));
-    const updated = existing.filter(item => 
-      !itemsToRemove.has(item.toLowerCase())
-    );
-
-    scene[type] = updated;
-    data[sceneId] = scene;
-    this.save(data);
-    return updated;
+    return scene.limits;
   }
 
   /**
@@ -168,17 +113,35 @@ export class StoryTagStorage {
    * @returns {string[]} Updated array of tags
    */
   static addTags(sceneId, tags) {
-    return this.addItems(sceneId, 'tags', tags);
-  }
-
-  /**
-   * Remove tags from a scene
-   * @param {string} sceneId - Channel or thread ID
-   * @param {string[]} tags - Tags to remove
-   * @returns {string[]} Updated array of tags
-   */
-  static removeTags(sceneId, tags) {
-    return this.removeItems(sceneId, 'tags', tags);
+    this.ensureScene(sceneId);
+    
+    const insertStmt = db.prepare(`
+      INSERT INTO scene_tags (scene_id, tag, tag_type)
+      VALUES (?, ?, 'tag')
+    `);
+    
+    const updateStmt = db.prepare(`
+      UPDATE scenes
+      SET updated_at = strftime('%s', 'now')
+      WHERE id = ?
+    `);
+    
+    const transaction = db.transaction(() => {
+      tags.forEach(tag => {
+        try {
+          insertStmt.run(sceneId, tag);
+        } catch (error) {
+          // Ignore duplicate tag errors
+          if (!error.message.includes('UNIQUE')) {
+            throw error;
+          }
+        }
+      });
+      updateStmt.run(sceneId);
+    });
+    
+    transaction();
+    return this.getTags(sceneId);
   }
 
   /**
@@ -188,17 +151,35 @@ export class StoryTagStorage {
    * @returns {string[]} Updated array of statuses
    */
   static addStatuses(sceneId, statuses) {
-    return this.addItems(sceneId, 'statuses', statuses);
-  }
-
-  /**
-   * Remove statuses from a scene
-   * @param {string} sceneId - Channel or thread ID
-   * @param {string[]} statuses - Statuses to remove
-   * @returns {string[]} Updated array of statuses
-   */
-  static removeStatuses(sceneId, statuses) {
-    return this.removeItems(sceneId, 'statuses', statuses);
+    this.ensureScene(sceneId);
+    
+    const insertStmt = db.prepare(`
+      INSERT INTO scene_tags (scene_id, tag, tag_type)
+      VALUES (?, ?, 'status')
+    `);
+    
+    const updateStmt = db.prepare(`
+      UPDATE scenes
+      SET updated_at = strftime('%s', 'now')
+      WHERE id = ?
+    `);
+    
+    const transaction = db.transaction(() => {
+      statuses.forEach(status => {
+        try {
+          insertStmt.run(sceneId, status);
+        } catch (error) {
+          // Ignore duplicate status errors
+          if (!error.message.includes('UNIQUE')) {
+            throw error;
+          }
+        }
+      });
+      updateStmt.run(sceneId);
+    });
+    
+    transaction();
+    return this.getStatuses(sceneId);
   }
 
   /**
@@ -208,7 +189,97 @@ export class StoryTagStorage {
    * @returns {string[]} Updated array of limits
    */
   static addLimits(sceneId, limits) {
-    return this.addItems(sceneId, 'limits', limits);
+    this.ensureScene(sceneId);
+    
+    const insertStmt = db.prepare(`
+      INSERT INTO scene_tags (scene_id, tag, tag_type)
+      VALUES (?, ?, 'limit')
+    `);
+    
+    const updateStmt = db.prepare(`
+      UPDATE scenes
+      SET updated_at = strftime('%s', 'now')
+      WHERE id = ?
+    `);
+    
+    const transaction = db.transaction(() => {
+      limits.forEach(limit => {
+        try {
+          insertStmt.run(sceneId, limit);
+        } catch (error) {
+          // Ignore duplicate limit errors
+          if (!error.message.includes('UNIQUE')) {
+            throw error;
+          }
+        }
+      });
+      updateStmt.run(sceneId);
+    });
+    
+    transaction();
+    return this.getLimits(sceneId);
+  }
+
+  /**
+   * Remove tags from a scene
+   * @param {string} sceneId - Channel or thread ID
+   * @param {string[]} tags - Tags to remove
+   * @returns {string[]} Updated array of tags
+   */
+  static removeTags(sceneId, tags) {
+    if (tags.length === 0) return this.getTags(sceneId);
+    
+    const deleteStmt = db.prepare(`
+      DELETE FROM scene_tags
+      WHERE scene_id = ? AND tag = ? AND tag_type = 'tag'
+    `);
+    
+    const updateStmt = db.prepare(`
+      UPDATE scenes
+      SET updated_at = strftime('%s', 'now')
+      WHERE id = ?
+    `);
+    
+    const transaction = db.transaction(() => {
+      tags.forEach(tag => {
+        deleteStmt.run(sceneId, tag);
+      });
+      updateStmt.run(sceneId);
+    });
+    
+    transaction();
+    return this.getTags(sceneId);
+  }
+
+  /**
+   * Remove statuses from a scene
+   * @param {string} sceneId - Channel or thread ID
+   * @param {string[]} statuses - Statuses to remove
+   * @returns {string[]} Updated array of statuses
+   */
+  static removeStatuses(sceneId, statuses) {
+    if (statuses.length === 0) return this.getStatuses(sceneId);
+    
+    const deleteStmt = db.prepare(`
+      DELETE FROM scene_tags
+      WHERE scene_id = ? AND tag = ? AND tag_type = 'status'
+    `);
+    
+    const updateStmt = db.prepare(`
+      UPDATE scenes
+      SET updated_at = strftime('%s', 'now')
+      WHERE id = ?
+    `);
+    
+    const transaction = db.transaction(() => {
+      statuses.forEach(status => {
+        deleteStmt.run(sceneId, status);
+      });
+      updateStmt.run(sceneId);
+    });
+    
+    transaction();
+    return this.getStatuses(sceneId);
   }
 
   /**
@@ -218,17 +289,40 @@ export class StoryTagStorage {
    * @returns {string[]} Updated array of limits
    */
   static removeLimits(sceneId, limits) {
-    return this.removeItems(sceneId, 'limits', limits);
+    if (limits.length === 0) return this.getLimits(sceneId);
+    
+    const deleteStmt = db.prepare(`
+      DELETE FROM scene_tags
+      WHERE scene_id = ? AND tag = ? AND tag_type = 'limit'
+    `);
+    
+    const updateStmt = db.prepare(`
+      UPDATE scenes
+      SET updated_at = strftime('%s', 'now')
+      WHERE id = ?
+    `);
+    
+    const transaction = db.transaction(() => {
+      limits.forEach(limit => {
+        deleteStmt.run(sceneId, limit);
+      });
+      updateStmt.run(sceneId);
+    });
+    
+    transaction();
+    return this.getLimits(sceneId);
   }
 
   /**
-   * Clear all data from a scene (tags, statuses, and limits)
+   * Clear all tags, statuses, and limits for a scene
    * @param {string} sceneId - Channel or thread ID
    */
   static clearScene(sceneId) {
-    const data = this.load();
-    delete data[sceneId];
-    this.save(data);
+    const transaction = db.transaction(() => {
+      db.prepare('DELETE FROM scene_tags WHERE scene_id = ?').run(sceneId);
+      db.prepare('DELETE FROM scenes WHERE id = ?').run(sceneId);
+    });
+    
+    transaction();
   }
 }
-
