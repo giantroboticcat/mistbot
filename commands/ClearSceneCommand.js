@@ -43,7 +43,7 @@ export class ClearSceneCommand extends Command {
 
     await interaction.reply({
       content: `Cleared ${parts.join(', ')} from this scene.`,
-        flags: ephemeral ? MessageFlags.Ephemeral : undefined,
+      flags: ephemeral ? MessageFlags.Ephemeral : undefined,
     });
   }
 }

@@ -44,7 +44,7 @@ export class ListSceneStatusCommand extends Command {
 
     await interaction.reply({
       content,
-        flags: ephemeral ? MessageFlags.Ephemeral : undefined,
+      flags: ephemeral ? MessageFlags.Ephemeral : undefined,
     });
   }
 }

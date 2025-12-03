@@ -349,7 +349,7 @@ export async function handleRollBurn(interaction, client) {
   
   if (!hasPermission) {
     await interaction.reply({
-      content: `You don't have permission to edit this roll.`,
+      content: 'You don\'t have permission to edit this roll.',
       flags: MessageFlags.Ephemeral,
     });
     return;

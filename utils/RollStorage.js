@@ -177,7 +177,7 @@ export class RollStorage {
       }
       
       if (updateFields.length > 0) {
-        updateFields.push("updated_at = strftime('%s', 'now')");
+        updateFields.push('updated_at = strftime(\'%s\', \'now\')');
         updateValues.push(rollId);
         
         const updateSql = `UPDATE rolls SET ${updateFields.join(', ')} WHERE id = ?`;

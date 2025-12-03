@@ -50,8 +50,8 @@ export async function handleTagRemovalSelect(interaction, client) {
       ? `\n\n**Selected items:**\n${TagFormatter.formatSceneStatusInCodeBlock(selectedTags, selectedStatuses, selectedLimits)}`
       : '\n\n*No items selected*';
 
-    const content = `**Select items to remove:**\n` +
-      `Use the dropdown below to select multiple tags, statuses, or limits. Then click "Confirm Removal" to remove them.` +
+    const content = '**Select items to remove:**\n' +
+      'Use the dropdown below to select multiple tags, statuses, or limits. Then click "Confirm Removal" to remove them.' +
       selectedText;
 
     await interaction.update({

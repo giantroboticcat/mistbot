@@ -9,6 +9,9 @@ import { ViewCharacterCommand } from './ViewCharacterCommand.js';
 import { RollProposeCommand } from './RollProposeCommand.js';
 import { RollConfirmCommand } from './RollConfirmCommand.js';
 import { RollExecuteCommand } from './RollExecuteCommand.js';
+import { SetSheetUrlCommand } from './SetSheetUrlCommand.js';
+import { SyncToSheetCommand } from './SyncToSheetCommand.js';
+import { SyncFromSheetCommand } from './SyncFromSheetCommand.js';
 
 /**
  * Array of all command classes
@@ -26,5 +29,8 @@ export const commands = [
   new RollProposeCommand(),
   new RollConfirmCommand(),
   new RollExecuteCommand(),
+  new SetSheetUrlCommand(),
+  new SyncToSheetCommand(),
+  new SyncFromSheetCommand(),
 ];
 

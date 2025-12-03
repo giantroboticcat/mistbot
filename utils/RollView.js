@@ -88,7 +88,7 @@ export class RollView {
     }
     const helpFormatted = helpParts.length > 0
       ? `\`\`\`ansi\n${helpParts.join(', ')}\n\`\`\``
-      : `\`\`\`\nNone\n\`\`\``;
+      : '```\nNone\n```';
     
     // Format hinder items (tags, statuses, plus weaknesses)
     const hinderParts = [];
@@ -104,7 +104,7 @@ export class RollView {
     
     const hinderFormatted = hinderParts.length > 0
       ? `\`\`\`ansi\n${hinderParts.join(', ')}\n\`\`\``
-      : `\`\`\`\nNone\n\`\`\``;
+      : '```\nNone\n```';
 
     // Build Components V2 structure
     const components = [];

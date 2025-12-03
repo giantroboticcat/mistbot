@@ -87,6 +87,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await CharacterHandler.handleBurnRefreshButton(interaction, client);
     } else if (interaction.customId.startsWith('retry_create_character_')) {
       await CharacterHandler.handleRetryCreateCharacter(interaction, client);
+    } else if (interaction.customId.startsWith('set_sheet_url_btn_')) {
+      await CharacterHandler.handleSetSheetUrlButton(interaction, client);
+    } else if (interaction.customId.startsWith('sync_to_sheet_')) {
+      await CharacterHandler.handleSyncToSheetButton(interaction, client);
+    } else if (interaction.customId.startsWith('sync_from_sheet_')) {
+      await CharacterHandler.handleSyncFromSheetButton(interaction, client);
     } else {
       // Handle tag removal button
       await TagRemovalHandler.handleTagRemovalButton(interaction, client);
@@ -109,7 +115,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   } else if (interaction.isModalSubmit()) {
     // Handle modal submissions
-    await CharacterHandler.handleModalSubmit(interaction, client);
+    if (interaction.customId.startsWith('set_sheet_url_')) {
+      const { SetSheetUrlCommand } = await import('./commands/SetSheetUrlCommand.js');
+      await SetSheetUrlCommand.handleModalSubmit(interaction);
+    } else {
+      await CharacterHandler.handleModalSubmit(interaction, client);
+    }
   }
 });
 

@@ -457,10 +457,10 @@ export class RollCommand extends Command {
     const helpFormatted = (helpCategorized.tags.length > 0 || 
                           helpCategorized.statuses.length > 0)
       ? TagFormatter.formatSceneStatusInCodeBlock(
-          helpCategorized.tags,
-          helpCategorized.statuses,
-          [] // No limits
-        )
+        helpCategorized.tags,
+        helpCategorized.statuses,
+        [] // No limits
+      )
       : 'None';
     
     // Format hinder items (tags, statuses, plus weaknesses)
@@ -481,7 +481,7 @@ export class RollCommand extends Command {
 
     let content = `**Roll Proposal: ${description}**\n\n`;
     
-    content += `Select tags that help or hinder your roll.\n` +
+    content += 'Select tags that help or hinder your roll.\n' +
       `**Help Tags:**\n${helpFormatted}\n` +
       `**Hinder Tags:**\n${hinderFormatted}\n` +
       `**Power:** ${modifierText}`;

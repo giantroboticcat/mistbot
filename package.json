@@ -14,6 +14,7 @@
     "migration:run": "node scripts/run-migrations.js",
     "migration:status": "node scripts/migration-status.js",
     "migration:create": "node scripts/create-migration.js",
+    "fix:status-powers": "node scripts/fix-status-power-levels.js",
     "pm2:start": "pm2 start ecosystem.config.cjs",
     "pm2:stop": "pm2 stop mistbot",
     "pm2:restart": "pm2 restart mistbot",
@@ -32,7 +33,8 @@
   "dependencies": {
     "better-sqlite3": "^12.5.0",
     "discord.js": "^14.14.1",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "googleapis": "^166.0.0"
   },
   "devDependencies": {
     "eslint": "^8.57.0"

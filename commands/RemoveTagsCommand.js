@@ -109,8 +109,8 @@ export class RemoveTagsCommand extends Command {
           .setStyle(ButtonStyle.Danger)
       );
 
-    const content = `**Select items to remove:**\n` +
-      `Use the dropdown below to select multiple tags, statuses, or limits. Then click "Confirm Removal" to remove them.` +
+    const content = '**Select items to remove:**\n' +
+      'Use the dropdown below to select multiple tags, statuses, or limits. Then click "Confirm Removal" to remove them.' +
       (totalItems > 25 ? `\n\n*Showing first 25 of ${totalItems} items*` : '');
 
     await interaction.reply({

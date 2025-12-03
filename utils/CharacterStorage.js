@@ -1,6 +1,7 @@
 import { db } from './Database.js';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import sheetsService from './GoogleSheetsService.js';
 
 /**
  * Storage utility for managing characters per user
@@ -32,7 +33,7 @@ export class CharacterStorage {
    */
   static getUserCharacters(userId) {
     const stmt = db.prepare(`
-      SELECT id, user_id, name, is_active, created_at, updated_at
+      SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url
       FROM characters
       WHERE user_id = ?
       ORDER BY id
@@ -52,7 +53,7 @@ export class CharacterStorage {
   static loadCharacterRelations(character) {
     // Load themes
     const themesStmt = db.prepare(`
-      SELECT id, name, theme_order
+      SELECT id, name, theme_order, is_burned
       FROM character_themes
       WHERE character_id = ?
       ORDER BY theme_order
@@ -61,7 +62,7 @@ export class CharacterStorage {
     
     // Load tags and weaknesses for each theme
     const tagsStmt = db.prepare(`
-      SELECT tag, is_weakness
+      SELECT tag, is_weakness, is_burned
       FROM character_theme_tags
       WHERE theme_id = ?
     `);
@@ -70,8 +71,15 @@ export class CharacterStorage {
       const allTags = tagsStmt.all(theme.id);
       return {
         name: theme.name,
-        tags: allTags.filter(t => !t.is_weakness).map(t => t.tag),
-        weaknesses: allTags.filter(t => t.is_weakness).map(t => t.tag),
+        isBurned: Boolean(theme.is_burned),
+        tags: allTags.filter(t => !t.is_weakness).map(t => ({ 
+          tag: t.tag, 
+          isBurned: Boolean(t.is_burned) 
+        })),
+        weaknesses: allTags.filter(t => t.is_weakness).map(t => ({ 
+          tag: t.tag, 
+          isBurned: Boolean(t.is_burned) 
+        })),
       };
     });
     
@@ -91,21 +99,23 @@ export class CharacterStorage {
     `);
     character.storyTags = storyTagsStmt.all(character.id).map(row => row.tag);
     
-    // Load statuses
+    // Load statuses with power levels
     const statusesStmt = db.prepare(`
-      SELECT status
+      SELECT status, power_1, power_2, power_3, power_4, power_5, power_6
       FROM character_statuses
       WHERE character_id = ?
     `);
-    character.tempStatuses = statusesStmt.all(character.id).map(row => row.status);
-    
-    // Load burned tags
-    const burnedTagsStmt = db.prepare(`
-      SELECT tag
-      FROM character_burned_tags
-      WHERE character_id = ?
-    `);
-    character.burnedTags = burnedTagsStmt.all(character.id).map(row => row.tag);
+    character.tempStatuses = statusesStmt.all(character.id).map(row => ({
+      status: row.status,
+      powerLevels: {
+        1: Boolean(row.power_1),
+        2: Boolean(row.power_2),
+        3: Boolean(row.power_3),
+        4: Boolean(row.power_4),
+        5: Boolean(row.power_5),
+        6: Boolean(row.power_6),
+      }
+    }));
     
     return character;
   }
@@ -117,7 +127,7 @@ export class CharacterStorage {
    */
   static getActiveCharacterId(userId) {
     const stmt = db.prepare(`
-      SELECT id
+      SELECT id, google_sheet_url
       FROM characters
       WHERE user_id = ? AND is_active = 1
       LIMIT 1
@@ -173,7 +183,7 @@ export class CharacterStorage {
    */
   static getActiveCharacter(userId) {
     const stmt = db.prepare(`
-      SELECT id, user_id, name, is_active, created_at, updated_at
+      SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url
       FROM characters
       WHERE user_id = ? AND is_active = 1
       LIMIT 1
@@ -191,7 +201,7 @@ export class CharacterStorage {
    */
   static getCharacter(userId, characterId) {
     const stmt = db.prepare(`
-      SELECT id, user_id, name, is_active, created_at, updated_at
+      SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url
       FROM characters
       WHERE id = ? AND user_id = ?
     `);
@@ -229,25 +239,33 @@ export class CharacterStorage {
       `);
       
       const insertTag = db.prepare(`
-        INSERT INTO character_theme_tags (theme_id, tag, is_weakness)
-        VALUES (?, ?, ?)
+        INSERT INTO character_theme_tags (theme_id, tag, is_weakness, is_burned)
+        VALUES (?, ?, ?, ?)
       `);
       
       themes.forEach((theme, index) => {
-        const themeResult = insertTheme.run(characterId, theme.name, index);
+        const themeBurned = theme.isBurned ? 1 : 0;
+        const themeResult = db.prepare(`
+          INSERT INTO character_themes (character_id, name, theme_order, is_burned)
+          VALUES (?, ?, ?, ?)
+        `).run(characterId, theme.name, index, themeBurned);
         const themeId = themeResult.lastInsertRowid;
         
         // Insert tags
         if (theme.tags) {
-          theme.tags.forEach(tag => {
-            insertTag.run(themeId, tag, 0);
+          theme.tags.forEach(tagObj => {
+            const tagText = typeof tagObj === 'string' ? tagObj : tagObj.tag;
+            const isBurned = typeof tagObj === 'object' ? (tagObj.isBurned ? 1 : 0) : 0;
+            insertTag.run(themeId, tagText, 0, isBurned);
           });
         }
         
         // Insert weaknesses
         if (theme.weaknesses) {
-          theme.weaknesses.forEach(weakness => {
-            insertTag.run(themeId, weakness, 1);
+          theme.weaknesses.forEach(weaknessObj => {
+            const weaknessText = typeof weaknessObj === 'string' ? weaknessObj : weaknessObj.tag;
+            const isBurned = typeof weaknessObj === 'object' ? (weaknessObj.isBurned ? 1 : 0) : 0;
+            insertTag.run(themeId, weaknessText, 1, isBurned);
           });
         }
       });
@@ -290,28 +308,36 @@ export class CharacterStorage {
         
         // Insert new themes
         const insertTheme = db.prepare(`
-          INSERT INTO character_themes (character_id, name, theme_order)
-          VALUES (?, ?, ?)
+          INSERT INTO character_themes (character_id, name, theme_order, is_burned)
+          VALUES (?, ?, ?, ?)
         `);
         
         const insertTag = db.prepare(`
-          INSERT INTO character_theme_tags (theme_id, tag, is_weakness)
-          VALUES (?, ?, ?)
+          INSERT INTO character_theme_tags (theme_id, tag, is_weakness, is_burned)
+          VALUES (?, ?, ?, ?)
         `);
         
         updates.themes.forEach((theme, index) => {
-          const themeResult = insertTheme.run(characterId, theme.name, index);
+          const themeBurned = theme.isBurned ? 1 : 0;
+          const themeResult = db.prepare(`
+            INSERT INTO character_themes (character_id, name, theme_order, is_burned)
+            VALUES (?, ?, ?, ?)
+          `).run(characterId, theme.name, index, themeBurned);
           const themeId = themeResult.lastInsertRowid;
           
           if (theme.tags) {
-            theme.tags.forEach(tag => {
-              insertTag.run(themeId, tag, 0);
+            theme.tags.forEach(tagObj => {
+              const tagText = typeof tagObj === 'string' ? tagObj : tagObj.tag;
+              const isBurned = typeof tagObj === 'object' ? (tagObj.isBurned ? 1 : 0) : 0;
+              insertTag.run(themeId, tagText, 0, isBurned);
             });
           }
           
           if (theme.weaknesses) {
-            theme.weaknesses.forEach(weakness => {
-              insertTag.run(themeId, weakness, 1);
+            theme.weaknesses.forEach(weaknessObj => {
+              const weaknessText = typeof weaknessObj === 'string' ? weaknessObj : weaknessObj.tag;
+              const isBurned = typeof weaknessObj === 'object' ? (weaknessObj.isBurned ? 1 : 0) : 0;
+              insertTag.run(themeId, weaknessText, 1, isBurned);
             });
           }
         });
@@ -350,26 +376,23 @@ export class CharacterStorage {
         db.prepare('DELETE FROM character_statuses WHERE character_id = ?').run(characterId);
         
         const insertStatus = db.prepare(`
-          INSERT INTO character_statuses (character_id, status)
-          VALUES (?, ?)
+          INSERT INTO character_statuses (character_id, status, power_1, power_2, power_3, power_4, power_5, power_6)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
         
-        updates.tempStatuses.forEach(status => {
-          insertStatus.run(characterId, status);
-        });
-      }
-      
-      // Update burned tags if provided
-      if (updates.burnedTags !== undefined) {
-        db.prepare('DELETE FROM character_burned_tags WHERE character_id = ?').run(characterId);
-        
-        const insertBurned = db.prepare(`
-          INSERT INTO character_burned_tags (character_id, tag)
-          VALUES (?, ?)
-        `);
-        
-        updates.burnedTags.forEach(tag => {
-          insertBurned.run(characterId, tag);
+        updates.tempStatuses.forEach(statusObj => {
+          const statusText = typeof statusObj === 'string' ? statusObj : statusObj.status;
+          const powers = typeof statusObj === 'object' && statusObj.powerLevels ? statusObj.powerLevels : {};
+          insertStatus.run(
+            characterId,
+            statusText,
+            powers[1] ? 1 : 0,
+            powers[2] ? 1 : 0,
+            powers[3] ? 1 : 0,
+            powers[4] ? 1 : 0,
+            powers[5] ? 1 : 0,
+            powers[6] ? 1 : 0
+          );
         });
       }
     });
@@ -392,5 +415,120 @@ export class CharacterStorage {
     
     const result = stmt.run(characterId, userId);
     return result.changes > 0;
+  }
+
+  /**
+   * Set Google Sheet URL for a character
+   * @param {string} userId - Discord user ID
+   * @param {number} characterId - Character ID
+   * @param {string} sheetUrl - Google Sheets URL
+   * @returns {boolean} True if updated, false if not found
+   */
+  static setSheetUrl(userId, characterId, sheetUrl) {
+    const stmt = db.prepare(`
+      UPDATE characters
+      SET google_sheet_url = ?, updated_at = strftime('%s', 'now')
+      WHERE id = ? AND user_id = ?
+    `);
+    
+    const result = stmt.run(sheetUrl, characterId, userId);
+    return result.changes > 0;
+  }
+
+  /**
+   * Get Google Sheet URL for a character
+   * @param {string} userId - Discord user ID
+   * @param {number} characterId - Character ID
+   * @returns {string|null} Sheet URL or null if not set
+   */
+  static getSheetUrl(userId, characterId) {
+    const stmt = db.prepare(`
+      SELECT google_sheet_url
+      FROM characters
+      WHERE id = ? AND user_id = ?
+    `);
+    
+    const result = stmt.get(characterId, userId);
+    return result?.google_sheet_url || null;
+  }
+
+  /**
+   * Sync character data TO Google Sheet
+   * @param {string} userId - Discord user ID
+   * @param {number} characterId - Character ID
+   * @returns {Promise<Object>} Result with success status and message
+   */
+  static async syncToSheet(userId, characterId) {
+    try {
+      // Get character
+      const character = this.getCharacter(userId, characterId);
+      if (!character) {
+        return { success: false, message: 'Character not found' };
+      }
+
+      // Check if sheet URL is set
+      if (!character.google_sheet_url) {
+        return { success: false, message: 'No Google Sheet URL configured for this character. Use /char-set-sheet-url first.' };
+      }
+
+      // Check if sheets service is ready
+      if (!sheetsService.isReady()) {
+        return { success: false, message: 'Google Sheets service not initialized. Check GOOGLE_SHEETS_SETUP.md for setup instructions.' };
+      }
+
+      // Write to sheet
+      await sheetsService.writeCharacterToSheet(character.google_sheet_url, character);
+
+      return { success: true, message: 'Character successfully synced to Google Sheet!' };
+    } catch (error) {
+      console.error('Error syncing to sheet:', error);
+      return { success: false, message: `Failed to sync: ${error.message}` };
+    }
+  }
+
+  /**
+   * Sync character data FROM Google Sheet
+   * @param {string} userId - Discord user ID
+   * @param {number} characterId - Character ID
+   * @returns {Promise<Object>} Result with success status and message
+   */
+  static async syncFromSheet(userId, characterId) {
+    try {
+      // Get character to get sheet URL
+      const character = this.getCharacter(userId, characterId);
+      if (!character) {
+        return { success: false, message: 'Character not found' };
+      }
+
+      // Check if sheet URL is set
+      if (!character.google_sheet_url) {
+        return { success: false, message: 'No Google Sheet URL configured for this character. Use /char-set-sheet-url first.' };
+      }
+
+      // Check if sheets service is ready
+      if (!sheetsService.isReady()) {
+        return { success: false, message: 'Google Sheets service not initialized. Check GOOGLE_SHEETS_SETUP.md for setup instructions.' };
+      }
+
+      // Read from sheet
+      const sheetData = await sheetsService.readCharacterFromSheet(character.google_sheet_url);
+
+      // Update character in database
+      const updates = {
+        name: sheetData.name,
+        themes: sheetData.themes,
+        backpack: sheetData.backpack,
+        storyTags: sheetData.storyTags,
+        tempStatuses: sheetData.tempStatuses,
+        burnedTags: sheetData.burnedTags,
+      };
+
+      this.updateCharacter(userId, characterId, updates);
+
+      return { success: true, message: 'Character successfully synced from Google Sheet!' };
+    } catch (error) {
+      console.error('Error syncing from sheet:', error);
+      return { success: false, message: `Failed to sync: ${error.message}` };
+    }
   }
 }

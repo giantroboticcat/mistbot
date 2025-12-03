@@ -42,8 +42,23 @@ export class EditCharacterCommand extends Command {
     const themeParts = [];
     character.themes.forEach((theme) => {
       if (theme.tags.length > 0 || theme.weaknesses.length > 0) {
-        const formatted = TagFormatter.formatTagsAndWeaknessesInCodeBlock(theme.tags, theme.weaknesses);
-        themeParts.push(`**${theme.name}:**\n${formatted}`);
+        // Extract tag names from objects and wrap burned ones with fire emojis
+        const tagNames = theme.tags.map(t => {
+          const tagText = typeof t === 'string' ? t : t.tag;
+          const isBurned = typeof t === 'object' ? t.isBurned : false;
+          return isBurned ? `🔥${tagText}🔥` : tagText;
+        });
+        const weaknessNames = theme.weaknesses.map(w => {
+          const weakText = typeof w === 'string' ? w : w.tag;
+          const isBurned = typeof w === 'object' ? w.isBurned : false;
+          return isBurned ? `🔥${weakText}🔥` : weakText;
+        });
+        
+        const formatted = TagFormatter.formatTagsAndWeaknessesInCodeBlock(tagNames, weaknessNames);
+        
+        // Wrap burned theme names with fire emojis on both sides
+        const themeName = theme.isBurned ? `🔥${theme.name}🔥` : theme.name;
+        themeParts.push(`**${themeName}:**\n${formatted}`);
       }
     });
 
@@ -72,19 +87,25 @@ export class EditCharacterCommand extends Command {
       }
     }
 
-    // Format burned tags for display
-    const burnedTags = character.burnedTags || [];
-    const burnedTagsDisplay = burnedTags.length > 0 
-      ? burnedTags.map(tag => {
-          // Extract tag name from prefix format (e.g., "theme:name" -> "name")
-          const parts = tag.split(':');
-          return parts.length > 1 ? parts.slice(1).join(':') : tag;
-        }).join(', ')
+    // Format statuses (now objects with {status, powerLevels})
+    const statusDisplay = character.tempStatuses.length > 0 
+      ? character.tempStatuses.map(s => {
+        if (typeof s === 'string') return s;
+        // Find highest power level
+        let highestPower = 0;
+        for (let p = 6; p >= 1; p--) {
+          if (s.powerLevels && s.powerLevels[p]) {
+            highestPower = p;
+            break;
+          }
+        }
+        return highestPower > 0 ? `${s.status}-${highestPower}` : s.status;
+      }).join(', ')
       : 'None';
     
     const content = `**Character: ${character.name}**${ownerInfo}\n\n` +
       themeParts.join('\n\n') +
-      `\n\n*Backpack: ${character.backpack.length > 0 ? character.backpack.join(', ') : 'Empty'}*\n*Story Tags: ${character.storyTags.length > 0 ? character.storyTags.join(', ') : 'None'}*\n*Statuses: ${character.tempStatuses.length > 0 ? character.tempStatuses.join(', ') : 'None'}*\n*🔥 Burned Tags: ${burnedTagsDisplay}*`;
+      `\n\n*Backpack: ${character.backpack.length > 0 ? character.backpack.join(', ') : 'Empty'}*\n*Story Tags: ${character.storyTags.length > 0 ? character.storyTags.join(', ') : 'None'}*\n*Statuses: ${statusDisplay}*`;
 
     if (showEditButtons) {
       // Create edit buttons
@@ -103,11 +124,31 @@ export class EditCharacterCommand extends Command {
         .setLabel('Burn/Refresh Tags')
         .setStyle(ButtonStyle.Secondary);
 
-      const buttonRow = new ActionRowBuilder().setComponents([editButton, backpackButton, burnRefreshButton]);
+      const buttonRow1 = new ActionRowBuilder().setComponents([editButton, backpackButton, burnRefreshButton]);
+
+      // Create sync buttons (second row)
+      const setSheetButton = new ButtonBuilder()
+        .setCustomId(`set_sheet_url_btn_${character.id}`)
+        .setLabel('🔗 Set Sheet URL')
+        .setStyle(ButtonStyle.Secondary);
+
+      const syncToButton = new ButtonBuilder()
+        .setCustomId(`sync_to_sheet_${character.id}`)
+        .setLabel('📤 Sync to Sheet')
+        .setStyle(ButtonStyle.Success)
+        .setDisabled(!character.google_sheet_url); // Disable if no URL set
+
+      const syncFromButton = new ButtonBuilder()
+        .setCustomId(`sync_from_sheet_${character.id}`)
+        .setLabel('📥 Sync from Sheet')
+        .setStyle(ButtonStyle.Success)
+        .setDisabled(!character.google_sheet_url); // Disable if no URL set
+
+      const buttonRow2 = new ActionRowBuilder().setComponents([setSheetButton, syncToButton, syncFromButton]);
 
       await interaction.reply({
         content,
-        components: [buttonRow],
+        components: [buttonRow1, buttonRow2],
         flags: MessageFlags.Ephemeral,
       });
     } else {
@@ -154,7 +195,7 @@ export class EditCharacterCommand extends Command {
       const themeInput = new TextInputBuilder()
         .setCustomId(`theme_${i + 1}`)
         .setStyle(TextInputStyle.Paragraph)
-        .setPlaceholder(`Theme Name | tag1, tag2 | weakness1, weakness2`)
+        .setPlaceholder('Theme Name | tag1, tag2 | weakness1, weakness2')
         .setValue(themeValue || '')
         .setRequired(true)
         .setMaxLength(1000);
@@ -178,7 +219,7 @@ export class EditCharacterCommand extends Command {
   static async showEditBackpackModal(interaction, character) {
     const modal = new ModalBuilder()
       .setCustomId(`edit_backpack_modal_${character.id}`)
-      .setTitle(`Edit Backpack, Story Tags & Statuses`);
+      .setTitle('Edit Backpack, Story Tags & Statuses');
 
     // Backpack items input (pre-filled with current items)
     const backpackValue = character.backpack.join(', ');

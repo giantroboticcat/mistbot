@@ -2,6 +2,9 @@ import { MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelec
 import { CharacterStorage } from '../utils/CharacterStorage.js';
 import { CreateCharacterCommand } from '../commands/CreateCharacterCommand.js';
 import { EditCharacterCommand } from '../commands/EditCharacterCommand.js';
+import { SetSheetUrlCommand } from '../commands/SetSheetUrlCommand.js';
+import { SyncToSheetCommand } from '../commands/SyncToSheetCommand.js';
+import { SyncFromSheetCommand } from '../commands/SyncFromSheetCommand.js';
 import { TagFormatter } from '../utils/TagFormatter.js';
 import { Validation } from '../utils/Validation.js';
 
@@ -112,7 +115,7 @@ export async function handleModalSubmit(interaction, client) {
 
     const content = `**Character Created: ${character.name}**\n\n` +
       themeParts.join('\n\n') +
-      `\n\n*Backpack: Empty*\n*Statuses: None*`;
+      '\n\n*Backpack: Empty*\n*Statuses: None*';
 
     await interaction.reply({
       content,
@@ -656,5 +659,43 @@ export async function handleCharLookupAutocomplete(interaction) {
       }))
     );
   }
+}
+
+/**
+ * Handle "Set Sheet URL" button click (show modal)
+ */
+export async function handleSetSheetUrlButton(interaction, client) {
+  const characterId = parseInt(interaction.customId.split('_').pop());
+  const userId = interaction.user.id;
+  
+  const activeCharacter = CharacterStorage.getActiveCharacter(userId);
+  
+  if (!activeCharacter) {
+    await interaction.reply({
+      content: 'Character not found.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Show the set sheet URL modal
+  const SetSheetUrlCmd = new SetSheetUrlCommand();
+  await SetSheetUrlCmd.execute(interaction);
+}
+
+/**
+ * Handle "Sync to Sheet" button click
+ */
+export async function handleSyncToSheetButton(interaction, client) {
+  const characterId = parseInt(interaction.customId.split('_').pop());
+  await SyncToSheetCommand.handleButton(interaction, characterId);
+}
+
+/**
+ * Handle "Sync from Sheet" button click
+ */
+export async function handleSyncFromSheetButton(interaction, client) {
+  const characterId = parseInt(interaction.customId.split('_').pop());
+  await SyncFromSheetCommand.handleButton(interaction, characterId);
 }
 
