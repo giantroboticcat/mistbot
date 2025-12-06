@@ -120,5 +120,55 @@ export class Validation {
       errors: errors.length > 0 ? errors : undefined,
     };
   }
+
+  /**
+   * Validate a Discord message link
+   * Discord message links have the format:
+   * - https://discord.com/channels/{guild_id}/{channel_id}/{message_id} (server messages)
+   * - https://discord.com/channels/@me/{channel_id}/{message_id} (DMs)
+   * @param {string} link - The Discord message link to validate
+   * @returns {{ valid: boolean, error?: string }}
+   */
+  static validateDiscordMessageLink(link) {
+    if (!link || typeof link !== 'string') {
+      return { valid: false, error: 'Discord message link cannot be empty' };
+    }
+
+    const trimmed = link.trim();
+    
+    // Check if it starts with https://discord.com/channels/
+    if (!trimmed.startsWith('https://discord.com/channels/')) {
+      return { 
+        valid: false, 
+        error: 'Invalid link format' 
+      };
+    }
+
+    // Remove the base URL to get the path
+    const path = trimmed.replace('https://discord.com/channels/', '');
+    
+    // Check for DM format: @me/{channel_id}/{message_id}
+    if (path.startsWith('@me/')) {
+      const dmPattern = /^@me\/\d+\/\d+$/;
+      if (!dmPattern.test(path)) {
+        return { 
+          valid: false, 
+          error: 'Invalid DM message link format. Expected: https://discord.com/channels/@me/{channel_id}/{message_id}' 
+        };
+      }
+      return { valid: true };
+    }
+    
+    // Check for server message format: {guild_id}/{channel_id}/{message_id}
+    const serverPattern = /^\d+\/\d+\/\d+$/;
+    if (!serverPattern.test(path)) {
+      return { 
+        valid: false, 
+        error: 'Invalid server message link format. Expected: https://discord.com/channels/{guild_id}/{channel_id}/{message_id}' 
+      };
+    }
+
+    return { valid: true };
+  }
 }
 

@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import { commands } from './commands/index.js';
 import * as TagRemovalHandler from './handlers/TagRemovalHandler.js';
 import * as CharacterHandler from './handlers/CharacterHandler.js';
+import * as FellowshipHandler from './handlers/FellowshipHandler.js';
 import * as RollHandler from './handlers/RollHandler.js';
 
 // Load environment variables
@@ -49,6 +50,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
     
     if (commandName === 'char-lookup') {
       await CharacterHandler.handleCharLookupAutocomplete(interaction);
+    } else if (commandName === 'fellowship-lookup') {
+      await FellowshipHandler.handleFellowshipLookupAutocomplete(interaction);
     }
   } else if (interaction.isChatInputCommand()) {
     const command = commandMap.get(interaction.commandName);
@@ -73,6 +76,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // Handle button interactions
     if (interaction.customId.startsWith('roll_submit_')) {
       await RollHandler.handleRollSubmit(interaction, client);
+    } else if (interaction.customId.startsWith('roll_edit_justification_')) {
+      await RollHandler.handleEditJustification(interaction, client);
     } else if (interaction.customId.startsWith('roll_confirm_')) {
       await RollHandler.handleRollConfirm(interaction, client);
     } else if (interaction.customId.startsWith('roll_now_')) {
@@ -115,7 +120,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   } else if (interaction.isModalSubmit()) {
     // Handle modal submissions
-    if (interaction.customId.startsWith('set_sheet_url_')) {
+    if (interaction.customId.startsWith('roll_justification_modal_')) {
+      await RollHandler.handleJustificationModal(interaction, client);
+    } else if (interaction.customId.startsWith('set_sheet_url_')) {
       await CharacterHandler.handleSetSheetUrlModal(interaction);
     } else {
       await CharacterHandler.handleModalSubmit(interaction, client);

@@ -1,5 +1,6 @@
 import { db } from './Database.js';
 import sheetsService from './GoogleSheetsService.js';
+import { FellowshipStorage } from './FellowshipStorage.js';
 
 /**
  * Storage utility for managing characters per user
@@ -13,7 +14,7 @@ export class CharacterStorage {
    */
   static getUserCharacters(userId) {
     const stmt = db.prepare(`
-      SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url
+      SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url, fellowship_id
       FROM characters
       WHERE user_id = ?
       ORDER BY id
@@ -97,6 +98,13 @@ export class CharacterStorage {
       }
     }));
     
+    // Load fellowship if assigned
+    if (character.fellowship_id) {
+      character.fellowship = FellowshipStorage.getFellowship(character.fellowship_id);
+    } else {
+      character.fellowship = null;
+    }
+    
     return character;
   }
 
@@ -107,7 +115,7 @@ export class CharacterStorage {
    */
   static getActiveCharacterId(userId) {
     const stmt = db.prepare(`
-      SELECT id, google_sheet_url
+      SELECT id, google_sheet_url, fellowship_id
       FROM characters
       WHERE user_id = ? AND is_active = 1
       LIMIT 1
@@ -163,7 +171,7 @@ export class CharacterStorage {
    */
   static getActiveCharacter(userId) {
     const stmt = db.prepare(`
-      SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url
+      SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url, fellowship_id
       FROM characters
       WHERE user_id = ? AND is_active = 1
       LIMIT 1
@@ -181,13 +189,31 @@ export class CharacterStorage {
    */
   static getCharacter(userId, characterId) {
     const stmt = db.prepare(`
-      SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url
+      SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url, fellowship_id
       FROM characters
       WHERE id = ? AND user_id = ?
     `);
     
     const character = stmt.get(characterId, userId);
     return character ? this.loadCharacterRelations(character) : null;
+  }
+
+  /**
+   * Set fellowship for a character
+   * @param {string} userId - Discord user ID
+   * @param {number} characterId - Character ID
+   * @param {number|null} fellowshipId - Fellowship ID to assign, or null to remove
+   * @returns {boolean} True if updated, false if not found
+   */
+  static setFellowship(userId, characterId, fellowshipId) {
+    const stmt = db.prepare(`
+      UPDATE characters
+      SET fellowship_id = ?, updated_at = strftime('%s', 'now')
+      WHERE id = ? AND user_id = ?
+    `);
+    
+    const result = stmt.run(fellowshipId, characterId, userId);
+    return result.changes > 0;
   }
 
   /**
@@ -493,6 +519,17 @@ export class CharacterStorage {
       // Read from sheet
       const sheetData = await sheetsService.readCharacterFromSheet(character.google_sheet_url);
 
+      // Look up fellowship if fellowship name is provided
+      let fellowshipId = null;
+      if (sheetData.fellowshipName) {
+        const fellowship = FellowshipStorage.getFellowshipByName(sheetData.fellowshipName);
+        if (fellowship) {
+          fellowshipId = fellowship.id;
+        } else {
+          console.warn(`Fellowship "${sheetData.fellowshipName}" not found in database. Character will not be assigned to a fellowship.`);
+        }
+      }
+
       // Update character in database
       const updates = {
         name: sheetData.name,
@@ -503,7 +540,15 @@ export class CharacterStorage {
         burnedTags: sheetData.burnedTags,
       };
 
-      this.updateCharacter(userId, characterId, updates);
+      const updatedCharacter = this.updateCharacter(userId, characterId, updates);
+      
+      // Set fellowship if found
+      if (fellowshipId !== null) {
+        this.setFellowship(userId, characterId, fellowshipId);
+      } else if (updatedCharacter && updatedCharacter.fellowship_id) {
+        // If no fellowship name in sheet but character has one, remove it
+        this.setFellowship(userId, characterId, null);
+      }
 
       return { success: true, message: 'Character successfully synced from Google Sheet!' };
     } catch (error) {

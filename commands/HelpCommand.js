@@ -21,12 +21,13 @@ export class HelpCommand extends Command {
     embed.addFields({
       name: '👤 Character Management',
       value: 
-        '`/char-create` - Create a new character with 4 themes\n' +
-        '  • Optional: Use `sheet-url` parameter to import from Google Sheets\n' +
+        '`/char-create` - Create a new character by importing from Google Sheets\n' +
         '`/char-edit` - Edit your active character (name, themes, backpack, statuses)\n' +
         '`/char-select` - Switch between your characters\n' +
         '`/char-lookup` - View any character by name (yours or others)\n' +
-        '  • Use autocomplete to search by character name',
+        '  • Use autocomplete to search by character name\n' +
+        '`/fellowship-lookup` - View a fellowship by name\n' +
+        '  • Shows fellowship tags and weaknesses',
       inline: false,
     });
 
@@ -46,7 +47,7 @@ export class HelpCommand extends Command {
       name: '🎲 Roll System',
       value:
         '`/roll-propose` - Propose a roll with help/hinder tags\n' +
-        '  • Select from your character tags, statuses, and scene tags\n' +
+        '  • Select from your character tags, statuses, scene tags, and fellowship tags\n' +
         '  • Can burn tags for extra power\n' +
         '`/roll-confirm` - Confirm/edit a proposed roll (narrator only)\n' +
         '`/roll-execute` - Execute a confirmed roll and roll the dice',
@@ -81,4 +82,3 @@ export class HelpCommand extends Command {
     await interaction.reply({ embeds: [embed], ephemeral: true });
   }
 }
-

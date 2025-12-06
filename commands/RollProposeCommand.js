@@ -4,6 +4,8 @@ import { CharacterStorage } from '../utils/CharacterStorage.js';
 import { StoryTagStorage } from '../utils/StoryTagStorage.js';
 import { RollStorage } from '../utils/RollStorage.js';
 import { RollView } from '../utils/RollView.js';
+import { Validation } from '../utils/Validation.js';
+import { combineRollComponents } from '../handlers/RollHandler.js';
 
 /**
  * Propose a roll for narrator approval
@@ -17,6 +19,11 @@ export class RollProposeCommand extends Command {
         option
           .setName('description')
           .setDescription('What this roll is for')
+          .setRequired(true))
+      .addStringOption(option =>
+        option
+          .setName('narration-link')
+          .setDescription('Discord link to narration describing why this roll is being made')
           .setRequired(true));
   }
 
@@ -28,7 +35,7 @@ export class RollProposeCommand extends Command {
     const character = CharacterStorage.getActiveCharacter(userId);
     if (!character) {
       await interaction.reply({
-        content: 'You don\'t have an active character. Use `/char-create` to create one.',
+        content: 'You don\'t have an active character. Use `/char-create` to import from Google Sheets, or `/char-select` to select an active character.',
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -40,6 +47,19 @@ export class RollProposeCommand extends Command {
     }
 
     const description = interaction.options.getString('description', true);
+    const narrationLink = interaction.options.getString('narration-link');
+    
+    // Validate narration link if provided
+    if (narrationLink) {
+      const linkValidation = Validation.validateDiscordMessageLink(narrationLink);
+      if (!linkValidation.valid) {
+        await interaction.reply({
+          content: `❌ Invalid narration link\n\nPlease provide a valid Discord message link in the format:\n\`https://discord.com/channels/{guild_id}/{channel_id}/{message_id}\``,
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+    }
     
     // Exclude burned tags from roll selection (they can't be used until refreshed)
     // Collect all available tags for help dropdown (exclude burned tags)
@@ -62,13 +82,15 @@ export class RollProposeCommand extends Command {
       hinderTags: initialHinderTags,
       burnedTags: initialBurnedTags,
       description: description,
+      narrationLink: narrationLink || null,
+      justificationNotes: null, // Will be filled in via modal
       helpOptions: helpOptions,
       hinderOptions: hinderOptions,
       helpPage: 0,
       hinderPage: 0,
     });
 
-    const components = RollView.buildRollComponents(tempRollKey, helpOptions, hinderOptions, 0, 0, initialHelpTags, initialHinderTags, false, initialBurnedTags);
+    const interactiveComponents = RollView.buildRollComponents(tempRollKey, helpOptions, hinderOptions, 0, 0, initialHelpTags, initialHinderTags, false, initialBurnedTags, null);
 
     // Add a "Submit Proposal" button instead of "Roll Now"
     const submitButton = new ButtonBuilder()
@@ -81,12 +103,12 @@ export class RollProposeCommand extends Command {
       .setLabel('Cancel')
       .setStyle(ButtonStyle.Secondary);
     
-    components.push(new ActionRowBuilder().setComponents([submitButton, cancelButton]));
+    interactiveComponents.submitRows.push(new ActionRowBuilder().setComponents([submitButton, cancelButton]));
 
-    const displayData = RollView.formatRollProposalContent(initialHelpTags, initialHinderTags, description, true, initialBurnedTags);
+    const displayData = RollView.formatRollProposalContent(initialHelpTags, initialHinderTags, description, true, initialBurnedTags, { narrationLink, showJustificationPlaceholder: true });
 
-    // Combine Components V2 display components with interactive components
-    const allComponents = [...(displayData.components || []), ...components];
+    // Combine Components V2 display components with interactive components in the right order
+    const allComponents = combineRollComponents(displayData, interactiveComponents);
 
     await interaction.reply({
       components: allComponents,

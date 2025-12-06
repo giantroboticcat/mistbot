@@ -239,6 +239,9 @@ export class GoogleSheetsService {
     // Character name
     cellsToRead.push('P4');
     
+    // Fellowship name (AC4)
+    cellsToRead.push('AC4');
+    
     // Theme configurations
     const themeConfigs = [
       { nameCell: 'BF7', nameBurnedCell: 'BM7', tagStartCol: 'BC', tagStartRow: 8, burnedCol: 'BM', weaknessCells: ['BC16', 'BC17'] },
@@ -294,6 +297,9 @@ export class GoogleSheetsService {
     if (!character.name) {
       throw new Error('Character name is empty - invalid sheet');
     }
+    
+    // Fellowship name (AC4) - may be empty
+    character.fellowshipName = cellValues['AC4'] || null;
 
     // Parse themes
     character.themes = [];
@@ -515,6 +521,76 @@ export class GoogleSheetsService {
     if (!value) return false;
     const str = String(value).toLowerCase().trim();
     return str === 'true' || str === '1' || str === 'x';
+  }
+
+  /**
+   * Read fellowship data from Google Sheet
+   * Cell AC4:AM4 has the fellowship name (merged cells, read only AC4)
+   * Cells AC7:AL7 through AC13:AL13 have power tags for the fellowship (merged cells, read only first cell of each row)
+   * AC16:AM16 and AC17:AM17 have the weaknesses for the fellowship (merged cells, read only first cell of each row)
+   */
+  async readFellowshipFromSheet(sheetUrl) {
+    if (!this.isReady()) {
+      throw new Error('Google Sheets service not initialized');
+    }
+
+    const parsed = this.parseSpreadsheetUrl(sheetUrl);
+    if (!parsed) {
+      throw new Error('Invalid Google Sheets URL');
+    }
+    
+    const { spreadsheetId, gid } = parsed;
+    const sheetName = gid ? await this.getSheetNameFromGid(spreadsheetId, gid) : null;
+
+    // Build list of cells to read (only first cell of each merged range)
+    const cellsToRead = [];
+    
+    // Fellowship name: AC4:AM4 (merged cells, read only AC4)
+    cellsToRead.push('AC4');
+    
+    // Power tags: AC7:AL7 through AC13:AL13 (7 rows, merged cells per row, read only AC column)
+    for (let row = 7; row <= 13; row++) {
+      cellsToRead.push(`AC${row}`);
+    }
+    
+    // Weaknesses: AC16:AM16 and AC17:AM17 (2 rows, merged cells per row, read only AC column)
+    for (let row = 16; row <= 17; row++) {
+      cellsToRead.push(`AC${row}`);
+    }
+
+    // Read all cells in one batch request
+    const cellValues = await this.batchReadCells(spreadsheetId, cellsToRead, sheetName);
+
+    // Parse fellowship data from batch results
+    const fellowship = {};
+    
+    // Fellowship name (from AC4, merged across AC4:AM4)
+    fellowship.name = cellValues['AC4'] || '';
+    if (!fellowship.name) {
+      throw new Error('Fellowship name is empty - invalid sheet');
+    }
+
+    // Parse power tags (AC7:AL7 through AC13:AL13, merged cells per row)
+    fellowship.tags = [];
+    for (let row = 7; row <= 13; row++) {
+      const cell = `AC${row}`;
+      const tag = cellValues[cell];
+      if (tag && tag.trim()) {
+        fellowship.tags.push(tag.trim());
+      }
+    }
+
+    // Parse weaknesses (AC16:AM16 and AC17:AM17, merged cells per row)
+    fellowship.weaknesses = [];
+    for (let row = 16; row <= 17; row++) {
+      const cell = `AC${row}`;
+      const weakness = cellValues[cell];
+      if (weakness && weakness.trim()) {
+        fellowship.weaknesses.push(weakness.trim());
+      }
+    }
+
+    return fellowship;
   }
 }
 

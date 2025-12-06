@@ -5,6 +5,7 @@ import RollStatus from '../constants/RollStatus.js';
 import { RollView } from '../utils/RollView.js';
 import { CharacterStorage } from '../utils/CharacterStorage.js';
 import { StoryTagStorage } from '../utils/StoryTagStorage.js';
+import { combineRollComponents } from '../handlers/RollHandler.js';
 
 /**
  * Confirm a roll proposal (narrator only)
@@ -100,14 +101,16 @@ export class RollConfirmCommand extends Command {
       hinderTags: roll.hinderTags,
       burnedTags: burnedTags,
       description: roll.description,
+      narrationLink: roll.narrationLink,
+      justificationNotes: roll.justificationNotes,
       helpOptions: helpOptions,
       hinderOptions: hinderOptions,
       helpPage: 0,
       hinderPage: 0,
     });
 
-    // Build components for editing
-    const components = RollView.buildRollComponents(rollKey, helpOptions, hinderOptions, 0, 0, roll.helpTags, roll.hinderTags, false, burnedTags);
+    // Build components for editing (don't show justification button in confirm view)
+    const interactiveComponents = RollView.buildRollComponents(rollKey, helpOptions, hinderOptions, 0, 0, roll.helpTags, roll.hinderTags, false, burnedTags, roll.justificationNotes, false);
 
     // Add confirm button
     const confirmButton = new ButtonBuilder()
@@ -115,7 +118,7 @@ export class RollConfirmCommand extends Command {
       .setLabel('Confirm Roll')
       .setStyle(ButtonStyle.Success);
     
-    components.push(new ActionRowBuilder().setComponents([confirmButton]));
+    interactiveComponents.submitRows.push(new ActionRowBuilder().setComponents([confirmButton]));
 
     const displayData = RollView.formatRollProposalContent(
       roll.helpTags, 
@@ -126,12 +129,13 @@ export class RollConfirmCommand extends Command {
       {
         title: `Reviewing Roll Proposal #${rollId}`,
         descriptionText: `**Player:** <@${roll.creatorId}>`,
-        footer: 'You can edit the tags above before confirming.'
+        narrationLink: roll.narrationLink,
+        justificationNotes: roll.justificationNotes,
       }
     );
 
-    // Combine Components V2 display components with interactive components
-    const allComponents = [...(displayData.components || []), ...components];
+    // Combine Components V2 display components with interactive components in the right order
+    const allComponents = combineRollComponents(displayData, interactiveComponents);
 
     await interaction.reply({
       components: allComponents,

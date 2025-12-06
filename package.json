@@ -15,6 +15,7 @@
     "migration:status": "node scripts/migration-status.js",
     "migration:create": "node scripts/create-migration.js",
     "fix:status-powers": "node scripts/fix-status-power-levels.js",
+    "sync:fellowship": "node scripts/sync-fellowship.js",
     "pm2:start": "pm2 start ecosystem.config.cjs",
     "pm2:stop": "pm2 stop mistbot",
     "pm2:restart": "pm2 restart mistbot",

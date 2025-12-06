@@ -25,15 +25,17 @@ export class RollStorage {
     const transaction = db.transaction(() => {
       // Insert roll
       const insertRoll = db.prepare(`
-        INSERT INTO rolls (creator_id, character_id, scene_id, description, status)
-        VALUES (?, ?, ?, ?, 'proposed')
+        INSERT INTO rolls (creator_id, character_id, scene_id, description, narration_link, justification_notes, status)
+        VALUES (?, ?, ?, ?, ?, ?, 'proposed')
       `);
       
       const result = insertRoll.run(
         rollData.creatorId,
         rollData.characterId || null,
         rollData.sceneId,
-        rollData.description || null
+        rollData.description || null,
+        rollData.narrationLink || null,
+        rollData.justificationNotes || null
       );
       
       const rollId = result.lastInsertRowid;
@@ -83,7 +85,7 @@ export class RollStorage {
    */
   static getRoll(rollId) {
     const stmt = db.prepare(`
-      SELECT id, creator_id, character_id, scene_id, description, status, confirmed_by, created_at, updated_at
+      SELECT id, creator_id, character_id, scene_id, description, narration_link, justification_notes, status, confirmed_by, created_at, updated_at
       FROM rolls
       WHERE id = ?
     `);
@@ -121,6 +123,8 @@ export class RollStorage {
       characterId: roll.character_id,
       sceneId: roll.scene_id,
       description: roll.description,
+      narrationLink: roll.narration_link,
+      justificationNotes: roll.justification_notes,
       status: roll.status,
       confirmedBy: roll.confirmed_by,
       createdAt: roll.created_at,
@@ -157,6 +161,14 @@ export class RollStorage {
       if (updates.description !== undefined) {
         updateFields.push('description = ?');
         updateValues.push(updates.description);
+      }
+      if (updates.narrationLink !== undefined) {
+        updateFields.push('narration_link = ?');
+        updateValues.push(updates.narrationLink);
+      }
+      if (updates.justificationNotes !== undefined) {
+        updateFields.push('justification_notes = ?');
+        updateValues.push(updates.justificationNotes);
       }
       
       if (updates.confirmedBy !== undefined) {

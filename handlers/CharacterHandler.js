@@ -1,5 +1,6 @@
 import { MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
 import { CharacterStorage } from '../utils/CharacterStorage.js';
+import { db } from '../utils/Database.js';
 import { CreateCharacterCommand } from '../commands/CreateCharacterCommand.js';
 import { EditCharacterCommand } from '../commands/EditCharacterCommand.js';
 import { TagFormatter } from '../utils/TagFormatter.js';
@@ -11,6 +12,17 @@ import { Validation } from '../utils/Validation.js';
 export async function handleModalSubmit(interaction, client) {
   const customId = interaction.customId;
 
+  if (customId === 'create_character_modal') {
+    // Modal-based character creation is disabled - use /char-create with sheet-url instead
+    await interaction.reply({
+      content: '❌ Character creation via modal is disabled. Please use `/char-create` with a Google Sheets URL to import a character.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+  
+  // Legacy modal creation code (disabled - kept for reference)
+  /*
   if (customId === 'create_character_modal') {
     const userId = interaction.user.id;
     const name = interaction.fields.getTextInputValue('character_name');
@@ -118,7 +130,10 @@ export async function handleModalSubmit(interaction, client) {
       content,
       flags: MessageFlags.Ephemeral,
     });
-  } else if (customId.startsWith('edit_character_modal_')) {
+  }
+  */
+  
+  if (customId.startsWith('edit_character_modal_')) {
     // Handle character edit modal submission
     const characterId = parseInt(customId.split('_')[3]);
     const userId = interaction.user.id;
@@ -622,26 +637,20 @@ export async function handleCharLookupAutocomplete(interaction) {
   if (focusedOption.name === 'character') {
     const searchValue = focusedOption.value.toLowerCase();
     
-    // Get all characters from all users
-    const allData = CharacterStorage.load();
-    const allCharacters = [];
+    // Get all characters from database
+    const stmt = db.prepare(`
+      SELECT id, user_id, name
+      FROM characters
+      WHERE name LIKE ?
+      ORDER BY name
+      LIMIT 25
+    `);
     
-    for (const [userId, userData] of Object.entries(allData)) {
-      if (userData && userData.characters) {
-        userData.characters.forEach(char => {
-          allCharacters.push({
-            ...char,
-            ownerId: userId,
-          });
-        });
-      }
-    }
+    const allCharacters = stmt.all(`%${searchValue}%`);
     
-    // Filter and sort by name match
+    // Sort by relevance (starts with > contains)
     const matching = allCharacters
-      .filter(char => char.name.toLowerCase().includes(searchValue))
       .sort((a, b) => {
-        // Prioritize exact matches, then starts with, then contains
         const aStartsWith = a.name.toLowerCase().startsWith(searchValue);
         const bStartsWith = b.name.toLowerCase().startsWith(searchValue);
         if (aStartsWith && !bStartsWith) return -1;
@@ -653,7 +662,7 @@ export async function handleCharLookupAutocomplete(interaction) {
     await interaction.respond(
       matching.map(char => ({
         name: char.name,
-        value: `${char.ownerId}:${char.id}`, // Encode ownerId:characterId
+        value: `${char.user_id}:${char.id}`, // Encode ownerId:characterId
       }))
     );
   }

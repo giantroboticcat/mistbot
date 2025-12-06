@@ -18,7 +18,7 @@ export class SelectCharacterCommand extends Command {
 
     if (characters.length === 0) {
       await interaction.reply({
-        content: 'You don\'t have any characters yet. Use `/char-create` to create one.',
+        content: 'You don\'t have any characters yet. Use `/char-create` with a Google Sheets URL to import a character.',
         flags: MessageFlags.Ephemeral,
       });
       return;

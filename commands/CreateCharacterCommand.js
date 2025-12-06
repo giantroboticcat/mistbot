@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, LabelBuilder } from 'discord.js';
 import { Command } from './Command.js';
 import { CharacterStorage } from '../utils/CharacterStorage.js';
+import { FellowshipStorage } from '../utils/FellowshipStorage.js';
 import { TagFormatter } from '../utils/TagFormatter.js';
 import sheetsService from '../utils/GoogleSheetsService.js';
 
@@ -11,25 +12,19 @@ export class CreateCharacterCommand extends Command {
   getData() {
     return new SlashCommandBuilder()
       .setName('char-create')
-      .setDescription('Create a new character with 4 themes')
+      .setDescription('Create a new character by importing from Google Sheets')
       .addStringOption(option =>
         option
           .setName('sheet-url')
-          .setDescription('Optional: Google Sheets URL to import character from')
-          .setRequired(false));
+          .setDescription('Google Sheets URL to import character from')
+          .setRequired(true));
   }
 
   async execute(interaction) {
-    const sheetUrl = interaction.options.getString('sheet-url');
+    const sheetUrl = interaction.options.getString('sheet-url', true);
     
-    // If sheet URL provided, import from sheet
-    if (sheetUrl) {
-      await this.createFromSheet(interaction, sheetUrl);
-      return;
-    }
-    
-    // Otherwise, show modal for manual entry
-    await CreateCharacterCommand.showCreateModal(interaction);
+    // Import from sheet (only method available)
+    await this.createFromSheet(interaction, sheetUrl);
   }
 
   /**
@@ -89,6 +84,16 @@ export class CreateCharacterCommand extends Command {
 
       // Set the sheet URL
       CharacterStorage.setSheetUrl(userId, character.id, sheetUrl);
+
+      // Look up and assign fellowship if fellowship name is provided
+      if (characterData.fellowshipName) {
+        const fellowship = FellowshipStorage.getFellowshipByName(characterData.fellowshipName);
+        if (fellowship) {
+          CharacterStorage.setFellowship(userId, character.id, fellowship.id);
+        } else {
+          console.warn(`Fellowship "${characterData.fellowshipName}" not found in database. Character will not be assigned to a fellowship.`);
+        }
+      }
 
       await interaction.editReply({
         content: `✅ Character **${characterData.name}** created successfully from Google Sheet!`,

@@ -42,10 +42,12 @@ export async function canEditRoll(interaction, rollState) {
  * Rebuild roll components with current page state
  */
 export function rebuildRollComponents(rollState, rollKey, client) {
-  const { helpOptions, hinderOptions, helpPage, hinderPage, helpTags, hinderTags, burnedTags = new Set() } = rollState;
+  const { helpOptions, hinderOptions, helpPage, hinderPage, helpTags, hinderTags, burnedTags = new Set(), justificationNotes = null } = rollState;
   // Check if this is a confirmation view (no buttons) or proposal view (with buttons)
   const includeButtons = !rollKey.startsWith('confirm_') && !rollKey.startsWith('temp_');
-  const components = RollView.buildRollComponents(rollKey, helpOptions, hinderOptions, helpPage, hinderPage, helpTags, hinderTags, includeButtons, burnedTags);
+  // Don't show justification button in confirm view
+  const showJustificationButton = !rollKey.startsWith('confirm_');
+  const interactiveComponents = RollView.buildRollComponents(rollKey, helpOptions, hinderOptions, helpPage, hinderPage, helpTags, hinderTags, includeButtons, burnedTags, justificationNotes, showJustificationButton);
   
   // For temp rolls (proposals), add submit/cancel buttons
   if (rollKey.startsWith('temp_')) {
@@ -59,7 +61,7 @@ export function rebuildRollComponents(rollState, rollKey, client) {
       .setLabel('Cancel')
       .setStyle(ButtonStyle.Secondary);
     
-    components.push(new ActionRowBuilder().setComponents([submitButton, cancelButton]));
+    interactiveComponents.submitRows.push(new ActionRowBuilder().setComponents([submitButton, cancelButton]));
   }
   
   // For confirm rolls (narrator review), add confirm button
@@ -70,11 +72,42 @@ export function rebuildRollComponents(rollState, rollKey, client) {
       .setLabel('Confirm Roll')
       .setStyle(ButtonStyle.Success);
     
-    
-    components.push(new ActionRowBuilder().setComponents([confirmButton]));
+    interactiveComponents.submitRows.push(new ActionRowBuilder().setComponents([confirmButton]));
   }
   
-  return components;
+  return interactiveComponents;
+}
+
+/**
+ * Combine display and interactive components in the correct order
+ */
+export function combineRollComponents(displayData, interactiveComponents) {
+  // Build remaining display sections (hinder tags, footer)
+  const remainingDisplay = RollView.buildRemainingDisplaySections(
+    displayData.hinderTagsFormatted,
+    false, // Power already shown in initial container
+    displayData.modifierText,
+    displayData.showJustificationPlaceholder,
+    displayData.justificationNotes,
+    displayData.footer
+  );
+
+  // Combine in the right order:
+  // 1. Initial display (title, power, narration, justification header, description)
+  // 2. Justification button (if not in confirm view) - appears above help container
+  // 3. Help tags container
+  // 4. Help interactive components (help select, help page, burn select)
+  // 5. Remaining display (hinder tags, footer)
+  // 6. Hinder interactive components (hinder select, hinder page)
+  // 7. Other interactive components (submit/cancel buttons)
+  return [
+    ...(displayData.components || []),
+    ...(interactiveComponents.descriptionRows || []),
+    ...interactiveComponents.helpRows,
+    remainingDisplay,
+    ...interactiveComponents.hinderRows,
+    ...interactiveComponents.submitRows
+  ];
 }
 
 /**
@@ -139,7 +172,7 @@ export async function handleRollPageSelect(interaction, client) {
     client.rollStates.set(rollKey, rollState);
 
     // Rebuild components with updated page
-    const components = rebuildRollComponents(rollState, rollKey, client);
+    const interactiveComponents = rebuildRollComponents(rollState, rollKey, client);
     
     let displayData;
     if (rollKey.startsWith('confirm_')) {
@@ -153,7 +186,8 @@ export async function handleRollPageSelect(interaction, client) {
         {
           title: `Reviewing Roll Proposal #${rollId}`,
           descriptionText: `**Player:** <@${rollState.creatorId}>`,
-          footer: 'You can edit the tags above before confirming.'
+          narrationLink: rollState.narrationLink,
+          justificationNotes: rollState.justificationNotes,
         }
       );
     } else {
@@ -162,12 +196,13 @@ export async function handleRollPageSelect(interaction, client) {
         rollState.hinderTags,
         rollState.description,
         true,
-        rollState.burnedTags || new Set()
+        rollState.burnedTags || new Set(),
+        { narrationLink: rollState.narrationLink, justificationNotes: rollState.justificationNotes, showJustificationPlaceholder: !rollState.justificationNotes }
       );
     }
 
-    // Combine Components V2 display components with interactive components
-    const allComponents = [...(displayData.components || []), ...components];
+    // Combine Components V2 display components with interactive components in the right order
+    const allComponents = combineRollComponents(displayData, interactiveComponents);
 
     await interaction.update({
       components: allComponents,
@@ -276,7 +311,7 @@ export async function handleRollSelect(interaction, client) {
     client.rollStates.set(rollKey, rollState);
 
     // Rebuild components to reflect current selection state
-    const components = rebuildRollComponents(rollState, rollKey, client);
+    const interactiveComponents = rebuildRollComponents(rollState, rollKey, client);
     
     // Update the message with new tag selections
     let displayData;
@@ -291,7 +326,8 @@ export async function handleRollSelect(interaction, client) {
         {
           title: `Reviewing Roll Proposal #${rollId}`,
           descriptionText: `**Player:** <@${rollState.creatorId}>`,
-          footer: 'You can edit the tags above before confirming.'
+          narrationLink: rollState.narrationLink,
+          justificationNotes: rollState.justificationNotes,
         }
       );
     } else {
@@ -300,12 +336,13 @@ export async function handleRollSelect(interaction, client) {
         rollState.hinderTags,
         rollState.description,
         true,
-        rollState.burnedTags || new Set()
+        rollState.burnedTags || new Set(),
+        { narrationLink: rollState.narrationLink, justificationNotes: rollState.justificationNotes, showJustificationPlaceholder: !rollState.justificationNotes }
       );
     }
 
-    // Combine Components V2 display components with interactive components
-    const allComponents = [...(displayData.components || []), ...components];
+    // Combine Components V2 display components with interactive components in the right order
+    const allComponents = combineRollComponents(displayData, interactiveComponents);
 
     await interaction.update({
       components: allComponents,
@@ -376,7 +413,7 @@ export async function handleRollBurn(interaction, client) {
   client.rollStates.set(rollKey, rollState);
 
   // Rebuild components to reflect current selection state
-  const components = rebuildRollComponents(rollState, rollKey, client);
+  const interactiveComponents = rebuildRollComponents(rollState, rollKey, client);
   
   // Update the message with new tag selections
   let displayData;
@@ -391,7 +428,8 @@ export async function handleRollBurn(interaction, client) {
       {
         title: `Reviewing Roll Proposal #${rollId}`,
         descriptionText: `**Player:** <@${rollState.creatorId}>`,
-        footer: 'You can edit the tags above before confirming.'
+        narrationLink: rollState.narrationLink,
+        justificationNotes: rollState.justificationNotes,
       }
     );
   } else {
@@ -400,12 +438,13 @@ export async function handleRollBurn(interaction, client) {
       rollState.hinderTags,
       rollState.description,
       true,
-      rollState.burnedTags || new Set()
+      rollState.burnedTags || new Set(),
+      { narrationLink: rollState.narrationLink, justificationNotes: rollState.justificationNotes, showJustificationPlaceholder: !rollState.justificationNotes }
     );
   }
 
-  // Combine Components V2 display components with interactive components
-  const allComponents = [...(displayData.components || []), ...components];
+  // Combine Components V2 display components with interactive components in the right order
+  const allComponents = combineRollComponents(displayData, interactiveComponents);
 
   await interaction.update({
     components: allComponents,
@@ -476,7 +515,8 @@ export async function handleRollButton(interaction, client) {
       rollState.hinderTags,
       burnedTags,
       rollState.description,
-      null // No narrator mention for old roll system
+      null, // No narrator mention for old roll system
+      rollState.narrationLink || null
     );
 
     // Update the ephemeral message to hide components (use Components V2)
@@ -576,6 +616,8 @@ export async function handleRollSubmit(interaction, client) {
     hinderTags: rollState.hinderTags,
     burnedTags: rollState.burnedTags || new Set(),
     description: rollState.description,
+    narrationLink: rollState.narrationLink || null,
+    justificationNotes: rollState.justificationNotes || null,
   });
 
   // Clean up temporary state
@@ -594,7 +636,6 @@ export async function handleRollSubmit(interaction, client) {
   });
 
   // Post public message to channel with narrator ping
-  const ROLL_EDITOR_ROLE_ID = process.env.ROLL_EDITOR_ROLE_ID || null;
   const narratorMention = ROLL_EDITOR_ROLE_ID ? `<@&${ROLL_EDITOR_ROLE_ID}>` : 'Narrators';
   
   const displayData = RollView.formatRollProposalContent(
@@ -606,13 +647,151 @@ export async function handleRollSubmit(interaction, client) {
     {
       title: `Roll Proposal #${rollId}`,
       descriptionText: `${narratorMention}\n**From:** <@${rollState.creatorId}>`,
-      footer: `Use /roll-confirm ${rollId} to review and confirm.`
+      narrationLink: rollState.narrationLink,
+      justificationNotes: rollState.justificationNotes,
+      footer: `Narrators should use /roll-confirm ${rollId} to review and confirm.`
     }
   );
 
   await interaction.followUp({
     components: displayData.components,
     flags: MessageFlags.IsComponentsV2,
+  });
+}
+
+/**
+ * Handle edit justification notes button
+ */
+export async function handleEditJustification(interaction, client) {
+  const customId = interaction.customId;
+  const rollKey = customId.replace('roll_edit_justification_', '');
+  
+  if (!client.rollStates.has(rollKey)) {
+    await interaction.reply({
+      content: 'This roll session has expired. Please run /roll-propose again.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const rollState = client.rollStates.get(rollKey);
+  
+  // Only the creator can edit
+  if (interaction.user.id !== rollState.creatorId) {
+    await interaction.reply({
+      content: 'Only the creator of this roll can edit it.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Show modal to edit justification notes
+  const { ModalBuilder, TextInputBuilder, TextInputStyle, LabelBuilder } = await import('discord.js');
+  
+  const modal = new ModalBuilder()
+    .setCustomId(`roll_justification_modal_${rollKey}`)
+    .setTitle('Justification Notes');
+
+  const justificationInput = new TextInputBuilder()
+    .setCustomId('justification_notes')
+    .setStyle(TextInputStyle.Paragraph)
+    .setPlaceholder('Explain why you are applying the tags you selected...')
+    .setValue(rollState.justificationNotes || '')
+    .setRequired(false)
+    .setMaxLength(1000);
+
+  const justificationLabel = new LabelBuilder()
+    .setLabel('Justification Notes')
+    .setTextInputComponent(justificationInput);
+
+  modal.addLabelComponents(justificationLabel);
+  
+  await interaction.showModal(modal);
+}
+
+/**
+ * Handle justification notes modal submission
+ */
+export async function handleJustificationModal(interaction, client) {
+  const customId = interaction.customId;
+  const rollKey = customId.replace('roll_justification_modal_', '');
+  
+  if (!client.rollStates.has(rollKey)) {
+    await interaction.reply({
+      content: 'This roll session has expired. Please run /roll-propose again.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const rollState = client.rollStates.get(rollKey);
+  
+  // Only the creator can edit
+  if (interaction.user.id !== rollState.creatorId) {
+    await interaction.reply({
+      content: 'Only the creator of this roll can edit it.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Get justification notes from modal
+  const justificationNotes = interaction.fields.getTextInputValue('justification_notes') || null;
+  
+  // Update roll state with justification notes
+  rollState.justificationNotes = justificationNotes;
+  client.rollStates.set(rollKey, rollState);
+
+  // Rebuild the roll components with updated justification notes
+  // Don't show justification button in confirm view
+  const showJustificationButton = !rollKey.startsWith('confirm_');
+  const interactiveComponents = RollView.buildRollComponents(
+    rollKey,
+    rollState.helpOptions,
+    rollState.hinderOptions,
+    rollState.helpPage || 0,
+    rollState.hinderPage || 0,
+    rollState.helpTags,
+    rollState.hinderTags,
+    false,
+    rollState.burnedTags || new Set(),
+    rollState.justificationNotes,
+    showJustificationButton
+  );
+
+  // Add Submit and Cancel buttons
+  const submitButton = new ButtonBuilder()
+    .setCustomId(`roll_submit_${rollKey}`)
+    .setLabel('Submit Proposal')
+    .setStyle(ButtonStyle.Primary);
+  
+  const cancelButton = new ButtonBuilder()
+    .setCustomId(`roll_cancel_${rollKey}`)
+    .setLabel('Cancel')
+    .setStyle(ButtonStyle.Secondary);
+  
+  interactiveComponents.submitRows.push(new ActionRowBuilder().setComponents([submitButton, cancelButton]));
+
+  // Rebuild display with updated justification notes
+  const displayData = RollView.formatRollProposalContent(
+    rollState.helpTags,
+    rollState.hinderTags,
+    rollState.description,
+    true,
+    rollState.burnedTags || new Set(),
+    {
+      narrationLink: rollState.narrationLink,
+      justificationNotes: rollState.justificationNotes,
+      showJustificationPlaceholder: !rollState.justificationNotes
+    }
+  );
+
+  // Combine Components V2 display components with interactive components in the right order
+  const allComponents = combineRollComponents(displayData, interactiveComponents);
+
+  await interaction.update({
+    components: allComponents,
+    flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
   });
 }
 
@@ -668,6 +847,8 @@ export async function handleRollConfirm(interaction, client) {
     hinderTags: rollState.hinderTags,
     burnedTags: rollState.burnedTags || new Set(),
     description: rollState.description,
+    narrationLink: rollState.narrationLink,
+    justificationNotes: rollState.justificationNotes,
     confirmedBy: interaction.user.id,
   });
 
@@ -693,11 +874,13 @@ export async function handleRollConfirm(interaction, client) {
     rollState.description,
     true,
     rollState.burnedTags || new Set(),
-    {
-      title: `Roll Proposal #${rollId} Confirmed`,
-      descriptionText: `<@${rollState.creatorId}>\n**Confirmed by:** <@${interaction.user.id}>`,
-      footer: `You can now execute this roll with /roll ${rollId}`
-    }
+      {
+        title: `Roll Proposal #${rollId} Confirmed`,
+        descriptionText: `<@${rollState.creatorId}>\n**Confirmed by:** <@${interaction.user.id}>`,
+        narrationLink: rollState.narrationLink,
+        justificationNotes: rollState.justificationNotes,
+        footer: `You can now execute this roll with /roll ${rollId}`
+      }
   );
 
   await interaction.followUp({

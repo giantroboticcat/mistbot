@@ -35,7 +35,7 @@ export class RollView {
       const parts = value.split(':');
       const name = parts.length > 1 ? parts.slice(1).join(':') : value;
       
-      if (value.startsWith('weakness:')) {
+      if (value.startsWith('weakness:') || value.startsWith('fellowshipWeakness:')) {
         hinderWeaknesses.push(name);
       } else {
         hinderItemNames.push(name);
@@ -118,6 +118,36 @@ export class RollView {
         .setContent(`## ${options.title || description || 'Roll Proposal'}`)
     );
     
+    // Add power text display if requested (moved to top, before narration)
+    if (showPower) {
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(`### Power **${modifierText}**`)
+      );
+    }
+    
+    // Add narration link if provided
+    if (options.narrationLink) {
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(`**Narration:** ${options.narrationLink}`)
+      );
+    }
+    
+    // Add justification notes if provided (display in proposal view)
+    if (options.justificationNotes) {
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(`**Justification Notes:**\n${options.justificationNotes}`)
+      );
+    } else if (options.showJustificationPlaceholder) {
+      // Just show the header - the button will make it obvious what to do
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(`**Justification Notes:**`)
+      );
+    }
+    
     // Add description text if provided (e.g., player mention, confirmed by, etc.)
     if (options.descriptionText) {
       container.addTextDisplayComponents(
@@ -126,11 +156,42 @@ export class RollView {
       );
     }
     
-    // Add help tags text display
-    container.addTextDisplayComponents(
+    components.push(container);
+    
+    // Help tags in its own container
+    const helpContainer = new ContainerBuilder();
+    helpContainer.addTextDisplayComponents(
       new TextDisplayBuilder()
         .setContent(`### Help Tags\n${helpFormatted}`)
     );
+    components.push(helpContainer);
+    
+    // Return structure that allows inserting interactive components between display sections
+    return { 
+      components,
+      flags: MessageFlags.IsComponentsV2,
+      helpTagsDisplayed: true,
+      hinderTagsFormatted: hinderFormatted,
+      showPower: false, // Already displayed in initial container
+      modifierText: modifierText,
+      showJustificationPlaceholder: options.showJustificationPlaceholder && !options.justificationNotes,
+      justificationNotes: options.justificationNotes,
+      footer: options.footer
+    };
+  }
+  
+  /**
+   * Add hinder tags display and remaining display sections
+   * @param {string} hinderFormatted - Formatted hinder tags
+   * @param {boolean} showPower - Whether to show power
+   * @param {string} modifierText - Modifier text
+   * @param {boolean} showJustificationPlaceholder - Whether to show justification placeholder
+   * @param {string|null} justificationNotes - Justification notes if any
+   * @param {string|null} footer - Footer text if any
+   * @returns {ContainerBuilder} Container with hinder tags and remaining display sections
+   */
+  static buildRemainingDisplaySections(hinderFormatted, showPower, modifierText, showJustificationPlaceholder, justificationNotes, footer) {
+    const container = new ContainerBuilder();
     
     // Add hinder tags text display
     container.addTextDisplayComponents(
@@ -138,28 +199,23 @@ export class RollView {
         .setContent(`### Hinder Tags\n${hinderFormatted}`)
     );
     
-    // Add power text display if requested
-    if (showPower) {
+    // Add justification notes section header if placeholder should be shown
+    if (showJustificationPlaceholder) {
       container.addTextDisplayComponents(
         new TextDisplayBuilder()
-          .setContent(`### Power **${modifierText}**`)
+          .setContent(`### Justification Notes`)
       );
     }
     
     // Add footer text display if provided
-    if (options.footer) {
+    if (footer) {
       container.addTextDisplayComponents(
         new TextDisplayBuilder()
-          .setContent(`*${options.footer}*`)
+          .setContent(`*${footer}*`)
       );
     }
     
-    components.push(container);
-    
-    return { 
-      components,
-      flags: MessageFlags.IsComponentsV2
-    };
+    return container;
   }
 
   /**
@@ -175,7 +231,7 @@ export class RollView {
    * @param {Set<string>} burnedTags - Currently selected tags to burn
    * @returns {Array} Array of ActionRowBuilder components
    */
-  static buildRollComponents(rollKeyOrId, helpOptions, hinderOptions, helpPage, hinderPage, selectedHelpTags = new Set(), selectedHinderTags = new Set(), includeButtons = true, burnedTags = new Set()) {
+  static buildRollComponents(rollKeyOrId, helpOptions, hinderOptions, helpPage, hinderPage, selectedHelpTags = new Set(), selectedHinderTags = new Set(), includeButtons = true, burnedTags = new Set(), justificationNotes = null, showJustificationButton = true) {
     // Show all options, but mark selected ones as default
     const helpPages = Math.ceil(helpOptions.length / 25);
     const hinderPages = Math.ceil(hinderOptions.length / 25);
@@ -184,7 +240,10 @@ export class RollView {
     const clampedHelpPage = Math.min(helpPage, Math.max(0, helpPages - 1));
     const clampedHinderPage = Math.min(hinderPage, Math.max(0, hinderPages - 1));
     
-    const rows = [];
+    const descriptionRows = [];
+    const helpRows = [];
+    const hinderRows = [];
+    const submitRows = [];
     
     // Help tag select menu (current page) - show all options, mark selected ones
     const helpStart = clampedHelpPage * 25;
@@ -206,7 +265,7 @@ export class RollView {
       .addOptions(helpPageOptions);
     
     // Main help dropdown on its own row (one select per row)
-    rows.push(new ActionRowBuilder().setComponents([helpSelect]));
+    helpRows.push(new ActionRowBuilder().setComponents([helpSelect]));
     
     // Help page selector on its own row if needed
     if (helpPages > 1) {
@@ -226,12 +285,16 @@ export class RollView {
         .setMinValues(1)
         .setMaxValues(1)
         .addOptions(helpPageOptions);
-      rows.push(new ActionRowBuilder().setComponents([helpPageSelect]));
+      helpRows.push(new ActionRowBuilder().setComponents([helpPageSelect]));
     }
     
-    // Burn selection dropdown - only show selected help tags that are burnable (non-status tags)
+    // Burn selection dropdown - only show selected help tags that are burnable (non-status tags, non-fellowship tags)
     // Put on its own row (one select per row)
     const burnableTags = Array.from(selectedHelpTags).filter(tagValue => {
+      // Fellowship tags cannot be burned
+      if (tagValue.startsWith('fellowship:')) {
+        return false;
+      }
       const parts = tagValue.split(':');
       const tagName = parts.length > 1 ? parts.slice(1).join(':') : tagValue;
       // Only non-status tags can be burned
@@ -267,7 +330,7 @@ export class RollView {
         .setMinValues(0)
         .setMaxValues(1)
         .addOptions(burnPageOptions);
-      rows.push(new ActionRowBuilder().setComponents([burnSelect]));
+      helpRows.push(new ActionRowBuilder().setComponents([burnSelect]));
     }
     
     // Hinder tag select menu (current page) - show all options, mark selected ones
@@ -290,7 +353,7 @@ export class RollView {
       .addOptions(hinderPageOptions);
     
     // Main hinder dropdown on its own row (one select per row)
-    rows.push(new ActionRowBuilder().setComponents([hinderSelect]));
+    hinderRows.push(new ActionRowBuilder().setComponents([hinderSelect]));
     
     // Hinder page selector on its own row if needed
     if (hinderPages > 1) {
@@ -310,7 +373,17 @@ export class RollView {
         .setMinValues(1)
         .setMaxValues(1)
         .addOptions(hinderPageOptions);
-      rows.push(new ActionRowBuilder().setComponents([hinderPageSelect]));
+      hinderRows.push(new ActionRowBuilder().setComponents([hinderPageSelect]));
+    }
+    
+    // Justification notes button - only show if not in confirm view
+    // This will appear above the help container
+    if (showJustificationButton) {
+      const justificationButton = new ButtonBuilder()
+        .setCustomId(`roll_edit_justification_${rollKeyOrId}`)
+        .setLabel(justificationNotes ? 'Edit Justification Notes' : 'Add Justification Notes')
+        .setStyle(ButtonStyle.Secondary);
+      descriptionRows.push(new ActionRowBuilder().setComponents([justificationButton]));
     }
     
     // Button row (if requested)
@@ -325,10 +398,15 @@ export class RollView {
         .setLabel('Cancel')
         .setStyle(ButtonStyle.Secondary);
       
-      rows.push(new ActionRowBuilder().setComponents([rollButton, cancelButton]));
+      submitRows.push(new ActionRowBuilder().setComponents([rollButton, cancelButton]));
     }
     
-    return rows;
+    return {
+      descriptionRows,
+      helpRows,
+      hinderRows,
+      submitRows
+    };
   }
 
   /**
@@ -477,6 +555,20 @@ export class RollView {
       }
     });
 
+    // Fellowship tags - yellow tag icon (cannot be burned)
+    if (character.fellowship && character.fellowship.tags) {
+      character.fellowship.tags.forEach(tag => {
+        const tagValue = `fellowship:${tag}`;
+        if (!seen.has(tagValue)) {
+          options.push(new StringSelectMenuOptionBuilder()
+            .setLabel(`🟡 ${tag}`)
+            .setValue(tagValue)
+            .setDescription(`Fellowship: ${character.fellowship.name}`));
+          seen.add(tagValue);
+        }
+      });
+    }
+
     return options;
   }
 
@@ -507,6 +599,19 @@ export class RollView {
         }
       });
     });
+
+    // Fellowship weaknesses - orange weakness icon (cannot be burned)
+    if (character.fellowship && character.fellowship.weaknesses) {
+      character.fellowship.weaknesses.forEach(weakness => {
+        if (!seen.has(`fellowshipWeakness:${weakness}`)) {
+          options.push(new StringSelectMenuOptionBuilder()
+            .setLabel(`🟠 ${weakness}`)
+            .setValue(`fellowshipWeakness:${weakness}`)
+            .setDescription(`Fellowship Weakness: ${character.fellowship.name}`));
+          seen.add(`fellowshipWeakness:${weakness}`);
+        }
+      });
+    }
 
     return options;
   }
@@ -568,7 +673,7 @@ export class RollView {
 
     Array.from(hinderTags).forEach(value => {
       // Skip weaknesses for modifier calculation (they're just tags)
-      if (value.startsWith('weakness:')) {
+      if (value.startsWith('weakness:') || value.startsWith('fellowshipWeakness:')) {
         hinderTagCount++;
         return;
       }
@@ -683,7 +788,7 @@ export class RollView {
       const parts = value.split(':');
       const name = parts.length > 1 ? parts.slice(1).join(':') : value;
       
-      if (value.startsWith('weakness:')) {
+      if (value.startsWith('weakness:') || value.startsWith('fellowshipWeakness:')) {
         hinderWeaknesses.push(name);
       } else {
         hinderItemNames.push(name);
@@ -724,14 +829,23 @@ export class RollView {
    * @param {Set<string>} burnedTags - Set of burned tag values (with prefixes)
    * @param {string|null} description - Optional description of what the roll is for
    * @param {string|null} narratorMention - Optional narrator mention to include
+   * @param {string|null} narrationLink - Optional Discord link to narration
    * @returns {Object} Object with components array and IsComponentsV2 flag
    */
-  static formatRollResult(die1, die2, baseRoll, modifier, finalResult, helpTags, hinderTags, burnedTags = new Set(), description = null, narratorMention = null) {
+  static formatRollResult(die1, die2, baseRoll, modifier, finalResult, helpTags, hinderTags, burnedTags = new Set(), description = null, narratorMention = null, narrationLink = null) {
     const modifierText = modifier >= 0 ? `+${modifier}` : `${modifier}`;
 
     // Determine result classification
+    // Special cases: double 1's = automatic failure, double 6's = automatic success
     let resultType;
-    if (finalResult >= 10) {
+    let isAutomatic = false;
+    if (die1 === 1 && die2 === 1) {
+      resultType = 'Consequences';
+      isAutomatic = true;
+    } else if (die1 === 6 && die2 === 6) {
+      resultType = 'Success';
+      isAutomatic = true;
+    } else if (finalResult >= 10) {
       resultType = 'Success';
     } else if (finalResult >= 7) {
       resultType = 'Success & Consequences';
@@ -747,10 +861,26 @@ export class RollView {
     const container = new ContainerBuilder();
     
     // Add title text display
+    let resultText = `## ${description || 'Roll Result'}\n**Result: ${finalResult}** (${resultType})`;
+    if (isAutomatic) {
+      if (die1 === 1 && die2 === 1) {
+        resultText += '\n*Double 1\'s - Automatic Consequences*';
+      } else if (die1 === 6 && die2 === 6) {
+        resultText += '\n*Double 6\'s - Automatic Success*';
+      }
+    }
     container.addTextDisplayComponents(
       new TextDisplayBuilder()
-        .setContent(`## ${description || 'Roll Result'}\n**Result: ${finalResult}** (${resultType})`)
+        .setContent(resultText)
     );
+    
+    // Add narration link if provided
+    if (narrationLink) {
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(`**Narration:** ${narrationLink}`)
+      );
+    }
     
     // Add dice text display
     container.addTextDisplayComponents(

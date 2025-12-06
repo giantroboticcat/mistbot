@@ -93,7 +93,8 @@ export class RollExecuteCommand extends Command {
       roll.hinderTags,
       burnedTags,
       roll.description,
-      narratorMention
+      narratorMention,
+      roll.narrationLink
     );
 
     // Send as a public message

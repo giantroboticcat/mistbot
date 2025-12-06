@@ -20,7 +20,7 @@ export class EditCharacterCommand extends Command {
 
     if (!activeCharacter) {
       await interaction.reply({
-        content: 'You don\'t have an active character. Use `/char-create` to create one, or `/char-select` to select an active character.',
+        content: 'You don\'t have an active character. Use `/char-create` to import from Google Sheets, or `/char-select` to select an active character.',
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -103,7 +103,13 @@ export class EditCharacterCommand extends Command {
       }).join(', ')
       : 'None';
     
-    const content = `**Character: ${character.name}**${ownerInfo}\n\n` +
+    // Add fellowship information if present
+    let fellowshipInfo = '';
+    if (character.fellowship) {
+      fellowshipInfo = `\n**Fellowship: ${character.fellowship.name}**`;
+    }
+    
+    const content = `**Character: ${character.name}**${fellowshipInfo}${ownerInfo}\n\n` +
       themeParts.join('\n\n') +
       `\n\n*Backpack: ${character.backpack.length > 0 ? character.backpack.join(', ') : 'Empty'}*\n*Story Tags: ${character.storyTags.length > 0 ? character.storyTags.join(', ') : 'None'}*\n*Statuses: ${statusDisplay}*`;
 
