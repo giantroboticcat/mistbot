@@ -1,4 +1,5 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, TextDisplayBuilder } from 'discord.js';
+import { DiscordUtils } from './DiscordUtils.js';
 import { TagFormatter } from './TagFormatter.js';
 
 /**
@@ -6,7 +7,107 @@ import { TagFormatter } from './TagFormatter.js';
  */
 export class CharacterView {
   /**
-   * Format character content for display
+   * Build character display containers using Components V2
+   * @param {Object} character - The character object
+   * @param {import('discord.js').Interaction} interaction - The interaction
+   * @returns {Object} Object with container builders for different sections
+   */
+  static async buildCharacterDisplays(character, interaction) {
+    // Build response showing the character
+    const themeParts = [];
+    character.themes.forEach((theme) => {
+      if (theme.tags.length > 0 || theme.weaknesses.length > 0) {
+        // Extract tag names from objects and wrap burned ones with fire emojis
+        const tagNames = theme.tags.map(t => {
+          const tagText = typeof t === 'string' ? t : t.tag;
+          const isBurned = typeof t === 'object' ? t.isBurned : false;
+          return isBurned ? `🔥${tagText}🔥` : tagText;
+        });
+        const weaknessNames = theme.weaknesses.map(w => {
+          const weakText = typeof w === 'string' ? w : w.tag;
+          const isBurned = typeof w === 'object' ? w.isBurned : false;
+          return isBurned ? `🔥${weakText}🔥` : weakText;
+        });
+        
+        const formatted = TagFormatter.formatTagsAndWeaknessesInCodeBlock(tagNames, weaknessNames);
+        
+        // Wrap burned theme names with fire emojis on both sides
+        const themeName = theme.isBurned ? `🔥${theme.name}🔥` : theme.name;
+        themeParts.push(`**${themeName}:**\n${formatted}`);
+      }
+    });
+
+    // Format statuses in a table format showing checked power levels
+    const statusDisplay = TagFormatter.formatStatusesAsTable(character.tempStatuses);
+    
+    // Format backpack and story tags in yellow ANSI code blocks
+    const backpackDisplay = character.backpack.length > 0 
+      ? TagFormatter.formatTagsInCodeBlock(character.backpack)
+      : 'None';
+    const storyTagsDisplay = character.storyTags.length > 0
+      ? TagFormatter.formatTagsInCodeBlock(character.storyTags)
+      : 'None';
+    
+    // Build fellowship info string if provided
+    const fellowshipString = character.fellowship ? `\n**Fellowship: ${character.fellowship.name}**` : '';
+    
+    // Build owner info string if provided
+    const ownerName = await DiscordUtils.getUserDisplayName(interaction, character.user_id);
+    const ownerString = ownerName ? `\n*Owner: ${ownerName}*` : '';
+    
+    // Header container
+    const headerContainer = new ContainerBuilder();
+    headerContainer.addTextDisplayComponents(
+      new TextDisplayBuilder()
+        .setContent(`**Character: ${character.name}**${fellowshipString}${ownerString}`)
+    );
+
+    // Themes container
+    const themesContainer = new ContainerBuilder();
+    if (themeParts.length > 0) {
+      themesContainer.addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(themeParts.join('\n\n'))
+      );
+    } else {
+      themesContainer.addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent('No themes')
+      );
+    }
+
+    // Statuses container
+    const statusesContainer = new ContainerBuilder();
+    statusesContainer.addTextDisplayComponents(
+      new TextDisplayBuilder()
+        .setContent(`*Statuses:*\n${statusDisplay}`)
+    );
+
+    // Backpack container
+    const backpackContainer = new ContainerBuilder();
+    backpackContainer.addTextDisplayComponents(
+      new TextDisplayBuilder()
+        .setContent(`*Backpack:*\n${backpackDisplay}`)
+    );
+
+    // Story tags container
+    const storyTagsContainer = new ContainerBuilder();
+    storyTagsContainer.addTextDisplayComponents(
+      new TextDisplayBuilder()
+        .setContent(`*Story Tags:*\n${storyTagsDisplay}`)
+    );
+
+    return {
+      headerContainer,
+      themesContainer,
+      statusesContainer,
+      backpackContainer,
+      storyTagsContainer
+    };
+  }
+
+  /**
+   * Format character content for display (legacy method, kept for backwards compatibility)
    * @param {Object} character - The character object
    * @param {Object} options - Optional formatting options
    * @param {string} options.ownerInfo - Optional owner information string (e.g., "*Owner: Name*")
@@ -67,7 +168,7 @@ export class CharacterView {
   /**
    * Build interactive buttons for character editing
    * @param {Object} character - The character object
-   * @returns {Array<ActionRowBuilder>} Array of action row builders with buttons
+   * @returns {Object} Object with buttonRows array
    */
   static buildCharacterButtons(character) {
     const rows = [];
@@ -83,7 +184,12 @@ export class CharacterView {
       .setLabel('Edit Backpack')
       .setStyle(ButtonStyle.Secondary);
 
-    const row1Components = [editButton, backpackButton];
+    const statusesButton = new ButtonBuilder()
+      .setCustomId(`edit_statuses_${character.id}`)
+      .setLabel('Edit Statuses')
+      .setStyle(ButtonStyle.Secondary);
+
+    const row1Components = [editButton, backpackButton, statusesButton];
 
     const burnRefreshButton = new ButtonBuilder()
     .setCustomId(`burn_refresh_${character.id}`)
@@ -122,9 +228,27 @@ export class CharacterView {
     .setStyle(ButtonStyle.Danger);
 
     rows.push(new ActionRowBuilder().setComponents([deleteButton]));
-    
 
-    return rows;
+    return {
+      buttonRows: rows
+    };
+  }
+
+  /**
+   * Combine character display containers and interactive buttons
+   * @param {Object} displayData - Object with container builders from buildCharacterDisplays
+   * @param {Object} interactiveData - Object with buttonRows from buildCharacterButtons
+   * @returns {Array} Combined array of components for Components V2
+   */
+  static combineCharacterComponents(displayData, interactiveData) {
+    return [
+      displayData.headerContainer,
+      displayData.themesContainer,
+      displayData.statusesContainer,
+      displayData.backpackContainer,
+      displayData.storyTagsContainer,
+      ...(interactiveData.buttonRows || [])
+    ];
   }
 }
 

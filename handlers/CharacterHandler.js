@@ -1,9 +1,10 @@
-import { MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
+import { MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, LabelBuilder } from 'discord.js';
 import { CharacterStorage } from '../utils/CharacterStorage.js';
 import { db } from '../utils/Database.js';
 import { CreateCharacterCommand } from '../commands/CreateCharacterCommand.js';
 import { EditCharacterCommand } from '../commands/EditCharacterCommand.js';
 import { CharacterView } from '../utils/CharacterView.js';
+import { StatusesEditorView } from '../utils/StatusesEditorView.js';
 import { Validation } from '../utils/Validation.js';
 
 /**
@@ -85,17 +86,13 @@ export async function handleModalSubmit(interaction, client) {
       return;
     }
 
-    // Format character content using CharacterView
-    const characterContent = CharacterView.formatCharacterContent(updatedCharacter);
-    const content = `**Character Updated: ${updatedCharacter.name}**\n\n${characterContent}`;
-
-    // Build character buttons using CharacterView (simplified set)
-    const buttonRows = CharacterView.buildCharacterButtons(updatedCharacter);
+    // Build character displays
+    const displayData = await CharacterView.buildCharacterDisplays(updatedCharacter, interaction);
+    const allComponents = CharacterView.combineCharacterComponents(displayData, CharacterView.buildCharacterButtons(updatedCharacter));
 
     await interaction.reply({
-      content,
-      components: buttonRows,
-      flags: MessageFlags.Ephemeral,
+      components: allComponents,
+      flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
     });
   } else if (customId.startsWith('edit_backpack_modal_')) {
     // Handle backpack edit modal submission
@@ -158,17 +155,65 @@ export async function handleModalSubmit(interaction, client) {
       return;
     }
 
-    // Format character content using CharacterView
-    const characterContent = CharacterView.formatCharacterContent(updatedCharacter);
-    const content = `**Character Updated: ${updatedCharacter.name}**\n\n${characterContent}`;
+    // Build character displays using Components V2
+    const displayData = await CharacterView.buildCharacterDisplays(updatedCharacter, interaction);
 
-    // Build character buttons using CharacterView (simplified set)
-    const buttonRows = CharacterView.buildCharacterButtons(updatedCharacter);
+    // Build character buttons using CharacterView
+    const interactiveData = CharacterView.buildCharacterButtons(updatedCharacter);
+    
+    // Combine displays and buttons
+    const allComponents = CharacterView.combineCharacterComponents(displayData, interactiveData);
 
     await interaction.reply({
-      content,
-      components: buttonRows,
-      flags: MessageFlags.Ephemeral,
+      components: allComponents,
+      flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+    });
+  } else if (customId.startsWith('statuses_add_modal_')) {
+    // Handle add status modal submission
+    const characterId = parseInt(customId.split('_')[3]);
+    const userId = interaction.user.id;
+    
+    const character = CharacterStorage.getCharacter(userId, characterId);
+    if (!character) {
+      await interaction.reply({
+        content: 'Character not found.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const statusName = interaction.fields.getTextInputValue('status_name')?.trim();
+    if (!statusName || statusName.length === 0) {
+      await interaction.reply({
+        content: 'Status name cannot be empty.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Add new status (as simple string, user can add power levels later)
+    const updatedStatuses = [...(character.tempStatuses || [])];
+    updatedStatuses.push(statusName);
+
+    const updatedCharacter = CharacterStorage.updateCharacter(userId, characterId, {
+      tempStatuses: updatedStatuses,
+    });
+
+    if (!updatedCharacter) {
+      await interaction.reply({
+        content: 'Failed to add status.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Show updated editor
+    const editorData = StatusesEditorView.build(updatedCharacter);
+    const allComponents = StatusesEditorView.combineComponents(editorData);
+
+    await interaction.reply({
+      components: allComponents,
+      flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
     });
   }
 }
@@ -237,6 +282,234 @@ export async function handleEditBackpackButton(interaction, client) {
 
   // Show edit backpack modal
   await EditCharacterCommand.showEditBackpackModal(interaction, character);
+}
+
+/**
+ * Handle edit statuses button interaction
+ */
+export async function handleEditStatusesButton(interaction, client) {
+  const customId = interaction.customId;
+  // Extract character ID: format is "edit_statuses_123"
+  const characterId = parseInt(customId.replace('edit_statuses_', ''));
+  const userId = interaction.user.id;
+  
+  const character = CharacterStorage.getCharacter(userId, characterId);
+  if (!character) {
+    await interaction.reply({
+      content: 'Character not found.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Show interactive statuses editor
+  const editorData = StatusesEditorView.build(character);
+  const allComponents = StatusesEditorView.combineComponents(editorData);
+
+  await interaction.reply({
+    components: allComponents,
+    flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+  });
+}
+
+/**
+ * Handle statuses remove select menu interaction
+ */
+export async function handleStatusesRemove(interaction, client) {
+  const customId = interaction.customId;
+  const userId = interaction.user.id;
+  const characterId = parseInt(customId.replace('statuses_remove_', ''));
+
+  const character = CharacterStorage.getCharacter(userId, characterId);
+  if (!character) {
+    await interaction.reply({
+      content: 'Character not found.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (!interaction.isStringSelectMenu()) {
+    return;
+  }
+
+  const selectedValue = interaction.values[0];
+  if (selectedValue === 'none') {
+    // No status to remove, just update to refresh
+    const editorData = StatusesEditorView.build(character);
+    const allComponents = StatusesEditorView.combineComponents(editorData);
+    await interaction.update({
+      components: allComponents,
+      flags: MessageFlags.IsComponentsV2,
+    });
+    return;
+  }
+  
+  const selectedIndex = parseInt(selectedValue);
+  const updatedStatuses = [...(character.tempStatuses || [])];
+  
+  if (!isNaN(selectedIndex) && selectedIndex >= 0 && selectedIndex < updatedStatuses.length) {
+    updatedStatuses.splice(selectedIndex, 1);
+    
+    const updatedCharacter = CharacterStorage.updateCharacter(userId, characterId, {
+      tempStatuses: updatedStatuses,
+    });
+
+    if (updatedCharacter) {
+      const editorData = StatusesEditorView.build(updatedCharacter);
+      const allComponents = StatusesEditorView.combineComponents(editorData);
+
+      await interaction.update({
+        components: allComponents,
+        flags: MessageFlags.IsComponentsV2,
+      });
+    }
+  }
+}
+
+/**
+ * Handle statuses edit select menu interaction
+ */
+export async function handleStatusesEditSelect(interaction, client) {
+  const customId = interaction.customId;
+  const userId = interaction.user.id;
+  const characterId = parseInt(customId.replace('statuses_edit_select_', ''));
+
+  const character = CharacterStorage.getCharacter(userId, characterId);
+  if (!character) {
+    await interaction.reply({
+      content: 'Character not found.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (!interaction.isStringSelectMenu()) {
+    return;
+  }
+
+  const statusIndex = parseInt(interaction.values[0]);
+  const statuses = character.tempStatuses || [];
+  
+  if (!isNaN(statusIndex) && statusIndex >= 0 && statusIndex < statuses.length) {
+    const editorData = StatusesEditorView.build(character, statusIndex);
+    const allComponents = StatusesEditorView.combineComponents(editorData);
+
+    await interaction.update({
+      components: allComponents,
+      flags: MessageFlags.IsComponentsV2,
+    });
+  }
+}
+
+/**
+ * Handle statuses editor interactions (add, toggle, done)
+ */
+export async function handleStatusesEditor(interaction, client) {
+  const customId = interaction.customId;
+  const userId = interaction.user.id;
+  
+  // Extract character ID from custom ID (format varies by action)
+  let characterId;
+  if (customId.startsWith('statuses_add_')) {
+    characterId = parseInt(customId.replace('statuses_add_', ''));
+  } else if (customId.startsWith('statuses_toggle_')) {
+    const parts = customId.split('_');
+    characterId = parseInt(parts[2]);
+  } else if (customId.startsWith('statuses_done_')) {
+    characterId = parseInt(customId.replace('statuses_done_', ''));
+  } else {
+    await interaction.reply({
+      content: 'Invalid interaction.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const character = CharacterStorage.getCharacter(userId, characterId);
+  if (!character) {
+    await interaction.reply({
+      content: 'Character not found.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  let updatedStatuses = [...(character.tempStatuses || [])];
+
+  if (customId.startsWith('statuses_add_')) {
+    // Show modal to add new status
+    const modal = new ModalBuilder()
+      .setCustomId(`statuses_add_modal_${characterId}`)
+      .setTitle('Add New Status');
+
+    const nameInput = new TextInputBuilder()
+      .setCustomId('status_name')
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder('Enter status name (e.g., "rested", "injured")')
+      .setRequired(true)
+      .setMaxLength(100);
+
+    const nameLabel = new LabelBuilder()
+      .setLabel('Status Name')
+      .setTextInputComponent(nameInput);
+
+    modal.addLabelComponents(nameLabel);
+    await interaction.showModal(modal);
+    return;
+  } else if (customId.startsWith('statuses_toggle_')) {
+    // Toggle power level for a status
+    const parts = customId.split('_');
+    const statusIdx = parseInt(parts[3]);
+    const level = parseInt(parts[4]);
+
+    if (!isNaN(statusIdx) && statusIdx >= 0 && statusIdx < updatedStatuses.length &&
+        !isNaN(level) && level >= 1 && level <= 6) {
+      const status = updatedStatuses[statusIdx];
+      
+      if (typeof status === 'object' && status.status) {
+        // Update existing status object
+        const powerLevels = { ...(status.powerLevels || {}) };
+        powerLevels[level] = !powerLevels[level];
+        
+        updatedStatuses[statusIdx] = {
+          status: status.status,
+          powerLevels: powerLevels
+        };
+      } else if (typeof status === 'string') {
+        // Convert string status to object with power levels
+        updatedStatuses[statusIdx] = {
+          status: status,
+          powerLevels: { [level]: true }
+        };
+      }
+
+      const updatedCharacter = CharacterStorage.updateCharacter(userId, characterId, {
+        tempStatuses: updatedStatuses,
+      });
+
+      if (updatedCharacter) {
+        const editorData = StatusesEditorView.build(updatedCharacter, statusIdx);
+        const allComponents = StatusesEditorView.combineComponents(editorData);
+
+        await interaction.update({
+          components: allComponents,
+          flags: MessageFlags.IsComponentsV2,
+        });
+      }
+    }
+    return;
+  } else if (customId.startsWith('statuses_done_')) {
+    // Return to character view
+    const displayData = await CharacterView.buildCharacterDisplays(character, interaction);
+    const allComponents = CharacterView.combineCharacterComponents(displayData, CharacterView.buildCharacterButtons(character));
+
+    await interaction.update({
+      components: allComponents,
+      flags: MessageFlags.IsComponentsV2,
+    });
+    return;
+  }
 }
 
 /**
@@ -536,25 +809,17 @@ export async function handleDeleteCharacterCancel(interaction, client) {
     components: [],
   });
   
-  // Show the character display in a follow-up (since interaction is already replied)
-  // Format character content using CharacterView
-  let fellowshipInfo = '';
-  if (character.fellowship) {
-    fellowshipInfo = `**Fellowship: ${character.fellowship.name}**`;
-  }
-  
-  const content = CharacterView.formatCharacterContent(character, {
-    fellowshipInfo
-  });
+  const displayData = await CharacterView.buildCharacterDisplays(character, interaction);
 
-  // Build buttons
   // Build character buttons using CharacterView
-  const buttonRows = CharacterView.buildCharacterButtons(character);
+  const interactiveData = CharacterView.buildCharacterButtons(character);
+  
+  // Combine displays and buttons
+  const allComponents = CharacterView.combineCharacterComponents(displayData, interactiveData);
 
   await interaction.followUp({
-    content,
-    components: buttonRows,
-    flags: MessageFlags.Ephemeral,
+    components: allComponents,
+    flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
   });
 }
 

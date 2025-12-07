@@ -86,6 +86,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await CharacterHandler.handleEditCharacterButton(interaction, client);
     } else if (interaction.customId.startsWith('edit_backpack_')) {
       await CharacterHandler.handleEditBackpackButton(interaction, client);
+    } else if (interaction.customId.startsWith('edit_statuses_')) {
+      await CharacterHandler.handleEditStatusesButton(interaction, client);
+    } else if (interaction.customId.startsWith('statuses_')) {
+      await CharacterHandler.handleStatusesEditor(interaction, client);
     } else if (interaction.customId.startsWith('burn_refresh_')) {
       await CharacterHandler.handleBurnRefreshButton(interaction, client);
     } else if (interaction.customId.startsWith('retry_create_character_')) {
@@ -112,6 +116,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await CharacterHandler.handleSelectActiveCharacter(interaction, client);
     } else if (interaction.customId.startsWith('burn_refresh_select_')) {
       await CharacterHandler.handleBurnRefreshSelect(interaction, client);
+    } else if (interaction.customId.startsWith('statuses_remove_')) {
+      await CharacterHandler.handleStatusesRemove(interaction, client);
+    } else if (interaction.customId.startsWith('statuses_edit_select_')) {
+      await CharacterHandler.handleStatusesEditSelect(interaction, client);
     } else if (interaction.customId.startsWith('roll_help_page_') || interaction.customId.startsWith('roll_hinder_page_')) {
       await RollHandler.handleRollPageSelect(interaction, client);
     } else if (interaction.customId.startsWith('roll_burn_')) {
