@@ -217,6 +217,91 @@ export class CharacterStorage {
   }
 
   /**
+   * Mark themes/tags as burned based on tagValue strings
+   * @param {string} userId - Discord user ID
+   * @param {number} characterId - Character ID
+   * @param {string[]} tagValues - Array of tagValue strings (e.g., ["theme:ThemeName", "tag:TagName"])
+   * @returns {Object|null} Updated character or null if not found
+   */
+  static markTagsAsBurned(userId, characterId, tagValues) {
+    // Verify character exists and belongs to user
+    const verifyStmt = db.prepare('SELECT id FROM characters WHERE id = ? AND user_id = ?');
+    if (!verifyStmt.get(characterId, userId)) {
+      return null;
+    }
+    
+    const transaction = db.transaction(() => {
+      for (const tagValue of tagValues) {
+        if (tagValue.startsWith('theme:')) {
+          // Mark theme as burned
+          const themeName = tagValue.replace('theme:', '');
+          db.prepare(`
+            UPDATE character_themes
+            SET is_burned = 1
+            WHERE character_id = ? AND name = ?
+          `).run(characterId, themeName);
+        } else if (tagValue.startsWith('tag:')) {
+          // Mark theme tag as burned
+          const tagName = tagValue.replace('tag:', '');
+          db.prepare(`
+            UPDATE character_theme_tags
+            SET is_burned = 1
+            WHERE theme_id IN (
+              SELECT id FROM character_themes WHERE character_id = ?
+            ) AND tag = ? AND is_weakness = 0
+          `).run(characterId, tagName);
+        }
+        // Note: backpack: and story: tags are handled separately (deletion)
+      }
+    });
+    
+    transaction();
+    return this.getCharacter(userId, characterId);
+  }
+
+  /**
+   * Refresh (unburn) themes/tags based on tagValue strings
+   * @param {string} userId - Discord user ID
+   * @param {number} characterId - Character ID
+   * @param {string[]} tagValues - Array of tagValue strings to refresh
+   * @returns {Object|null} Updated character or null if not found
+   */
+  static refreshBurnedTags(userId, characterId, tagValues) {
+    // Verify character exists and belongs to user
+    const verifyStmt = db.prepare('SELECT id FROM characters WHERE id = ? AND user_id = ?');
+    if (!verifyStmt.get(characterId, userId)) {
+      return null;
+    }
+    
+    const transaction = db.transaction(() => {
+      for (const tagValue of tagValues) {
+        if (tagValue.startsWith('theme:')) {
+          // Refresh theme
+          const themeName = tagValue.replace('theme:', '');
+          db.prepare(`
+            UPDATE character_themes
+            SET is_burned = 0
+            WHERE character_id = ? AND name = ?
+          `).run(characterId, themeName);
+        } else if (tagValue.startsWith('tag:')) {
+          // Refresh theme tag
+          const tagName = tagValue.replace('tag:', '');
+          db.prepare(`
+            UPDATE character_theme_tags
+            SET is_burned = 0
+            WHERE theme_id IN (
+              SELECT id FROM character_themes WHERE character_id = ?
+            ) AND tag = ? AND is_weakness = 0
+          `).run(characterId, tagName);
+        }
+      }
+    });
+    
+    transaction();
+    return this.getCharacter(userId, characterId);
+  }
+
+  /**
    * Create a new character
    * @param {string} userId - Discord user ID
    * @param {string} name - Character name
@@ -459,6 +544,44 @@ export class CharacterStorage {
   }
 
   /**
+   * Check if a Google Sheet URL is already in use by any character
+   * Normalizes URLs by extracting the spreadsheet ID to handle variations
+   * (different gid parameters, edit vs view, trailing slashes, etc.)
+   * @param {string} sheetUrl - Google Sheets URL to check
+   * @returns {Object|null} Character object using this URL, or null if not in use
+   */
+  static getCharacterBySheetUrl(sheetUrl) {
+    // Extract spreadsheet ID from the URL
+    const urlPattern = /https:\/\/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/;
+    const match = sheetUrl.match(urlPattern);
+    
+    if (!match) {
+      return null;
+    }
+    
+    const spreadsheetId = match[1];
+    
+    // Get all characters with sheet URLs and check if any match this spreadsheet ID
+    const stmt = db.prepare(`
+      SELECT id, user_id, name, google_sheet_url
+      FROM characters
+      WHERE google_sheet_url IS NOT NULL AND google_sheet_url != ''
+    `);
+    
+    const characters = stmt.all();
+    
+    // Check each character's URL to see if it matches the same spreadsheet ID
+    for (const character of characters) {
+      const existingMatch = character.google_sheet_url.match(urlPattern);
+      if (existingMatch && existingMatch[1] === spreadsheetId) {
+        return character;
+      }
+    }
+    
+    return null;
+  }
+
+  /**
    * Sync character data TO Google Sheet
    * @param {string} userId - Discord user ID
    * @param {number} characterId - Character ID
@@ -530,14 +653,56 @@ export class CharacterStorage {
         }
       }
 
+      // Preserve existing burned status when syncing themes
+      // Build maps of existing burned status by name/tag
+      const existingBurnedThemes = new Map();
+      const existingBurnedTags = new Map();
+      character.themes.forEach(theme => {
+        if (theme.isBurned) {
+          existingBurnedThemes.set(theme.name, true);
+        }
+        theme.tags.forEach(tagObj => {
+          const tag = typeof tagObj === 'string' ? tagObj : tagObj.tag;
+          const isBurned = typeof tagObj === 'object' ? (tagObj.isBurned || false) : false;
+          if (isBurned) {
+            existingBurnedTags.set(tag, true);
+          }
+        });
+      });
+
+      // Apply existing burned status to synced themes
+      const themesWithBurnedStatus = sheetData.themes.map(theme => ({
+        ...theme,
+        isBurned: existingBurnedThemes.has(theme.name) || false,
+        tags: theme.tags ? theme.tags.map(tag => {
+          const tagText = typeof tag === 'string' ? tag : (tag.tag || tag);
+          return typeof tag === 'object' ? {
+            ...tag,
+            isBurned: existingBurnedTags.has(tagText) || false
+          } : {
+            tag: tagText,
+            isBurned: existingBurnedTags.has(tagText) || false
+          };
+        }) : [],
+        weaknesses: theme.weaknesses ? theme.weaknesses.map(weakness => {
+          const weaknessText = typeof weakness === 'string' ? weakness : (weakness.tag || weakness);
+          return typeof weakness === 'object' ? {
+            ...weakness,
+            isBurned: existingBurnedTags.has(weaknessText) || false
+          } : {
+            tag: weaknessText,
+            isBurned: existingBurnedTags.has(weaknessText) || false
+          };
+        }) : []
+      }));
+
       // Update character in database
       const updates = {
         name: sheetData.name,
-        themes: sheetData.themes,
+        themes: themesWithBurnedStatus,
         backpack: sheetData.backpack,
         storyTags: sheetData.storyTags,
         tempStatuses: sheetData.tempStatuses,
-        burnedTags: sheetData.burnedTags,
       };
 
       const updatedCharacter = this.updateCharacter(userId, characterId, updates);

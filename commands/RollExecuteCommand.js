@@ -54,19 +54,55 @@ export class RollExecuteCommand extends Command {
     // Mark as executed
     RollStorage.updateRoll(rollId, { status: RollStatus.EXECUTED });
 
-    // Mark burned tags as burned in the character
-    const burnedTags = roll.burnedTags || new Set();
-    if (burnedTags.size > 0) {
+    // Process burned tags - delete backpack/storyTags, mark others as burned
+    const burnedTags = roll.burnedTags || [];
+    if (burnedTags.length > 0) {
       const character = CharacterStorage.getCharacter(roll.creatorId, roll.characterId);
       if (character) {
-        const currentBurnedTags = new Set(character.burnedTags || []);
-        // Add all burned tags from this roll to the character's burned tags
+        const backpackToRemove = [];
+        const storyTagsToRemove = [];
+        const tagsToBurn = [];
+        
+        // Separate burned tags by type
         for (const tagValue of burnedTags) {
-          currentBurnedTags.add(tagValue);
+          if (tagValue.startsWith('backpack:')) {
+            // Extract backpack item name (remove prefix)
+            const itemName = tagValue.replace('backpack:', '');
+            backpackToRemove.push(itemName);
+          } else if (tagValue.startsWith('story:')) {
+            // Extract story tag name (remove prefix)
+            const tagName = tagValue.replace('story:', '');
+            storyTagsToRemove.push(tagName);
+          } else {
+            // Other tags (themes, theme tags) get marked as burned
+            tagsToBurn.push(tagValue);
+          }
         }
-        CharacterStorage.updateCharacter(roll.creatorId, roll.characterId, {
-          burnedTags: Array.from(currentBurnedTags),
-        });
+        
+        // Build update object
+        const updates = {};
+        
+        // Remove backpack items that were burned
+        if (backpackToRemove.length > 0) {
+          const updatedBackpack = (character.backpack || []).filter(item => !backpackToRemove.includes(item));
+          updates.backpack = updatedBackpack;
+        }
+        
+        // Remove story tags that were burned
+        if (storyTagsToRemove.length > 0) {
+          const updatedStoryTags = (character.storyTags || []).filter(tag => !storyTagsToRemove.includes(tag));
+          updates.storyTags = updatedStoryTags;
+        }
+        
+        // Mark themes/tags as burned (only for non-backpack/non-storyTag items)
+        if (tagsToBurn.length > 0) {
+          CharacterStorage.markTagsAsBurned(roll.creatorId, roll.characterId, tagsToBurn);
+        }
+        
+        // Apply all updates (backpack and storyTags)
+        if (Object.keys(updates).length > 0) {
+          CharacterStorage.updateCharacter(roll.creatorId, roll.characterId, updates);
+        }
       }
     }
 
@@ -76,7 +112,7 @@ export class RollExecuteCommand extends Command {
     const baseRoll = die1 + die2;
 
     // Calculate modifier using status values and burned tags
-    const modifier = RollView.calculateModifier(roll.helpTags, roll.hinderTags, burnedTags);
+    const modifier = RollView.calculateModifier(roll.helpTags, roll.hinderTags, new Set(burnedTags));
     const finalResult = baseRoll + modifier;
 
     // Format narrator mention if they confirmed the roll

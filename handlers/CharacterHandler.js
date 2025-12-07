@@ -417,16 +417,15 @@ export async function handleBurnRefreshButton(interaction, client) {
   }
 
   // Collect all burnable tags (non-status tags)
-  const burnedTags = new Set(character.burnedTags || []);
   const options = [];
   const seen = new Set();
 
-  // Theme names
   character.themes.forEach(theme => {
+    // Theme names
     if (theme.name) {
       const tagValue = `theme:${theme.name}`;
       if (!seen.has(tagValue)) {
-        const isBurned = burnedTags.has(tagValue);
+        const isBurned = theme.isBurned || false;
         const isStatus = Validation.validateStatus(theme.name).valid;
         // Only non-status tags can be burned
         if (!isStatus) {
@@ -439,15 +438,12 @@ export async function handleBurnRefreshButton(interaction, client) {
         }
       }
     }
-  });
-
-  // Theme tags
-  character.themes.forEach(theme => {
+    // Theme tags
     theme.tags.forEach(tagObj => {
       const tag = typeof tagObj === 'string' ? tagObj : tagObj.tag;
+      const isBurned = typeof tagObj === 'object' ? (tagObj.isBurned || false) : false;
       const tagValue = `tag:${tag}`;
       if (!seen.has(tagValue)) {
-        const isBurned = burnedTags.has(tagValue);
         const isStatus = Validation.validateStatus(tag).valid;
         if (!isStatus) {
           options.push(new StringSelectMenuOptionBuilder()
@@ -461,43 +457,9 @@ export async function handleBurnRefreshButton(interaction, client) {
     });
   });
 
-  // Backpack items
-  character.backpack.forEach(tag => {
-    const tagValue = `backpack:${tag}`;
-    if (!seen.has(tagValue)) {
-      const isBurned = burnedTags.has(tagValue);
-      const isStatus = Validation.validateStatus(tag).valid;
-      if (!isStatus) {
-        options.push(new StringSelectMenuOptionBuilder()
-          .setLabel(`${isBurned ? '🔥 ' : ''}${tag} (Backpack)`)
-          .setValue(tagValue)
-          .setDescription(isBurned ? 'Currently burned - select to refresh' : 'Select to burn')
-          .setDefault(isBurned));
-        seen.add(tagValue);
-      }
-    }
-  });
-
-  // Story tags
-  character.storyTags.forEach(tag => {
-    const tagValue = `story:${tag}`;
-    if (!seen.has(tagValue)) {
-      const isBurned = burnedTags.has(tagValue);
-      const isStatus = Validation.validateStatus(tag).valid;
-      if (!isStatus) {
-        options.push(new StringSelectMenuOptionBuilder()
-          .setLabel(`${isBurned ? '🔥 ' : ''}${tag} (Story Tag)`)
-          .setValue(tagValue)
-          .setDescription(isBurned ? 'Currently burned - select to refresh' : 'Select to burn')
-          .setDefault(isBurned));
-        seen.add(tagValue);
-      }
-    }
-  });
-
   if (options.length === 0) {
     await interaction.reply({
-      content: 'No burnable tags found. Only non-status tags can be burned.',
+      content: 'No burnable tags found. Only theme tagss can be burned.',
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -558,32 +520,48 @@ export async function handleBurnRefreshSelect(interaction, client) {
 
   // Get currently selected tags (these will toggle burn status)
   const selectedTags = new Set(interaction.values);
-  const currentBurnedTags = new Set(character.burnedTags || []);
-  const newBurnedTags = [];
-
-  // Toggle burn status: if selected and not burned, add to burned. If selected and burned, remove from burned.
-  // If not selected and burned, remove from burned. If not selected and not burned, leave as is.
-  for (const tagValue of selectedTags) {
-    if (!currentBurnedTags.has(tagValue)) {
-      // Tag is selected and not currently burned - burn it
-      newBurnedTags.push(tagValue);
+  
+  // Collect currently burned tags from character
+  const currentBurnedTags = new Set();
+  character.themes.forEach(theme => {
+    if (theme.isBurned) {
+      currentBurnedTags.add(`theme:${theme.name}`);
     }
-    // If tag is selected and already burned, we don't add it (effectively refreshing it)
-  }
+    theme.tags.forEach(tagObj => {
+      const tag = typeof tagObj === 'string' ? tagObj : tagObj.tag;
+      const isBurned = typeof tagObj === 'object' ? (tagObj.isBurned || false) : false;
+      if (isBurned) {
+        currentBurnedTags.add(`tag:${tag}`);
+      }
+    });
+  });
 
-  // Keep tags that are burned but not selected (they stay burned)
+  const tagsToBurn = [];
+  const tagsToRefresh = [];
+
+  // Determine which tags to burn and which to refresh
+  // Tags that are currently burned but NOT selected should be refreshed (unburned)
   for (const tagValue of currentBurnedTags) {
     if (!selectedTags.has(tagValue)) {
-      // Tag is not selected but was burned - keep it burned
-      newBurnedTags.push(tagValue);
+      // Tag is burned but not selected - refresh it
+      tagsToRefresh.push(tagValue);
     }
-    // If tag is selected and was burned, we don't add it (refreshed)
   }
 
-  // Update character with new burned tags
-  CharacterStorage.updateCharacter(userId, characterId, {
-    burnedTags: newBurnedTags,
-  });
+  // Tags that are NOT currently burned but ARE selected should be burned
+  for (const tagValue of selectedTags) {
+    if (!currentBurnedTags.has(tagValue)) {
+      // Tag is selected but not burned - burn it
+      tagsToBurn.push(tagValue);
+    }
+  }
+  // Update character with burned/refreshed tags
+  if (tagsToBurn.length > 0) {
+    CharacterStorage.markTagsAsBurned(userId, characterId, tagsToBurn);
+  }
+  if (tagsToRefresh.length > 0) {
+    CharacterStorage.refreshBurnedTags(userId, characterId, tagsToRefresh);
+  }
 
   // Refresh character display
   await EditCharacterCommand.displayCharacter(interaction, CharacterStorage.getCharacter(userId, characterId), true, userId);
@@ -787,6 +765,16 @@ export async function handleSetSheetUrlModal(interaction) {
   if (!urlPattern.test(sheetUrl)) {
     await interaction.reply({
       content: '❌ Invalid Google Sheets URL format. Please use a URL like:\n`https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit`',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Check if this sheet URL is already in use by a different character
+  const existingCharacter = CharacterStorage.getCharacterBySheetUrl(sheetUrl);
+  if (existingCharacter && existingCharacter.id !== characterId) {
+    await interaction.reply({
+      content: `❌ This Google Sheet has already been imported by another character.\n\n**Character:** ${existingCharacter.name}\n**Owner:** <@${existingCharacter.user_id}>\n\nEach sheet can only be used by one character.`,
       flags: MessageFlags.Ephemeral,
     });
     return;

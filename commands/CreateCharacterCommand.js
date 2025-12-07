@@ -43,6 +43,16 @@ export class CreateCharacterCommand extends Command {
       return;
     }
 
+    // Check if this sheet URL is already in use
+    const existingCharacter = CharacterStorage.getCharacterBySheetUrl(sheetUrl);
+    if (existingCharacter) {
+      await interaction.reply({
+        content: `❌ This Google Sheet has already been imported.\n\n**Character:** ${existingCharacter.name}\n**Owner:** <@${existingCharacter.user_id}>\n\nEach sheet can only be imported once. If you need to update an existing character, use the character edit commands.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
     // Check if sheets service is ready
     if (!sheetsService.isReady()) {
       await interaction.reply({

@@ -399,7 +399,6 @@ export async function handleRollCancel(interaction, client) {
   const customId = interaction.customId;
   // Extract rollKey: format is "roll_cancel_userId-sceneId"
   const rollKey = customId.replace('roll_cancel_', '');
-  console.log(rollKey, customId, client.rollStates.keys());
   if (!client.rollStates.has(rollKey)) {
     await interaction.reply({
       content: 'This roll session has expired.',

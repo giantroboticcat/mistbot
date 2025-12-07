@@ -400,19 +400,18 @@ export class RollView {
   static collectHelpTags(character, sceneId, StoryTagStorage, includeBurned = false) {
     const options = [];
     const seen = new Set();
-    const burnedTags = new Set(character.burnedTags || []);
 
     // Theme names (as tags) - yellow tag icon
     character.themes.forEach(theme => {
       const tagValue = `theme:${theme.name}`;
       if (theme.name && !seen.has(tagValue)) {
+        const isBurned = theme.isBurned || false;
         // Skip if burned and not including burned tags
-        if (!includeBurned && burnedTags.has(tagValue)) {
+        if (!includeBurned && isBurned) {
           return;
         }
         const isStatus = Validation.validateStatus(theme.name).valid;
         const icon = isStatus ? '🟢' : '🟡'; // Green for status, yellow for tag
-        const isBurned = burnedTags.has(tagValue);
         options.push(new StringSelectMenuOptionBuilder()
           .setLabel(`${icon} ${theme.name}${isBurned ? ' 🔥' : ''}`)
           .setValue(tagValue)
@@ -425,13 +424,13 @@ export class RollView {
     character.themes.forEach(theme => {
       theme.tags.forEach(tagObj => {
         const tag = typeof tagObj === 'string' ? tagObj : tagObj.tag;
+        const isBurned = typeof tagObj === 'object' ? (tagObj.isBurned || false) : false;
         const tagValue = `tag:${tag}`;
         if (!seen.has(tagValue)) {
           // Skip if burned and not including burned tags
-          if (!includeBurned && burnedTags.has(tagValue)) {
+          if (!includeBurned && isBurned) {
             return;
           }
-          const isBurned = burnedTags.has(tagValue);
           options.push(new StringSelectMenuOptionBuilder()
             .setLabel(`🟡 ${tag}${isBurned ? ' 🔥' : ''}`)
             .setValue(tagValue)
@@ -441,40 +440,30 @@ export class RollView {
       });
     });
 
-    // Backpack tags - yellow tag icon
+    // Backpack tags - yellow tag icon (cannot be burned, just deleted)
     character.backpack.forEach(tag => {
       const tagValue = `backpack:${tag}`;
       if (!seen.has(tagValue)) {
-        // Skip if burned and not including burned tags
-        if (!includeBurned && burnedTags.has(tagValue)) {
-          return;
-        }
         const isStatus = Validation.validateStatus(tag).valid;
         const icon = isStatus ? '🟢' : '🟡'; // Green for status, yellow for tag
-        const isBurned = burnedTags.has(tagValue);
         options.push(new StringSelectMenuOptionBuilder()
-          .setLabel(`${icon} ${tag}${isBurned ? ' 🔥' : ''}`)
+          .setLabel(`${icon} ${tag}`)
           .setValue(tagValue)
-          .setDescription(`Backpack Item${isBurned ? ' (Burned)' : ''}`));
+          .setDescription('Backpack Item'));
         seen.add(tagValue);
       }
     });
 
-    // Character story tags - yellow tag icon
+    // Character story tags - yellow tag icon (cannot be burned, just deleted)
     character.storyTags.forEach(tag => {
       const tagValue = `story:${tag}`;
       if (!seen.has(tagValue)) {
-        // Skip if burned and not including burned tags
-        if (!includeBurned && burnedTags.has(tagValue)) {
-          return;
-        }
         const isStatus = Validation.validateStatus(tag).valid;
         const icon = isStatus ? '🟢' : '🟡'; // Green for status, yellow for tag
-        const isBurned = burnedTags.has(tagValue);
         options.push(new StringSelectMenuOptionBuilder()
-          .setLabel(`${icon} ${tag}${isBurned ? ' 🔥' : ''}`)
+          .setLabel(`${icon} ${tag}`)
           .setValue(tagValue)
-          .setDescription(`Character Story Tag${isBurned ? ' (Burned)' : ''}`));
+          .setDescription('Character Story Tag'));
         seen.add(tagValue);
       }
     });
@@ -562,7 +551,6 @@ export class RollView {
   static collectHinderTags(character, sceneId, StoryTagStorage, includeBurned = false) {
     const options = this.collectHelpTags(character, sceneId, StoryTagStorage, includeBurned);
     const seen = new Set(options.map(opt => opt.data.value));
-    const burnedTags = new Set(character.burnedTags || []);
 
     // Add theme weaknesses - orange weakness icon, show which theme
     // Weaknesses can't be burned
