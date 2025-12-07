@@ -1,8 +1,9 @@
-import { SlashCommandBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, LabelBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { SlashCommandBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, LabelBuilder } from 'discord.js';
 import { Command } from './Command.js';
 import { CharacterStorage } from '../utils/CharacterStorage.js';
-import { TagFormatter } from '../utils/TagFormatter.js';
+import { CharacterView } from '../utils/CharacterView.js';
 import { Validation } from '../utils/Validation.js';
+
 
 /**
  * Edit an existing character
@@ -38,30 +39,7 @@ export class EditCharacterCommand extends Command {
    * @param {string} ownerId - Optional owner ID to display owner information
    */
   static async displayCharacter(interaction, character, showEditButtons = true, ownerId = null) {
-    // Build response showing the character
-    const themeParts = [];
-    character.themes.forEach((theme) => {
-      if (theme.tags.length > 0 || theme.weaknesses.length > 0) {
-        // Extract tag names from objects and wrap burned ones with fire emojis
-        const tagNames = theme.tags.map(t => {
-          const tagText = typeof t === 'string' ? t : t.tag;
-          const isBurned = typeof t === 'object' ? t.isBurned : false;
-          return isBurned ? `🔥${tagText}🔥` : tagText;
-        });
-        const weaknessNames = theme.weaknesses.map(w => {
-          const weakText = typeof w === 'string' ? w : w.tag;
-          const isBurned = typeof w === 'object' ? w.isBurned : false;
-          return isBurned ? `🔥${weakText}🔥` : weakText;
-        });
-        
-        const formatted = TagFormatter.formatTagsAndWeaknessesInCodeBlock(tagNames, weaknessNames);
-        
-        // Wrap burned theme names with fire emojis on both sides
-        const themeName = theme.isBurned ? `🔥${theme.name}🔥` : theme.name;
-        themeParts.push(`**${themeName}:**\n${formatted}`);
-      }
-    });
-
+    // Fetch owner info if provided
     let ownerInfo = '';
     if (ownerId) {
       try {
@@ -80,89 +58,32 @@ export class EditCharacterCommand extends Command {
           const user = await interaction.client.users.fetch(ownerId);
           ownerName = user.username;
         }
-        ownerInfo = `\n*Owner: ${ownerName}*`;
+        ownerInfo = `*Owner: ${ownerName}*`;
       } catch (error) {
         // If we can't fetch user info, just show the ID or skip
         console.error('Error fetching owner info:', error);
       }
     }
 
-    // Format statuses (now objects with {status, powerLevels})
-    const statusDisplay = character.tempStatuses.length > 0 
-      ? character.tempStatuses.map(s => {
-        if (typeof s === 'string') return s;
-        // Find highest power level
-        let highestPower = 0;
-        for (let p = 6; p >= 1; p--) {
-          if (s.powerLevels && s.powerLevels[p]) {
-            highestPower = p;
-            break;
-          }
-        }
-        return highestPower > 0 ? `${s.status}-${highestPower}` : s.status;
-      }).join(', ')
-      : 'None';
-    
     // Add fellowship information if present
     let fellowshipInfo = '';
     if (character.fellowship) {
-      fellowshipInfo = `\n**Fellowship: ${character.fellowship.name}**`;
+      fellowshipInfo = `**Fellowship: ${character.fellowship.name}**`;
     }
-    
-    const content = `**Character: ${character.name}**${fellowshipInfo}${ownerInfo}\n\n` +
-      themeParts.join('\n\n') +
-      `\n\n*Backpack: ${character.backpack.length > 0 ? character.backpack.join(', ') : 'Empty'}*\n*Story Tags: ${character.storyTags.length > 0 ? character.storyTags.join(', ') : 'None'}*\n*Statuses: ${statusDisplay}*`;
+
+    // Format character content using CharacterView
+    const content = CharacterView.formatCharacterContent(character, {
+      ownerInfo,
+      fellowshipInfo
+    });
 
     if (showEditButtons) {
-      // Create edit buttons
-      const editButton = new ButtonBuilder()
-        .setCustomId(`edit_character_${character.id}`)
-        .setLabel('Edit Name/Themes')
-        .setStyle(ButtonStyle.Primary);
-
-      const backpackButton = new ButtonBuilder()
-        .setCustomId(`edit_backpack_${character.id}`)
-        .setLabel('Edit Backpack, Story Tags & Statuses')
-        .setStyle(ButtonStyle.Secondary);
-
-      const burnRefreshButton = new ButtonBuilder()
-        .setCustomId(`burn_refresh_${character.id}`)
-        .setLabel('Burn/Refresh Tags')
-        .setStyle(ButtonStyle.Secondary);
-
-      const buttonRow1 = new ActionRowBuilder().setComponents([editButton, backpackButton, burnRefreshButton]);
-
-      // Create sync buttons (second row)
-      const setSheetButton = new ButtonBuilder()
-        .setCustomId(`set_sheet_url_btn_${character.id}`)
-        .setLabel('🔗 Set Sheet URL')
-        .setStyle(ButtonStyle.Secondary);
-
-      const syncToButton = new ButtonBuilder()
-        .setCustomId(`sync_to_sheet_${character.id}`)
-        .setLabel('📤 Sync to Sheet')
-        .setStyle(ButtonStyle.Success)
-        .setDisabled(!character.google_sheet_url); // Disable if no URL set
-
-      const syncFromButton = new ButtonBuilder()
-        .setCustomId(`sync_from_sheet_${character.id}`)
-        .setLabel('📥 Sync from Sheet')
-        .setStyle(ButtonStyle.Success)
-        .setDisabled(!character.google_sheet_url); // Disable if no URL set
-
-      const buttonRow2 = new ActionRowBuilder().setComponents([setSheetButton, syncToButton, syncFromButton]);
-
-      // Create delete button (third row, destructive action)
-      const deleteButton = new ButtonBuilder()
-        .setCustomId(`delete_character_${character.id}`)
-        .setLabel('🗑️ Delete Character')
-        .setStyle(ButtonStyle.Danger);
-
-      const buttonRow3 = new ActionRowBuilder().setComponents([deleteButton]);
+      // Build character buttons using CharacterView
+      const buttonRows = CharacterView.buildCharacterButtons(character);
 
       await interaction.reply({
         content,
-        components: [buttonRow1, buttonRow2, buttonRow3],
+        components: buttonRows,
         flags: MessageFlags.Ephemeral,
       });
     } else {

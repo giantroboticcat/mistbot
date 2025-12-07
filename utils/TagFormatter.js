@@ -174,5 +174,62 @@ export class TagFormatter {
     const formatted = parts.join(', ');
     return `\`\`\`ansi\n${formatted}\n\`\`\``;
   }
+
+  /**
+   * Format statuses in a table format showing checked power levels
+   * @param {Array<Object|string>} statuses - Array of status objects with {status, powerLevels} or strings
+   * @returns {string} Formatted statuses in a table format with ANSI green
+   */
+  static formatStatusesAsTable(statuses) {
+    if (statuses.length === 0) {
+      return 'None';
+    }
+
+    // Find the longest status name for alignment
+    let maxNameLength = 8; // Minimum width for "Status"
+    for (const status of statuses) {
+      const nameLength = typeof status === 'string' ? status.length : status.status.length;
+      if (nameLength > maxNameLength) {
+        maxNameLength = nameLength;
+      }
+    }
+    maxNameLength = Math.max(maxNameLength, 8); // Ensure at least "Status" width
+
+    const lines = [];
+    
+    // Header row
+    const header = `Status${' '.repeat(maxNameLength - 6)} │ 1 2 3 4 5 6`;
+    lines.push(header);
+    
+    // Separator row
+    lines.push(`${'─'.repeat(maxNameLength+14)}`);
+    
+    for (const status of statuses) {
+      if (typeof status === 'string') {
+        // Simple string status - show with no levels
+        const paddedName = status.padEnd(maxNameLength, ' ');
+        lines.push(`${this.BOLD_GREEN}${paddedName}${this.RESET} │ ${' '.repeat(11)}`);
+      } else {
+        const statusName = status.status;
+        const powerLevels = status.powerLevels || {};
+        
+        // Build level indicators (1-6)
+        const levelIndicators = [];
+        for (let p = 1; p <= 6; p++) {
+          if (powerLevels[p]) {
+            levelIndicators.push(`${this.BOLD_GREEN}✓${this.RESET}`);
+          } else {
+            levelIndicators.push('·');
+          }
+        }
+        
+        // Format: "statusName │ ✓ ✓ · · · ·"
+        const paddedName = statusName.padEnd(maxNameLength, ' ');
+        lines.push(`${this.BOLD_GREEN}${paddedName}${this.RESET} │ ${levelIndicators.join(' ')}`);
+      }
+    }
+    
+    return `\`\`\`ansi\n${lines.join('\n')}\n\`\`\``;
+  }
 }
 

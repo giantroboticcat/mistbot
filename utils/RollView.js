@@ -105,7 +105,7 @@ export class RollView {
     const hinderFormatted = hinderParts.length > 0
       ? `\`\`\`ansi\n${hinderParts.join(', ')}\n\`\`\``
       : '```\nNone\n```';
-
+    
     // Create a container for the roll display
     const descriptionContainer = new ContainerBuilder();
     
@@ -128,7 +128,7 @@ export class RollView {
       descriptionContainer.addTextDisplayComponents(
         new TextDisplayBuilder()
           .setContent(`**Narration:** ${options.narrationLink}`)
-      );
+    );
     }
     
     // Add justification notes if provided (display in proposal view)
@@ -152,14 +152,14 @@ export class RollView {
           .setContent(options.descriptionText)
       );
     }
-   
+    
     // Help tags in its own container
     const helpContainer = new ContainerBuilder();
     helpContainer.addTextDisplayComponents(
       new TextDisplayBuilder()
         .setContent(`### Help Tags\n${helpFormatted}`)
     );
-
+    
     // Hinder tags in its own container
     const hinderContainer = new ContainerBuilder();
     hinderContainer.addTextDisplayComponents(
@@ -171,10 +171,10 @@ export class RollView {
     if (options.footer) {
       footerContainer.addTextDisplayComponents(
         new TextDisplayBuilder()
-        .setContent(`*${options.footer}*`)
+          .setContent(`*${options.footer}*`)
       );
     }
-  
+    
     // Return structure that allows inserting interactive components between display sections
     return { 
       descriptionContainer,
@@ -183,7 +183,7 @@ export class RollView {
       footerContainer
     };
   }
-  
+
   /**
    * Build roll components with pagination support
    * @param {string|number} rollKey - Unique identifier for this roll (string for temp, number for stored)

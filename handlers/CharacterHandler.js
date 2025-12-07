@@ -3,7 +3,7 @@ import { CharacterStorage } from '../utils/CharacterStorage.js';
 import { db } from '../utils/Database.js';
 import { CreateCharacterCommand } from '../commands/CreateCharacterCommand.js';
 import { EditCharacterCommand } from '../commands/EditCharacterCommand.js';
-import { TagFormatter } from '../utils/TagFormatter.js';
+import { CharacterView } from '../utils/CharacterView.js';
 import { Validation } from '../utils/Validation.js';
 
 /**
@@ -11,127 +11,6 @@ import { Validation } from '../utils/Validation.js';
  */
 export async function handleModalSubmit(interaction, client) {
   const customId = interaction.customId;
-
-  if (customId === 'create_character_modal') {
-    // Modal-based character creation is disabled - use /char-create with sheet-url instead
-    await interaction.reply({
-      content: '❌ Character creation via modal is disabled. Please use `/char-create` with a Google Sheets URL to import a character.',
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
-  }
-  
-  // Legacy modal creation code (disabled - kept for reference)
-  /*
-  if (customId === 'create_character_modal') {
-    const userId = interaction.user.id;
-    const name = interaction.fields.getTextInputValue('character_name');
-    const theme1Input = interaction.fields.getTextInputValue('theme_1');
-    const theme2Input = interaction.fields.getTextInputValue('theme_2');
-    const theme3Input = interaction.fields.getTextInputValue('theme_3');
-    const theme4Input = interaction.fields.getTextInputValue('theme_4');
-
-    // Store form values for potential retry
-    const formValues = {
-      name: name,
-      theme1: theme1Input,
-      theme2: theme2Input,
-      theme3: theme3Input,
-      theme4: theme4Input,
-    };
-
-    if (!name || name.trim().length === 0) {
-      // Store values for retry
-      if (!client.characterCreationRetry) {
-        client.characterCreationRetry = new Map();
-      }
-      client.characterCreationRetry.set(userId, formValues);
-
-      // Create retry button
-      const retryButton = new ButtonBuilder()
-        .setCustomId(`retry_create_character_${userId}`)
-        .setLabel('Retry with Same Values')
-        .setStyle(ButtonStyle.Primary);
-
-      const buttonRow = new ActionRowBuilder().setComponents([retryButton]);
-
-      await interaction.reply({
-        content: '**Validation Error:** Character name cannot be empty.\n\nClick the button below to reopen the form with your entered values.',
-        components: [buttonRow],
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-
-    // Parse all themes
-    const themes = [
-      CreateCharacterCommand.parseTheme(theme1Input),
-      CreateCharacterCommand.parseTheme(theme2Input),
-      CreateCharacterCommand.parseTheme(theme3Input),
-      CreateCharacterCommand.parseTheme(theme4Input),
-    ];
-
-    // Validate themes
-    const validationErrors = [];
-    themes.forEach((theme, index) => {
-      if (!theme.name || theme.name.length === 0) {
-        validationErrors.push(`Theme ${index + 1} must have a name.`);
-      }
-      if (theme.tags.length === 0 && theme.weaknesses.length === 0) {
-        validationErrors.push(`Theme ${index + 1} must have at least one tag or weakness.`);
-      }
-    });
-
-    if (validationErrors.length > 0) {
-      // Store values for retry
-      if (!client.characterCreationRetry) {
-        client.characterCreationRetry = new Map();
-      }
-      client.characterCreationRetry.set(userId, formValues);
-
-      // Create retry button
-      const retryButton = new ButtonBuilder()
-        .setCustomId(`retry_create_character_${userId}`)
-        .setLabel('Retry with Same Values')
-        .setStyle(ButtonStyle.Primary);
-
-      const buttonRow = new ActionRowBuilder().setComponents([retryButton]);
-
-      await interaction.reply({
-        content: `**Validation Error:**\n${validationErrors.join('\n')}\n\nClick the button below to reopen the form with your entered values.`,
-        components: [buttonRow],
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-
-    // Clear retry values on success
-    if (client.characterCreationRetry) {
-      client.characterCreationRetry.delete(userId);
-    }
-
-    // Create the character
-    const character = CharacterStorage.createCharacter(userId, name.trim(), themes);
-
-    // Build response showing the character
-    const themeParts = [];
-    character.themes.forEach((theme) => {
-      if (theme.tags.length > 0 || theme.weaknesses.length > 0) {
-        const formatted = TagFormatter.formatTagsAndWeaknessesInCodeBlock(theme.tags, theme.weaknesses);
-        themeParts.push(`**${theme.name}:**\n${formatted}`);
-      }
-    });
-
-    const content = `**Character Created: ${character.name}**\n\n` +
-      themeParts.join('\n\n') +
-      '\n\n*Backpack: Empty*\n*Statuses: None*';
-
-    await interaction.reply({
-      content,
-      flags: MessageFlags.Ephemeral,
-    });
-  }
-  */
   
   if (customId.startsWith('edit_character_modal_')) {
     // Handle character edit modal submission
@@ -206,35 +85,16 @@ export async function handleModalSubmit(interaction, client) {
       return;
     }
 
-    // Build response showing the updated character
-    const themeParts = [];
-    updatedCharacter.themes.forEach((theme) => {
-      if (theme.tags.length > 0 || theme.weaknesses.length > 0) {
-        const formatted = TagFormatter.formatTagsAndWeaknessesInCodeBlock(theme.tags, theme.weaknesses);
-        themeParts.push(`**${theme.name}:**\n${formatted}`);
-      }
-    });
+    // Format character content using CharacterView
+    const characterContent = CharacterView.formatCharacterContent(updatedCharacter);
+    const content = `**Character Updated: ${updatedCharacter.name}**\n\n${characterContent}`;
 
-    const content = `**Character Updated: ${updatedCharacter.name}**\n\n` +
-      themeParts.join('\n') +
-      `\n\n*Backpack: ${updatedCharacter.backpack.length > 0 ? updatedCharacter.backpack.join(', ') : 'Empty'}*\n*Story Tags: ${updatedCharacter.storyTags.length > 0 ? updatedCharacter.storyTags.join(', ') : 'None'}*\n*Statuses: ${updatedCharacter.tempStatuses.length > 0 ? updatedCharacter.tempStatuses.join(', ') : 'None'}*`;
-
-    // Create edit buttons to allow further edits
-    const editButton = new ButtonBuilder()
-      .setCustomId(`edit_character_${updatedCharacter.id}`)
-      .setLabel('Adjust Name/Themes')
-      .setStyle(ButtonStyle.Primary);
-
-    const backpackButton = new ButtonBuilder()
-      .setCustomId(`edit_backpack_${updatedCharacter.id}`)
-      .setLabel('Edit Backpack')
-      .setStyle(ButtonStyle.Secondary);
-
-    const buttonRow = new ActionRowBuilder().setComponents([editButton, backpackButton]);
+    // Build character buttons using CharacterView (simplified set)
+    const buttonRows = CharacterView.buildCharacterButtons(updatedCharacter);
 
     await interaction.reply({
       content,
-      components: [buttonRow],
+      components: buttonRows,
       flags: MessageFlags.Ephemeral,
     });
   } else if (customId.startsWith('edit_backpack_modal_')) {
@@ -298,35 +158,16 @@ export async function handleModalSubmit(interaction, client) {
       return;
     }
 
-    // Build response showing the updated character
-    const themeParts = [];
-    updatedCharacter.themes.forEach((theme) => {
-      if (theme.tags.length > 0 || theme.weaknesses.length > 0) {
-        const formatted = TagFormatter.formatTagsAndWeaknessesInCodeBlock(theme.tags, theme.weaknesses);
-        themeParts.push(`**${theme.name}:**\n${formatted}`);
-      }
-    });
+    // Format character content using CharacterView
+    const characterContent = CharacterView.formatCharacterContent(updatedCharacter);
+    const content = `**Character Updated: ${updatedCharacter.name}**\n\n${characterContent}`;
 
-    const content = `**Character Updated: ${updatedCharacter.name}**\n\n` +
-      themeParts.join('\n') +
-      `\n\n*Backpack: ${updatedCharacter.backpack.length > 0 ? updatedCharacter.backpack.join(', ') : 'Empty'}*\n*Story Tags: ${updatedCharacter.storyTags.length > 0 ? updatedCharacter.storyTags.join(', ') : 'None'}*\n*Statuses: ${updatedCharacter.tempStatuses.length > 0 ? updatedCharacter.tempStatuses.join(', ') : 'None'}*`;
-
-    // Create edit buttons to allow further edits
-    const editButton = new ButtonBuilder()
-      .setCustomId(`edit_character_${updatedCharacter.id}`)
-      .setLabel('Adjust Name/Themes')
-      .setStyle(ButtonStyle.Primary);
-
-    const backpackButton = new ButtonBuilder()
-      .setCustomId(`edit_backpack_${updatedCharacter.id}`)
-      .setLabel('Edit Backpack')
-      .setStyle(ButtonStyle.Secondary);
-
-    const buttonRow = new ActionRowBuilder().setComponents([editButton, backpackButton]);
+    // Build character buttons using CharacterView (simplified set)
+    const buttonRows = CharacterView.buildCharacterButtons(updatedCharacter);
 
     await interaction.reply({
       content,
-      components: [buttonRow],
+      components: buttonRows,
       flags: MessageFlags.Ephemeral,
     });
   }
@@ -696,97 +537,23 @@ export async function handleDeleteCharacterCancel(interaction, client) {
   });
   
   // Show the character display in a follow-up (since interaction is already replied)
-  // We need to manually build the character display content and buttons
-  const themeParts = [];
-  character.themes.forEach((theme) => {
-    if (theme.tags.length > 0 || theme.weaknesses.length > 0) {
-      const tagNames = theme.tags.map(t => {
-        const tagText = typeof t === 'string' ? t : t.tag;
-        const isBurned = typeof t === 'object' ? t.isBurned : false;
-        return isBurned ? `🔥${tagText}🔥` : tagText;
-      });
-      const weaknessNames = theme.weaknesses.map(w => {
-        const weakText = typeof w === 'string' ? w : w.tag;
-        const isBurned = typeof w === 'object' ? w.isBurned : false;
-        return isBurned ? `🔥${weakText}🔥` : weakText;
-      });
-      
-      const formatted = TagFormatter.formatTagsAndWeaknessesInCodeBlock(tagNames, weaknessNames);
-      const themeName = theme.isBurned ? `🔥${theme.name}🔥` : theme.name;
-      themeParts.push(`**${themeName}:**\n${formatted}`);
-    }
-  });
-
-  const statusDisplay = character.tempStatuses.length > 0 
-    ? character.tempStatuses.map(s => {
-      if (typeof s === 'string') return s;
-      let highestPower = 0;
-      for (let p = 6; p >= 1; p--) {
-        if (s.powerLevels && s.powerLevels[p]) {
-          highestPower = p;
-          break;
-        }
-      }
-      return highestPower > 0 ? `${s.status}-${highestPower}` : s.status;
-    }).join(', ')
-    : 'None';
-  
+  // Format character content using CharacterView
   let fellowshipInfo = '';
   if (character.fellowship) {
-    fellowshipInfo = `\n**Fellowship: ${character.fellowship.name}**`;
+    fellowshipInfo = `**Fellowship: ${character.fellowship.name}**`;
   }
   
-  const content = `**Character: ${character.name}**${fellowshipInfo}\n\n` +
-    themeParts.join('\n\n') +
-    `\n\n*Backpack: ${character.backpack.length > 0 ? character.backpack.join(', ') : 'Empty'}*\n*Story Tags: ${character.storyTags.length > 0 ? character.storyTags.join(', ') : 'None'}*\n*Statuses: ${statusDisplay}*`;
+  const content = CharacterView.formatCharacterContent(character, {
+    fellowshipInfo
+  });
 
   // Build buttons
-  const editButton = new ButtonBuilder()
-    .setCustomId(`edit_character_${character.id}`)
-    .setLabel('Edit Name/Themes')
-    .setStyle(ButtonStyle.Primary);
-
-  const backpackButton = new ButtonBuilder()
-    .setCustomId(`edit_backpack_${character.id}`)
-    .setLabel('Edit Backpack, Story Tags & Statuses')
-    .setStyle(ButtonStyle.Secondary);
-
-  const burnRefreshButton = new ButtonBuilder()
-    .setCustomId(`burn_refresh_${character.id}`)
-    .setLabel('Burn/Refresh Tags')
-    .setStyle(ButtonStyle.Secondary);
-
-  const buttonRow1 = new ActionRowBuilder().setComponents([editButton, backpackButton, burnRefreshButton]);
-
-  const setSheetButton = new ButtonBuilder()
-    .setCustomId(`set_sheet_url_btn_${character.id}`)
-    .setLabel('🔗 Set Sheet URL')
-    .setStyle(ButtonStyle.Secondary);
-
-  const syncToButton = new ButtonBuilder()
-    .setCustomId(`sync_to_sheet_${character.id}`)
-    .setLabel('📤 Sync to Sheet')
-    .setStyle(ButtonStyle.Success)
-    .setDisabled(!character.google_sheet_url);
-
-  const syncFromButton = new ButtonBuilder()
-    .setCustomId(`sync_from_sheet_${character.id}`)
-    .setLabel('📥 Sync from Sheet')
-    .setStyle(ButtonStyle.Success)
-    .setDisabled(!character.google_sheet_url);
-
-  const buttonRow2 = new ActionRowBuilder().setComponents([setSheetButton, syncToButton, syncFromButton]);
-
-  const deleteButton = new ButtonBuilder()
-    .setCustomId(`delete_character_${character.id}`)
-    .setLabel('🗑️ Delete Character')
-    .setStyle(ButtonStyle.Danger);
-
-  const buttonRow3 = new ActionRowBuilder().setComponents([deleteButton]);
+  // Build character buttons using CharacterView
+  const buttonRows = CharacterView.buildCharacterButtons(character);
 
   await interaction.followUp({
     content,
-    components: [buttonRow1, buttonRow2, buttonRow3],
+    components: buttonRows,
     flags: MessageFlags.Ephemeral,
   });
 }
@@ -1019,4 +786,5 @@ export async function handleSetSheetUrlModal(interaction) {
     });
   }
 }
+
 
