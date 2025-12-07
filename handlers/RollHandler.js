@@ -119,14 +119,14 @@ export async function handleRollPageSelect(interaction, client) {
     let interactiveComponents = RollView.buildRollInteractives(rollKey, rollState.helpOptions, rollState.hinderOptions, rollState.helpPage, 
       rollState.hinderPage, rollState.helpTags, rollState.hinderTags, rollState.buttons, rollState.burnedTags, rollState.justificationNotes, rollState.showJustificationButton);
     
-      let title;
+    let title;
     if (rollKey.startsWith('confirm_')) {
+      const rollId = rollKey.replace('confirm_', '');
       title = `Reviewing Roll Proposal #${rollId}`;
     } else {
       title = 'Roll Proposal';
     }
 
-    const rollId = rollKey.replace('confirm_', '');
 
 
     let displayData = RollView.buildRollDisplays(
@@ -220,6 +220,10 @@ export async function handleRollSelect(interaction, client) {
       for (const value of rollState.helpTags) {
         if (currentPageValues.has(value) && !selectedInDropdown.has(value)) {
           rollState.helpTags.delete(value);
+          // Also remove from burnedTags if it was burned
+          if (rollState.burnedTags.has(value)) {
+            rollState.burnedTags.delete(value);
+          }
         }
       }
       
@@ -389,97 +393,13 @@ export async function handleRollBurn(interaction, client) {
 }
 
 /**
- * Handle roll button - perform the dice roll
- */
-export async function handleRollButton(interaction, client) {
-  const customId = interaction.customId;
-  
-  if (customId.startsWith('roll_now_')) {
-    // Extract rollKey: format is "roll_now_userId-sceneId"
-    const rollKey = customId.replace('roll_now_', '');
-    
-    if (!client.rollStates.has(rollKey)) {
-      await interaction.reply({
-        content: 'This roll session has expired. Please run /roll again.',
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-
-    const rollState = client.rollStates.get(rollKey);
-    
-    if (rollState.rolled) {
-      await interaction.reply({
-        content: 'This roll has already been completed.',
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-
-    // Check if user can edit this roll
-    const hasPermission = await canEditRoll(interaction, rollState);
-    if (!hasPermission) {
-      await interaction.reply({
-        content: `You don't have permission to roll. Only the creator or users with the "${ROLL_EDITOR_ROLE}" role can roll.`,
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-
-    // Mark as rolled
-    rollState.rolled = true;
-    client.rollStates.set(rollKey, rollState);
-
-    // Roll 2d6
-    const die1 = Math.floor(Math.random() * 6) + 1;
-    const die2 = Math.floor(Math.random() * 6) + 1;
-    const baseRoll = die1 + die2;
-
-    // Calculate modifier using status values and burned tags
-    const burnedTags = rollState.burnedTags || new Set();
-    const modifier = RollView.calculateModifier(rollState.helpTags, rollState.hinderTags, burnedTags);
-    const finalResult = baseRoll + modifier;
-
-    // Format roll result using RollView
-    const resultData = RollView.formatRollResult(
-      die1,
-      die2,
-      baseRoll,
-      modifier,
-      finalResult,
-      rollState.helpTags,
-      rollState.hinderTags,
-      burnedTags,
-      rollState.description,
-      null, // No narrator mention for old roll system
-      rollState.narrationLink || null
-    );
-
-    // Update the ephemeral message to hide components (use Components V2)
-    const updateContainer = new ContainerBuilder();
-    updateContainer.addTextDisplayComponents(
-      new TextDisplayBuilder()
-        .setContent('**Roll completed!** See the result below.')
-    );
-
-    await interaction.update({
-      components: [updateContainer],
-      flags: MessageFlags.IsComponentsV2,
-    });
-
-    // Send a public follow-up message with the roll result
-    await interaction.followUp(resultData);
-  }
-}
-
-/**
  * Handle roll cancel button interaction
  */
 export async function handleRollCancel(interaction, client) {
   const customId = interaction.customId;
   // Extract rollKey: format is "roll_cancel_userId-sceneId"
   const rollKey = customId.replace('roll_cancel_', '');
-  
+  console.log(rollKey, customId, client.rollStates.keys());
   if (!client.rollStates.has(rollKey)) {
     await interaction.reply({
       content: 'This roll session has expired.',
@@ -510,10 +430,12 @@ export async function handleRollCancel(interaction, client) {
   // Clean up roll state
   client.rollStates.delete(rollKey);
 
+  let rollCanceledText = new TextDisplayBuilder().setContent(`*Roll Canceled*`);
+
   // Update message to show cancellation
   await interaction.update({
-    content: '**Roll Canceled**',
-    components: [], // Hide all components
+    components: [rollCanceledText],
+    flags: MessageFlags.IsComponentsV2,
   });
 }
 
@@ -572,7 +494,7 @@ export async function handleRollSubmit(interaction, client) {
   });
 
   // Post public message to channel with narrator ping
-  const narratorMention = ROLL_EDITOR_ROLE_ID ? `<@&${ROLL_EDITOR_ROLE_ID}>` : 'Narrators';
+  const narratorMention = process.env.ROLL_EDITOR_ROLE_ID ? `<@&${process.env.ROLL_EDITOR_ROLE_ID}>` : 'Narrators';
   
   const displayData = RollView.buildRollDisplays(
     rollState.helpTags,
@@ -581,11 +503,11 @@ export async function handleRollSubmit(interaction, client) {
     true,
     rollState.burnedTags || new Set(),
     {
-      title: `Roll Proposal #${rollId}`,
-      descriptionText: `${narratorMention}\n**From:** <@${rollState.creatorId}>`,
+      title: `Roll Proposal #${rollId}\n${rollState.description}`,
+      descriptionText: `**From:** <@${rollState.creatorId}>`,
       narrationLink: rollState.narrationLink,
       justificationNotes: rollState.justificationNotes,
-      footer: `Narrators should use /roll-confirm ${rollId} to review and confirm.`
+      footer: `${narratorMention} should use /roll-confirm ${rollId} to review and confirm.`
     }
   );
 
@@ -721,7 +643,7 @@ export async function handleJustificationModal(interaction, client) {
  */
 export async function handleRollConfirm(interaction, client) {
   const customId = interaction.customId;
-  const rollId = parseInt(customId.replace('roll_confirm_', ''), 10);
+  const rollKey = customId.replace('roll_confirm_', '');
   
   // Check narrator permissions
   const ROLL_EDITOR_ROLE_ID = process.env.ROLL_EDITOR_ROLE_ID || null;
@@ -750,7 +672,6 @@ export async function handleRollConfirm(interaction, client) {
   }
 
   // Get the current roll state (may have been edited)
-  const rollKey = `confirm_${rollId}`;
   const rollState = client.rollStates.get(rollKey);
   
   if (!rollState) {
@@ -762,7 +683,7 @@ export async function handleRollConfirm(interaction, client) {
   }
 
   // Update the roll with any edits made
-  RollStorage.updateRoll(rollId, {
+  RollStorage.updateRoll(rollState.rollId, {
     status: RollStatus.CONFIRMED,
     helpTags: rollState.helpTags,
     hinderTags: rollState.hinderTags,
@@ -780,7 +701,7 @@ export async function handleRollConfirm(interaction, client) {
   const confirmContainer = new ContainerBuilder();
   confirmContainer.addTextDisplayComponents(
     new TextDisplayBuilder()
-      .setContent(`**Roll Proposal #${rollId} Confirmed by <@${interaction.user.id}>!**`)
+      .setContent(`**Roll Proposal #${rollState.rollId} Confirmed by <@${interaction.user.id}>!**`)
   );
 
   await interaction.update({
@@ -796,11 +717,11 @@ export async function handleRollConfirm(interaction, client) {
     true,
     rollState.burnedTags || new Set(),
       {
-        title: `Roll Proposal #${rollId} Confirmed`,
-        descriptionText: `<@${rollState.creatorId}>\n**Confirmed by:** <@${interaction.user.id}>`,
+        title: `Roll #${rollState.rollId} Confirmed\n${rollState.description}`,
+        descriptionText: `**Player:** <@${rollState.creatorId}>\n**Confirmed by:** <@${interaction.user.id}>`,
         narrationLink: rollState.narrationLink,
         justificationNotes: rollState.justificationNotes,
-        footer: `You can now execute this roll with /roll ${rollId}`
+        footer: `You can now execute this roll with /roll ${rollState.rollId}`
       }
   );
 

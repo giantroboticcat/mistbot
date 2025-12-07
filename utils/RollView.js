@@ -186,7 +186,7 @@ export class RollView {
   
   /**
    * Build roll components with pagination support
-   * @param {string|number} rollKeyOrId - Unique identifier for this roll (string for temp, number for stored)
+   * @param {string|number} rollKey - Unique identifier for this roll (string for temp, number for stored)
    * @param {Array} helpOptions - All available help tag options
    * @param {Array} hinderOptions - All available hinder tag options
    * @param {number} helpPage - Current help page (0-indexed)
@@ -197,11 +197,10 @@ export class RollView {
    * @param {boolean} buttons.submit
    * @param {boolean} buttons.confirm
    * @param {boolean} buttons.cancel
-   * @param {boolean} buttons.roll
    * @param {Set<string>} burnedTags - Currently selected tags to burn
    * @returns {Array} Array of ActionRowBuilder components
    */
-  static buildRollInteractives(rollKeyOrId, helpOptions, hinderOptions, helpPage, hinderPage, selectedHelpTags = new Set(), selectedHinderTags = new Set(), buttons = {}, burnedTags = new Set(), justificationNotes = null, showJustificationButton = true) {
+  static buildRollInteractives(rollKey, helpOptions, hinderOptions, helpPage, hinderPage, selectedHelpTags = new Set(), selectedHinderTags = new Set(), buttons = {}, burnedTags = new Set(), justificationNotes = null, showJustificationButton = true) {
     // Show all options, but mark selected ones as default
     const helpPages = Math.ceil(helpOptions.length / 25);
     const hinderPages = Math.ceil(hinderOptions.length / 25);
@@ -228,7 +227,7 @@ export class RollView {
     });
     
     const helpSelect = new StringSelectMenuBuilder()
-      .setCustomId(`roll_help_${rollKeyOrId}`)
+      .setCustomId(`roll_help_${rollKey}`)
       .setPlaceholder('Select tags that help the roll...')
       .setMinValues(0)
       .setMaxValues(Math.min(helpPageOptions.length, 25))
@@ -250,7 +249,7 @@ export class RollView {
           .setDefault(i === clampedHelpPage));
       }
       const helpPageSelect = new StringSelectMenuBuilder()
-        .setCustomId(`roll_help_page_${rollKeyOrId}`)
+        .setCustomId(`roll_help_page_${rollKey}`)
         .setPlaceholder('Select page...')
         .setMinValues(1)
         .setMaxValues(1)
@@ -295,7 +294,7 @@ export class RollView {
       });
       
       const burnSelect = new StringSelectMenuBuilder()
-        .setCustomId(`roll_burn_${rollKeyOrId}`)
+        .setCustomId(`roll_burn_${rollKey}`)
         .setPlaceholder('Select ONE tag to burn (+3 modifier)...')
         .setMinValues(0)
         .setMaxValues(1)
@@ -316,7 +315,7 @@ export class RollView {
     });
     
     const hinderSelect = new StringSelectMenuBuilder()
-      .setCustomId(`roll_hinder_${rollKeyOrId}`)
+      .setCustomId(`roll_hinder_${rollKey}`)
       .setPlaceholder('Select tags that hinder the roll...')
       .setMinValues(0)
       .setMaxValues(Math.min(hinderPageOptions.length, 25))
@@ -338,7 +337,7 @@ export class RollView {
           .setDefault(i === clampedHinderPage));
       }
       const hinderPageSelect = new StringSelectMenuBuilder()
-        .setCustomId(`roll_hinder_page_${rollKeyOrId}`)
+        .setCustomId(`roll_hinder_page_${rollKey}`)
         .setPlaceholder('Select page...')
         .setMinValues(1)
         .setMaxValues(1)
@@ -350,40 +349,36 @@ export class RollView {
     // This will appear above the help container
     if (showJustificationButton) {
       const justificationButton = new ButtonBuilder()
-        .setCustomId(`roll_edit_justification_${rollKeyOrId}`)
+        .setCustomId(`roll_edit_justification_${rollKey}`)
         .setLabel(justificationNotes ? 'Edit Justification Notes' : 'Add Justification Notes')
         .setStyle(ButtonStyle.Secondary);
       descriptionRows.push(new ActionRowBuilder().setComponents([justificationButton]));
     }
     
+    let buttonsArray = [];
     if (buttons?.submit) {
       const button = new ButtonBuilder()
-      .setCustomId(`roll_submit_${rollKeyOrId}`)
-      .setLabel('Submit')
-      .setStyle(ButtonStyle.Primary);
-      submitRows.push(new ActionRowBuilder().setComponents([button]));
+        .setCustomId(`roll_submit_${rollKey}`)
+        .setLabel('Submit')
+        .setStyle(ButtonStyle.Primary);
+      buttonsArray.push(button);
     }
     if (buttons?.confirm) {
       const button = new ButtonBuilder()
-      .setCustomId(`roll_confirm_${rollKeyOrId}`)
-      .setLabel('Confirm Roll')
-      .setStyle(ButtonStyle.Success);
-      submitRows.push(new ActionRowBuilder().setComponents([button]));
-    }
-    if (buttons?.roll) {
-      const button = new ButtonBuilder()
-      .setCustomId(`roll_now_${rollKeyOrId}`)
-      .setLabel('Roll Now')
-      .setStyle(ButtonStyle.Primary);
-      submitRows.push(new ActionRowBuilder().setComponents([button]));
+        .setCustomId(`roll_confirm_${rollKey}`)
+        .setLabel('Confirm Roll')
+        .setStyle(ButtonStyle.Success);
+      buttonsArray.push(button);
     }
     if (buttons?.cancel) {
       const button = new ButtonBuilder()
-      .setCustomId(`roll_cancel_${rollKeyOrId}`)
-      .setLabel('Cancel')
-      .setStyle(ButtonStyle.Secondary);
-      submitRows.push(new ActionRowBuilder().setComponents([button]));
-    }  
+        .setCustomId(`roll_cancel_${rollKey}`)
+        .setLabel('Cancel')
+        .setStyle(ButtonStyle.Secondary);
+      buttonsArray.push(button);
+    } 
+    
+    submitRows.push(new ActionRowBuilder().setComponents(buttonsArray));
     
     return {
       descriptionRows,
@@ -808,15 +803,11 @@ export class RollView {
    * @param {number} baseRoll - Sum of dice
    * @param {number} modifier - Power modifier
    * @param {number} finalResult - Final roll result
-   * @param {Set<string>} helpTags - Set of help tag values (with prefixes)
-   * @param {Set<string>} hinderTags - Set of hinder tag values (with prefixes)
-   * @param {Set<string>} burnedTags - Set of burned tag values (with prefixes)
    * @param {string|null} description - Optional description of what the roll is for
    * @param {string|null} narratorMention - Optional narrator mention to include
-   * @param {string|null} narrationLink - Optional Discord link to narration
    * @returns {Object} Object with components array and IsComponentsV2 flag
    */
-  static formatRollResult(die1, die2, baseRoll, modifier, finalResult, helpTags, hinderTags, burnedTags = new Set(), description = null, narratorMention = null, narrationLink = null) {
+  static formatRollResult(die1, die2, baseRoll, modifier, finalResult, description, narratorMention = null) {
     const modifierText = modifier >= 0 ? `+${modifier}` : `${modifier}`;
 
     // Determine result classification
@@ -838,8 +829,8 @@ export class RollView {
     }
 
     // Format tags
-    const helpFormatted = this.formatHelpTagsForResult(helpTags, burnedTags);
-    const hinderFormatted = this.formatHinderTagsForResult(hinderTags);
+    // const helpFormatted = this.formatHelpTagsForResult(helpTags, burnedTags);
+    // const hinderFormatted = this.formatHinderTagsForResult(hinderTags);
 
     // Build Components V2 structure for roll result
     const container = new ContainerBuilder();
@@ -858,14 +849,6 @@ export class RollView {
         .setContent(resultText)
     );
     
-    // Add narration link if provided
-    if (narrationLink) {
-      container.addTextDisplayComponents(
-        new TextDisplayBuilder()
-          .setContent(`**Narration:** ${narrationLink}`)
-      );
-    }
-    
     // Add dice text display
     container.addTextDisplayComponents(
       new TextDisplayBuilder()
@@ -879,16 +862,31 @@ export class RollView {
     );
     
     // Add help tags text display
-    container.addTextDisplayComponents(
-      new TextDisplayBuilder()
-        .setContent(`### Help Tags\n${helpFormatted}`)
-    );
+    // container.addTextDisplayComponents(
+    //   new TextDisplayBuilder()
+    //     .setContent(`### Help Tags\n${helpFormatted}`)
+    // );
     
-    // Add hinder tags text display
-    container.addTextDisplayComponents(
-      new TextDisplayBuilder()
-        .setContent(`### Hinder Tags\n${hinderFormatted}`)
-    );
+    // // Add hinder tags text display
+    // container.addTextDisplayComponents(
+    //   new TextDisplayBuilder()
+    //     .setContent(`### Hinder Tags\n${hinderFormatted}`)
+    // );
+    // // Add narration link if provided
+    // if (narrationLink) {
+    //   container.addTextDisplayComponents(
+    //     new TextDisplayBuilder()
+    //       .setContent(`**Narration:** ${narrationLink}`)
+    //   );
+    // }
+
+    // Add narration link if provided
+    // if (justificationNotes) {
+    //   container.addTextDisplayComponents(
+    //     new TextDisplayBuilder()
+    //       .setContent(`**Justification Notes:**\n ${justificationNotes}`)
+    //   );
+    // }
 
     // Add narrator mention if provided
     if (narratorMention) {

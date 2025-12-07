@@ -89,12 +89,13 @@ export class RollExecuteCommand extends Command {
       baseRoll,
       modifier,
       finalResult,
-      roll.helpTags,
-      roll.hinderTags,
-      burnedTags,
+      // roll.helpTags,
+      // roll.hinderTags,
+      // burnedTags,
       roll.description,
       narratorMention,
-      roll.narrationLink
+      // roll.narrationLink,
+      // roll.justificationNotes
     );
 
     // Send as a public message

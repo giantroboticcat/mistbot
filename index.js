@@ -80,8 +80,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await RollHandler.handleEditJustification(interaction, client);
     } else if (interaction.customId.startsWith('roll_confirm_')) {
       await RollHandler.handleRollConfirm(interaction, client);
-    } else if (interaction.customId.startsWith('roll_now_')) {
-      await RollHandler.handleRollButton(interaction, client);
     } else if (interaction.customId.startsWith('roll_cancel_')) {
       await RollHandler.handleRollCancel(interaction, client);
     } else if (interaction.customId.startsWith('edit_character_')) {
