@@ -62,11 +62,12 @@ export class RollCommand extends Command {
       hinderOptions: hinderOptions,
       helpPage: 0,
       hinderPage: 0,
+      buttons: {roll: true, cancel: true}
     });
 
     const components = RollCommand.buildRollComponents(rollKey, helpOptions, hinderOptions, 0, 0, initialHelpTags, initialHinderTags);
 
-    const content = RollCommand.formatRollProposalContent(initialHelpTags, initialHinderTags, description);
+    const content = RollCommand.formatRollContent(initialHelpTags, initialHinderTags, description);
 
     await interaction.reply({
       content,
@@ -438,7 +439,7 @@ export class RollCommand extends Command {
    * @param {string|null} description - Optional description of what the roll is for
    * @returns {string} Formatted content string
    */
-  static formatRollProposalContent(helpTags, hinderTags, description = null) {
+  static formatRollContent(helpTags, hinderTags, description = null) {
     // Parse help tags (extract actual names)
     const helpItemNames = Array.from(helpTags).map(value => {
       // Remove prefix (theme:, tag:, backpack:, etc.)

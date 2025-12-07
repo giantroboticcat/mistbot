@@ -1,4 +1,4 @@
-import { ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder } from 'discord.js';
+import { ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ButtonBuilder, ButtonStyle, MessageFlags, ContainerBuilder, TextDisplayBuilder } from 'discord.js';
 import { TagFormatter } from './TagFormatter.js';
 import { Validation } from './Validation.js';
 
@@ -19,7 +19,7 @@ export class RollView {
    * @param {string} options.descriptionText - Additional text to insert after title
    * @returns {Object} Object with components array and IsComponentsV2 flag
    */
-  static formatRollProposalContent(helpTags, hinderTags, description = null, showPower = true, burnedTags = new Set(), options = {}) {
+  static buildRollDisplays(helpTags, hinderTags, description = null, showPower = true, burnedTags = new Set(), options = {}) {
     // Parse help tags (extract actual names)
     const helpItemNames = Array.from(helpTags).map(value => {
       // Remove prefix (theme:, tag:, backpack:, etc.)
@@ -106,21 +106,18 @@ export class RollView {
       ? `\`\`\`ansi\n${hinderParts.join(', ')}\n\`\`\``
       : '```\nNone\n```';
 
-    // Build Components V2 structure
-    const components = [];
-    
     // Create a container for the roll display
-    const container = new ContainerBuilder();
+    const descriptionContainer = new ContainerBuilder();
     
     // Add title text display directly to container
-    container.addTextDisplayComponents(
+    descriptionContainer.addTextDisplayComponents(
       new TextDisplayBuilder()
-        .setContent(`## ${options.title || description || 'Roll Proposal'}`)
+        .setContent(`## ${options.title || description }`)
     );
     
     // Add power text display if requested (moved to top, before narration)
     if (showPower) {
-      container.addTextDisplayComponents(
+      descriptionContainer.addTextDisplayComponents(
         new TextDisplayBuilder()
           .setContent(`### Power **${modifierText}**`)
       );
@@ -128,7 +125,7 @@ export class RollView {
     
     // Add narration link if provided
     if (options.narrationLink) {
-      container.addTextDisplayComponents(
+      descriptionContainer.addTextDisplayComponents(
         new TextDisplayBuilder()
           .setContent(`**Narration:** ${options.narrationLink}`)
       );
@@ -136,13 +133,13 @@ export class RollView {
     
     // Add justification notes if provided (display in proposal view)
     if (options.justificationNotes) {
-      container.addTextDisplayComponents(
+      descriptionContainer.addTextDisplayComponents(
         new TextDisplayBuilder()
           .setContent(`**Justification Notes:**\n${options.justificationNotes}`)
       );
     } else if (options.showJustificationPlaceholder) {
       // Just show the header - the button will make it obvious what to do
-      container.addTextDisplayComponents(
+      descriptionContainer.addTextDisplayComponents(
         new TextDisplayBuilder()
           .setContent(`**Justification Notes:**`)
       );
@@ -150,74 +147,43 @@ export class RollView {
     
     // Add description text if provided (e.g., player mention, confirmed by, etc.)
     if (options.descriptionText) {
-      container.addTextDisplayComponents(
+      descriptionContainer.addTextDisplayComponents(
         new TextDisplayBuilder()
           .setContent(options.descriptionText)
       );
     }
-    
-    components.push(container);
-    
+   
     // Help tags in its own container
     const helpContainer = new ContainerBuilder();
     helpContainer.addTextDisplayComponents(
       new TextDisplayBuilder()
         .setContent(`### Help Tags\n${helpFormatted}`)
     );
-    components.push(helpContainer);
-    
-    // Return structure that allows inserting interactive components between display sections
-    return { 
-      components,
-      flags: MessageFlags.IsComponentsV2,
-      helpTagsDisplayed: true,
-      hinderTagsFormatted: hinderFormatted,
-      showPower: false, // Already displayed in initial container
-      modifierText: modifierText,
-      showJustificationPlaceholder: options.showJustificationPlaceholder && !options.justificationNotes,
-      justificationNotes: options.justificationNotes,
-      footer: options.footer
-    };
-  }
-  
-  /**
-   * Add hinder tags display and remaining display sections
-   * @param {string} hinderFormatted - Formatted hinder tags
-   * @param {boolean} showPower - Whether to show power
-   * @param {string} modifierText - Modifier text
-   * @param {boolean} showJustificationPlaceholder - Whether to show justification placeholder
-   * @param {string|null} justificationNotes - Justification notes if any
-   * @param {string|null} footer - Footer text if any
-   * @returns {ContainerBuilder} Container with hinder tags and remaining display sections
-   */
-  static buildRemainingDisplaySections(hinderFormatted, showPower, modifierText, showJustificationPlaceholder, justificationNotes, footer) {
-    const container = new ContainerBuilder();
-    
-    // Add hinder tags text display
-    container.addTextDisplayComponents(
+
+    // Hinder tags in its own container
+    const hinderContainer = new ContainerBuilder();
+    hinderContainer.addTextDisplayComponents(
       new TextDisplayBuilder()
         .setContent(`### Hinder Tags\n${hinderFormatted}`)
     );
     
-    // Add justification notes section header if placeholder should be shown
-    if (showJustificationPlaceholder) {
-      container.addTextDisplayComponents(
+    const footerContainer = new ContainerBuilder();
+    if (options.footer) {
+      footerContainer.addTextDisplayComponents(
         new TextDisplayBuilder()
-          .setContent(`### Justification Notes`)
+        .setContent(`*${options.footer}*`)
       );
     }
-    
-    // Add footer text display if provided
-    if (footer) {
-      container.addTextDisplayComponents(
-        new TextDisplayBuilder()
-          .setContent(`*${footer}*`)
-      );
-    }
-    
-    return container;
+  
+    // Return structure that allows inserting interactive components between display sections
+    return { 
+      descriptionContainer,
+      helpContainer,
+      hinderContainer,
+      footerContainer
+    };
   }
-
+  
   /**
    * Build roll components with pagination support
    * @param {string|number} rollKeyOrId - Unique identifier for this roll (string for temp, number for stored)
@@ -227,11 +193,15 @@ export class RollView {
    * @param {number} hinderPage - Current hinder page (0-indexed)
    * @param {Set<string>} selectedHelpTags - Currently selected help tags
    * @param {Set<string>} selectedHinderTags - Currently selected hinder tags
-   * @param {boolean} includeButtons - Whether to include Roll/Cancel buttons
+   * @param {object} buttons - Array of which buttons to add to the submit rows
+   * @param {boolean} buttons.submit
+   * @param {boolean} buttons.confirm
+   * @param {boolean} buttons.cancel
+   * @param {boolean} buttons.roll
    * @param {Set<string>} burnedTags - Currently selected tags to burn
    * @returns {Array} Array of ActionRowBuilder components
    */
-  static buildRollComponents(rollKeyOrId, helpOptions, hinderOptions, helpPage, hinderPage, selectedHelpTags = new Set(), selectedHinderTags = new Set(), includeButtons = true, burnedTags = new Set(), justificationNotes = null, showJustificationButton = true) {
+  static buildRollInteractives(rollKeyOrId, helpOptions, hinderOptions, helpPage, hinderPage, selectedHelpTags = new Set(), selectedHinderTags = new Set(), buttons = {}, burnedTags = new Set(), justificationNotes = null, showJustificationButton = true) {
     // Show all options, but mark selected ones as default
     const helpPages = Math.ceil(helpOptions.length / 25);
     const hinderPages = Math.ceil(hinderOptions.length / 25);
@@ -386,20 +356,34 @@ export class RollView {
       descriptionRows.push(new ActionRowBuilder().setComponents([justificationButton]));
     }
     
-    // Button row (if requested)
-    if (includeButtons) {
-      const rollButton = new ButtonBuilder()
-        .setCustomId(`roll_now_${rollKeyOrId}`)
-        .setLabel('Roll Now')
-        .setStyle(ButtonStyle.Primary);
-      
-      const cancelButton = new ButtonBuilder()
-        .setCustomId(`roll_cancel_${rollKeyOrId}`)
-        .setLabel('Cancel')
-        .setStyle(ButtonStyle.Secondary);
-      
-      submitRows.push(new ActionRowBuilder().setComponents([rollButton, cancelButton]));
+    if (buttons?.submit) {
+      const button = new ButtonBuilder()
+      .setCustomId(`roll_submit_${rollKeyOrId}`)
+      .setLabel('Submit')
+      .setStyle(ButtonStyle.Primary);
+      submitRows.push(new ActionRowBuilder().setComponents([button]));
     }
+    if (buttons?.confirm) {
+      const button = new ButtonBuilder()
+      .setCustomId(`roll_confirm_${rollKeyOrId}`)
+      .setLabel('Confirm Roll')
+      .setStyle(ButtonStyle.Success);
+      submitRows.push(new ActionRowBuilder().setComponents([button]));
+    }
+    if (buttons?.roll) {
+      const button = new ButtonBuilder()
+      .setCustomId(`roll_now_${rollKeyOrId}`)
+      .setLabel('Roll Now')
+      .setStyle(ButtonStyle.Primary);
+      submitRows.push(new ActionRowBuilder().setComponents([button]));
+    }
+    if (buttons?.cancel) {
+      const button = new ButtonBuilder()
+      .setCustomId(`roll_cancel_${rollKeyOrId}`)
+      .setLabel('Cancel')
+      .setStyle(ButtonStyle.Secondary);
+      submitRows.push(new ActionRowBuilder().setComponents([button]));
+    }  
     
     return {
       descriptionRows,

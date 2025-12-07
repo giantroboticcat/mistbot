@@ -83,33 +83,18 @@ export class RollProposeCommand extends Command {
       burnedTags: initialBurnedTags,
       description: description,
       narrationLink: narrationLink || null,
-      justificationNotes: null, // Will be filled in via modal
+      justificationNotes: null,
+      showJustificationButton: true,
       helpOptions: helpOptions,
       hinderOptions: hinderOptions,
       helpPage: 0,
       hinderPage: 0,
+      buttons: {submit: true, cancel: true}
     });
 
-    const interactiveComponents = RollView.buildRollComponents(tempRollKey, helpOptions, hinderOptions, 0, 0, initialHelpTags, initialHinderTags, false, initialBurnedTags, null);
-
-    // Add a "Submit Proposal" button instead of "Roll Now"
-    const submitButton = new ButtonBuilder()
-      .setCustomId(`roll_submit_${tempRollKey}`)
-      .setLabel('Submit Proposal')
-      .setStyle(ButtonStyle.Primary);
-    
-    const cancelButton = new ButtonBuilder()
-      .setCustomId(`roll_cancel_${tempRollKey}`)
-      .setLabel('Cancel')
-      .setStyle(ButtonStyle.Secondary);
-    
-    interactiveComponents.submitRows.push(new ActionRowBuilder().setComponents([submitButton, cancelButton]));
-
-    const displayData = RollView.formatRollProposalContent(initialHelpTags, initialHinderTags, description, true, initialBurnedTags, { narrationLink, showJustificationPlaceholder: true });
-
-    // Combine Components V2 display components with interactive components in the right order
+    const interactiveComponents = RollView.buildRollInteractives(tempRollKey, helpOptions, hinderOptions, 0, 0, initialHelpTags, initialHinderTags, {submit: true, cancel: true}, initialBurnedTags, "", true);
+    const displayData = RollView.buildRollDisplays(initialHelpTags, initialHinderTags, description, true, initialBurnedTags, { narrationLink, showJustificationPlaceholder: true });
     const allComponents = combineRollComponents(displayData, interactiveComponents);
-
     await interaction.reply({
       components: allComponents,
       flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,

@@ -39,74 +39,18 @@ export async function canEditRoll(interaction, rollState) {
 }
 
 /**
- * Rebuild roll components with current page state
- */
-export function rebuildRollComponents(rollState, rollKey, client) {
-  const { helpOptions, hinderOptions, helpPage, hinderPage, helpTags, hinderTags, burnedTags = new Set(), justificationNotes = null } = rollState;
-  // Check if this is a confirmation view (no buttons) or proposal view (with buttons)
-  const includeButtons = !rollKey.startsWith('confirm_') && !rollKey.startsWith('temp_');
-  // Don't show justification button in confirm view
-  const showJustificationButton = !rollKey.startsWith('confirm_');
-  const interactiveComponents = RollView.buildRollComponents(rollKey, helpOptions, hinderOptions, helpPage, hinderPage, helpTags, hinderTags, includeButtons, burnedTags, justificationNotes, showJustificationButton);
-  
-  // For temp rolls (proposals), add submit/cancel buttons
-  if (rollKey.startsWith('temp_')) {
-    const submitButton = new ButtonBuilder()
-      .setCustomId(`roll_submit_${rollKey}`)
-      .setLabel('Submit Proposal')
-      .setStyle(ButtonStyle.Primary);
-    
-    const cancelButton = new ButtonBuilder()
-      .setCustomId(`roll_cancel_${rollKey}`)
-      .setLabel('Cancel')
-      .setStyle(ButtonStyle.Secondary);
-    
-    interactiveComponents.submitRows.push(new ActionRowBuilder().setComponents([submitButton, cancelButton]));
-  }
-  
-  // For confirm rolls (narrator review), add confirm button
-  if (rollKey.startsWith('confirm_')) {
-    const rollId = rollKey.replace('confirm_', '');
-    const confirmButton = new ButtonBuilder()
-      .setCustomId(`roll_confirm_${rollId}`)
-      .setLabel('Confirm Roll')
-      .setStyle(ButtonStyle.Success);
-    
-    interactiveComponents.submitRows.push(new ActionRowBuilder().setComponents([confirmButton]));
-  }
-  
-  return interactiveComponents;
-}
-
-/**
  * Combine display and interactive components in the correct order
  */
 export function combineRollComponents(displayData, interactiveComponents) {
-  // Build remaining display sections (hinder tags, footer)
-  const remainingDisplay = RollView.buildRemainingDisplaySections(
-    displayData.hinderTagsFormatted,
-    false, // Power already shown in initial container
-    displayData.modifierText,
-    displayData.showJustificationPlaceholder,
-    displayData.justificationNotes,
-    displayData.footer
-  );
-
-  // Combine in the right order:
-  // 1. Initial display (title, power, narration, justification header, description)
-  // 2. Justification button (if not in confirm view) - appears above help container
-  // 3. Help tags container
-  // 4. Help interactive components (help select, help page, burn select)
-  // 5. Remaining display (hinder tags, footer)
-  // 6. Hinder interactive components (hinder select, hinder page)
-  // 7. Other interactive components (submit/cancel buttons)
   return [
-    ...(displayData.components || []),
+    displayData.descriptionContainer,
     ...(interactiveComponents.descriptionRows || []),
+    displayData.helpContainer,
     ...interactiveComponents.helpRows,
-    remainingDisplay,
+    displayData.hinderContainer,
     ...interactiveComponents.hinderRows,
-    ...interactiveComponents.submitRows
+    ...interactiveComponents.submitRows,
+    // displayData.footerDisplay
   ];
 }
 
@@ -171,35 +115,34 @@ export async function handleRollPageSelect(interaction, client) {
 
     client.rollStates.set(rollKey, rollState);
 
-    // Rebuild components with updated page
-    const interactiveComponents = rebuildRollComponents(rollState, rollKey, client);
+    // Rebuild components with updated page    
+    let interactiveComponents = RollView.buildRollInteractives(rollKey, rollState.helpOptions, rollState.hinderOptions, rollState.helpPage, 
+      rollState.hinderPage, rollState.helpTags, rollState.hinderTags, rollState.buttons, rollState.burnedTags, rollState.justificationNotes, rollState.showJustificationButton);
     
-    let displayData;
+      let title;
     if (rollKey.startsWith('confirm_')) {
-      const rollId = rollKey.replace('confirm_', '');
-      displayData = RollView.formatRollProposalContent(
-        rollState.helpTags,
-        rollState.hinderTags,
-        rollState.description,
-        true,
-        rollState.burnedTags || new Set(),
-        {
-          title: `Reviewing Roll Proposal #${rollId}`,
-          descriptionText: `**Player:** <@${rollState.creatorId}>`,
-          narrationLink: rollState.narrationLink,
-          justificationNotes: rollState.justificationNotes,
-        }
-      );
+      title = `Reviewing Roll Proposal #${rollId}`;
     } else {
-      displayData = RollView.formatRollProposalContent(
-        rollState.helpTags,
-        rollState.hinderTags,
-        rollState.description,
-        true,
-        rollState.burnedTags || new Set(),
-        { narrationLink: rollState.narrationLink, justificationNotes: rollState.justificationNotes, showJustificationPlaceholder: !rollState.justificationNotes }
-      );
+      title = 'Roll Proposal';
     }
+
+    const rollId = rollKey.replace('confirm_', '');
+
+
+    let displayData = RollView.buildRollDisplays(
+      rollState.helpTags,
+      rollState.hinderTags,
+      rollState.description,
+      true,
+      rollState.burnedTags || new Set(),
+      {
+        //todo need to make sure the description text gets added that is passed in from the command
+        title: title,
+        descriptionText: `**Player:** <@${rollState.creatorId}>`,
+        narrationLink: rollState.narrationLink,
+        justificationNotes: rollState.justificationNotes,
+      }
+    );
 
     // Combine Components V2 display components with interactive components in the right order
     const allComponents = combineRollComponents(displayData, interactiveComponents);
@@ -310,36 +253,33 @@ export async function handleRollSelect(interaction, client) {
 
     client.rollStates.set(rollKey, rollState);
 
-    // Rebuild components to reflect current selection state
-    const interactiveComponents = rebuildRollComponents(rollState, rollKey, client);
-    
+    let interactiveComponents = RollView.buildRollInteractives(rollKey, rollState.helpOptions, rollState.hinderOptions, rollState.helpPage, 
+      rollState.hinderPage, rollState.helpTags, rollState.hinderTags, rollState.buttons, rollState.burnedTags, 
+      rollState.justificationNotes, rollState.showJustificationButton);    
+
     // Update the message with new tag selections
-    let displayData;
+    let title;
     if (rollKey.startsWith('confirm_')) {
       const rollId = rollKey.replace('confirm_', '');
-      displayData = RollView.formatRollProposalContent(
-        rollState.helpTags,
-        rollState.hinderTags,
-        rollState.description,
-        true,
-        rollState.burnedTags || new Set(),
-        {
-          title: `Reviewing Roll Proposal #${rollId}`,
-          descriptionText: `**Player:** <@${rollState.creatorId}>`,
-          narrationLink: rollState.narrationLink,
-          justificationNotes: rollState.justificationNotes,
-        }
-      );
+      title = `Reviewing Roll Proposal #${rollId}`;
     } else {
-      displayData = RollView.formatRollProposalContent(
-        rollState.helpTags,
-        rollState.hinderTags,
-        rollState.description,
-        true,
-        rollState.burnedTags || new Set(),
-        { narrationLink: rollState.narrationLink, justificationNotes: rollState.justificationNotes, showJustificationPlaceholder: !rollState.justificationNotes }
-      );
+      title = 'Roll Proposal';
     }
+
+    let displayData = RollView.buildRollDisplays(
+      rollState.helpTags,
+      rollState.hinderTags,
+      rollState.description,
+      true,
+      rollState.burnedTags || new Set(),
+      {
+        title: title,
+        descriptionText: `**Player:** <@${rollState.creatorId}>`,
+        narrationLink: rollState.narrationLink,
+        justificationNotes: rollState.justificationNotes,
+      }
+    );
+    
 
     // Combine Components V2 display components with interactive components in the right order
     const allComponents = combineRollComponents(displayData, interactiveComponents);
@@ -413,35 +353,31 @@ export async function handleRollBurn(interaction, client) {
   client.rollStates.set(rollKey, rollState);
 
   // Rebuild components to reflect current selection state
-  const interactiveComponents = rebuildRollComponents(rollState, rollKey, client);
+  let interactiveComponents = RollView.buildRollInteractives(rollKey, rollState.helpOptions, rollState.hinderOptions, rollState.helpPage, 
+    rollState.hinderPage, rollState.helpTags, rollState.hinderTags, rollState.buttons, rollState.burnedTags, rollState.justificationNotes, rollState.showJustificationButton);
   
   // Update the message with new tag selections
-  let displayData;
+  let title;
   if (rollKey.startsWith('confirm_')) {
     const rollId = rollKey.replace('confirm_', '');
-    displayData = RollView.formatRollProposalContent(
-      rollState.helpTags,
-      rollState.hinderTags,
-      rollState.description,
-      true,
-      rollState.burnedTags || new Set(),
-      {
-        title: `Reviewing Roll Proposal #${rollId}`,
-        descriptionText: `**Player:** <@${rollState.creatorId}>`,
-        narrationLink: rollState.narrationLink,
-        justificationNotes: rollState.justificationNotes,
-      }
-    );
+    title = `Reviewing Roll Proposal #${rollId}`;
   } else {
-    displayData = RollView.formatRollProposalContent(
-      rollState.helpTags,
-      rollState.hinderTags,
-      rollState.description,
-      true,
-      rollState.burnedTags || new Set(),
-      { narrationLink: rollState.narrationLink, justificationNotes: rollState.justificationNotes, showJustificationPlaceholder: !rollState.justificationNotes }
-    );
+    title = 'Roll Proposal';
   }
+  
+   let displayData = RollView.buildRollDisplays(
+    rollState.helpTags,
+    rollState.hinderTags,
+    rollState.description,
+    true,
+    rollState.burnedTags || new Set(),
+    {
+      title: title,
+      descriptionText: `**Player:** <@${rollState.creatorId}>`,
+      narrationLink: rollState.narrationLink,
+      justificationNotes: rollState.justificationNotes,
+    }
+  );
 
   // Combine Components V2 display components with interactive components in the right order
   const allComponents = combineRollComponents(displayData, interactiveComponents);
@@ -638,7 +574,7 @@ export async function handleRollSubmit(interaction, client) {
   // Post public message to channel with narrator ping
   const narratorMention = ROLL_EDITOR_ROLE_ID ? `<@&${ROLL_EDITOR_ROLE_ID}>` : 'Narrators';
   
-  const displayData = RollView.formatRollProposalContent(
+  const displayData = RollView.buildRollDisplays(
     rollState.helpTags,
     rollState.hinderTags,
     rollState.description,
@@ -654,7 +590,7 @@ export async function handleRollSubmit(interaction, client) {
   );
 
   await interaction.followUp({
-    components: displayData.components,
+    components: [displayData.descriptionContainer, displayData.helpContainer, displayData.hinderContainer, displayData.footerContainer],
     flags: MessageFlags.IsComponentsV2,
   });
 }
@@ -743,9 +679,7 @@ export async function handleJustificationModal(interaction, client) {
   client.rollStates.set(rollKey, rollState);
 
   // Rebuild the roll components with updated justification notes
-  // Don't show justification button in confirm view
-  const showJustificationButton = !rollKey.startsWith('confirm_');
-  const interactiveComponents = RollView.buildRollComponents(
+  const interactiveComponents = RollView.buildRollInteractives(
     rollKey,
     rollState.helpOptions,
     rollState.hinderOptions,
@@ -753,27 +687,14 @@ export async function handleJustificationModal(interaction, client) {
     rollState.hinderPage || 0,
     rollState.helpTags,
     rollState.hinderTags,
-    false,
+    rollState.buttons,
     rollState.burnedTags || new Set(),
     rollState.justificationNotes,
-    showJustificationButton
+    rollState.showJustificationButton
   );
 
-  // Add Submit and Cancel buttons
-  const submitButton = new ButtonBuilder()
-    .setCustomId(`roll_submit_${rollKey}`)
-    .setLabel('Submit Proposal')
-    .setStyle(ButtonStyle.Primary);
-  
-  const cancelButton = new ButtonBuilder()
-    .setCustomId(`roll_cancel_${rollKey}`)
-    .setLabel('Cancel')
-    .setStyle(ButtonStyle.Secondary);
-  
-  interactiveComponents.submitRows.push(new ActionRowBuilder().setComponents([submitButton, cancelButton]));
-
   // Rebuild display with updated justification notes
-  const displayData = RollView.formatRollProposalContent(
+  const displayData = RollView.buildRollDisplays(
     rollState.helpTags,
     rollState.hinderTags,
     rollState.description,
@@ -868,7 +789,7 @@ export async function handleRollConfirm(interaction, client) {
   });
 
   // Post public message to channel with creator ping
-  const displayData = RollView.formatRollProposalContent(
+  const displayData = RollView.buildRollDisplays(
     rollState.helpTags,
     rollState.hinderTags,
     rollState.description,
@@ -884,7 +805,7 @@ export async function handleRollConfirm(interaction, client) {
   );
 
   await interaction.followUp({
-    components: displayData.components,
+    components: [displayData.descriptionContainer, displayData.helpContainer, displayData.hinderContainer, displayData.footerContainer],
     flags: MessageFlags.IsComponentsV2,
   });
 }

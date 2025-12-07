@@ -103,24 +103,18 @@ export class RollConfirmCommand extends Command {
       description: roll.description,
       narrationLink: roll.narrationLink,
       justificationNotes: roll.justificationNotes,
+      showJustificationButton: false,
       helpOptions: helpOptions,
       hinderOptions: hinderOptions,
       helpPage: 0,
       hinderPage: 0,
+      buttons: {confirm: true, cancel: true}
     });
 
     // Build components for editing (don't show justification button in confirm view)
-    const interactiveComponents = RollView.buildRollComponents(rollKey, helpOptions, hinderOptions, 0, 0, roll.helpTags, roll.hinderTags, false, burnedTags, roll.justificationNotes, false);
+    const interactiveComponents = RollView.buildRollInteractives(rollKey, helpOptions, hinderOptions, 0, 0, roll.helpTags, roll.hinderTags, {confirm: true, cancel: true}, burnedTags, roll.justificationNotes, false);
 
-    // Add confirm button
-    const confirmButton = new ButtonBuilder()
-      .setCustomId(`roll_confirm_${rollId}`)
-      .setLabel('Confirm Roll')
-      .setStyle(ButtonStyle.Success);
-    
-    interactiveComponents.submitRows.push(new ActionRowBuilder().setComponents([confirmButton]));
-
-    const displayData = RollView.formatRollProposalContent(
+    const displayData = RollView.buildRollDisplays(
       roll.helpTags, 
       roll.hinderTags, 
       roll.description, 
