@@ -56,7 +56,7 @@ export class RollExecuteCommand extends Command {
 
     // Process burned tags - delete backpack/storyTags, mark others as burned
     const burnedTags = roll.burnedTags || [];
-    if (burnedTags.length > 0) {
+    if (burnedTags.size > 0) {
       const character = CharacterStorage.getCharacter(roll.creatorId, roll.characterId);
       if (character) {
         const backpackToRemove = [];
