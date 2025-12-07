@@ -176,6 +176,31 @@ export class TagFormatter {
   }
 
   /**
+   * Format status name with highest power level
+   * @param {Object|string} status - Status object or string
+   * @returns {string} Formatted status name as "statusname-highestlevel"
+   */
+  static formatStatusName(status) {
+    if (typeof status === 'string') {
+      return status;
+    }
+    
+    const statusName = status.status;
+    const powerLevels = status.powerLevels || {};
+    
+    // Find highest power level
+    let highestLevel = 0;
+    for (let p = 6; p >= 1; p--) {
+      if (powerLevels[p]) {
+        highestLevel = p;
+        break;
+      }
+    }
+    
+    return highestLevel > 0 ? `${statusName}-${highestLevel}` : statusName;
+  }
+
+  /**
    * Format statuses in a table format showing checked power levels
    * @param {Array<Object|string>} statuses - Array of status objects with {status, powerLevels} or strings
    * @returns {string} Formatted statuses in a table format with ANSI green
@@ -185,12 +210,12 @@ export class TagFormatter {
       return 'None';
     }
 
-    // Find the longest status name for alignment
+    // Find the longest status name for alignment (using formatted names)
     let maxNameLength = 8; // Minimum width for "Status"
     for (const status of statuses) {
-      const nameLength = typeof status === 'string' ? status.length : status.status.length;
-      if (nameLength > maxNameLength) {
-        maxNameLength = nameLength;
+      const formattedName = this.formatStatusName(status);
+      if (formattedName.length > maxNameLength) {
+        maxNameLength = formattedName.length;
       }
     }
     maxNameLength = Math.max(maxNameLength, 8); // Ensure at least "Status" width
@@ -205,28 +230,22 @@ export class TagFormatter {
     lines.push(`${'─'.repeat(maxNameLength+14)}`);
     
     for (const status of statuses) {
-      if (typeof status === 'string') {
-        // Simple string status - show with no levels
-        const paddedName = status.padEnd(maxNameLength, ' ');
-        lines.push(`${this.BOLD_GREEN}${paddedName}${this.RESET} │ ${' '.repeat(11)}`);
-      } else {
-        const statusName = status.status;
-        const powerLevels = status.powerLevels || {};
-        
-        // Build level indicators (1-6)
-        const levelIndicators = [];
-        for (let p = 1; p <= 6; p++) {
-          if (powerLevels[p]) {
-            levelIndicators.push(`${this.BOLD_GREEN}✓${this.RESET}`);
-          } else {
-            levelIndicators.push('·');
-          }
+      const statusName = this.formatStatusName(status);
+      const powerLevels = typeof status === 'object' && status.powerLevels ? status.powerLevels : {};
+      
+      // Build level indicators (1-6)
+      const levelIndicators = [];
+      for (let p = 1; p <= 6; p++) {
+        if (powerLevels[p]) {
+          levelIndicators.push(`${this.BOLD_GREEN}✓${this.RESET}`);
+        } else {
+          levelIndicators.push('·');
         }
-        
-        // Format: "statusName │ ✓ ✓ · · · ·"
-        const paddedName = statusName.padEnd(maxNameLength, ' ');
-        lines.push(`${this.BOLD_GREEN}${paddedName}${this.RESET} │ ${levelIndicators.join(' ')}`);
       }
+      
+      // Format: "statusName │ ✓ ✓ · · · ·"
+      const paddedName = statusName.padEnd(maxNameLength, ' ');
+      lines.push(`${this.BOLD_GREEN}${paddedName}${this.RESET} │ ${levelIndicators.join(' ')}`);
     }
     
     return `\`\`\`ansi\n${lines.join('\n')}\n\`\`\``;

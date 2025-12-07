@@ -110,7 +110,6 @@ export async function handleModalSubmit(interaction, client) {
 
     const backpackInput = interaction.fields.getTextInputValue('backpack_items');
     const storyTagsInput = interaction.fields.getTextInputValue('story_tags');
-    const statusesInput = interaction.fields.getTextInputValue('statuses');
     
     // Parse backpack items from comma-separated string
     const backpack = backpackInput
@@ -124,27 +123,10 @@ export async function handleModalSubmit(interaction, client) {
       .map(item => item.trim())
       .filter(item => item.length > 0);
 
-    // Parse statuses from comma-separated string
-    const statuses = statusesInput
-      .split(',')
-      .map(item => item.trim())
-      .filter(item => item.length > 0);
-
-    // Validate statuses
-    const statusValidation = Validation.validateStatuses(statuses);
-    if (!statusValidation.valid && statusValidation.errors) {
-      await interaction.reply({
-        content: `**Validation Error:**\n${statusValidation.errors.join('\n')}`,
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-
-    // Update the character's backpack, story tags, and statuses
+    // Update the character's backpack and story tags
     const updatedCharacter = CharacterStorage.updateCharacter(userId, characterId, {
       backpack: backpack,
       storyTags: storyTags,
-      tempStatuses: statuses,
     });
 
     if (!updatedCharacter) {

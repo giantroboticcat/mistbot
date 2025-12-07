@@ -6,6 +6,31 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, TextDis
  */
 export class StatusesEditorView {
   /**
+   * Format status name with highest power level
+   * @param {Object|string} status - Status object or string
+   * @returns {string} Formatted status name as "statusname-highestlevel"
+   */
+  static formatStatusName(status) {
+    if (typeof status === 'string') {
+      return status;
+    }
+    
+    const statusName = status.status;
+    const powerLevels = status.powerLevels || {};
+    
+    // Find highest power level
+    let highestLevel = 0;
+    for (let p = 6; p >= 1; p--) {
+      if (powerLevels[p]) {
+        highestLevel = p;
+        break;
+      }
+    }
+    
+    return highestLevel > 0 ? `${statusName}-${highestLevel}` : statusName;
+  }
+
+  /**
    * Build the statuses editor interface
    * @param {Object} character - The character to edit
    * @param {number} statusIndex - Currently selected status index (for editing power levels)
@@ -40,7 +65,7 @@ export class StatusesEditorView {
     
     if (statuses.length > 0) {
       statuses.forEach((status, index) => {
-        const statusName = typeof status === 'string' ? status : status.status;
+        const statusName = this.formatStatusName(status);
         removeStatusSelect.addOptions(
           new StringSelectMenuOptionBuilder()
             .setLabel(statusName)
@@ -67,7 +92,7 @@ export class StatusesEditorView {
     if (statusIndex !== null && statusIndex >= 0 && statusIndex < statuses.length) {
       const selectedStatus = statuses[statusIndex];
       if (typeof selectedStatus === 'object' && selectedStatus.status) {
-        const statusName = selectedStatus.status;
+        const statusName = this.formatStatusName(selectedStatus);
         const powerLevels = selectedStatus.powerLevels || {};
         
         // Create toggle buttons for each power level (1-6)
@@ -104,17 +129,11 @@ export class StatusesEditorView {
       
       statuses.forEach((status, index) => {
         if (typeof status === 'object' && status.status) {
-          const statusName = status.status;
-          const powerLevels = status.powerLevels || {};
-          const checkedLevels = [];
-          for (let p = 1; p <= 6; p++) {
-            if (powerLevels[p]) checkedLevels.push(p);
-          }
-          const levelsText = checkedLevels.length > 0 ? ` (${checkedLevels.join(',')})` : '';
+          const statusName = this.formatStatusName(status);
           
           editStatusSelect.addOptions(
             new StringSelectMenuOptionBuilder()
-              .setLabel(`${statusName}${levelsText}`)
+              .setLabel(statusName)
               .setValue(`${index}`)
               .setDescription('Edit power levels for this status')
           );
@@ -150,12 +169,12 @@ export class StatusesEditorView {
       return '```\nNo statuses\n```';
     }
 
-    // Find the longest status name for alignment
+    // Find the longest status name for alignment (using formatted names)
     let maxNameLength = 8; // Minimum width for "Status"
     for (const status of statuses) {
-      const nameLength = typeof status === 'string' ? status.length : status.status.length;
-      if (nameLength > maxNameLength) {
-        maxNameLength = nameLength;
+      const formattedName = this.formatStatusName(status);
+      if (formattedName.length > maxNameLength) {
+        maxNameLength = formattedName.length;
       }
     }
     maxNameLength = Math.max(maxNameLength, 8);
@@ -170,28 +189,22 @@ export class StatusesEditorView {
     lines.push(`${'─'.repeat(maxNameLength + 14)}`);
     
     for (const status of statuses) {
-      if (typeof status === 'string') {
-        // Simple string status - show with no levels
-        const paddedName = status.padEnd(maxNameLength, ' ');
-        lines.push(`${paddedName} │ ${' '.repeat(11)}`);
-      } else {
-        const statusName = status.status;
-        const powerLevels = status.powerLevels || {};
-        
-        // Build level indicators (1-6)
-        const levelIndicators = [];
-        for (let p = 1; p <= 6; p++) {
-          if (powerLevels[p]) {
-            levelIndicators.push('✓');
-          } else {
-            levelIndicators.push('·');
-          }
+      const statusName = this.formatStatusName(status);
+      const powerLevels = typeof status === 'object' && status.powerLevels ? status.powerLevels : {};
+      
+      // Build level indicators (1-6)
+      const levelIndicators = [];
+      for (let p = 1; p <= 6; p++) {
+        if (powerLevels[p]) {
+          levelIndicators.push('✓');
+        } else {
+          levelIndicators.push('·');
         }
-        
-        // Format: "statusName │ ✓ ✓ · · · ·"
-        const paddedName = statusName.padEnd(maxNameLength, ' ');
-        lines.push(`${paddedName} │ ${levelIndicators.join(' ')}`);
       }
+      
+      // Format: "statusName │ ✓ ✓ · · · ·"
+      const paddedName = statusName.padEnd(maxNameLength, ' ');
+      lines.push(`${paddedName} │ ${levelIndicators.join(' ')}`);
     }
     
     return `\`\`\`\n${lines.join('\n')}\n\`\`\``;
