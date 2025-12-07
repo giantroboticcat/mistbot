@@ -96,6 +96,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await CharacterHandler.handleSyncToSheetButton(interaction, client);
     } else if (interaction.customId.startsWith('sync_from_sheet_')) {
       await CharacterHandler.handleSyncFromSheetButton(interaction, client);
+    } else if (interaction.customId.startsWith('delete_character_confirm_')) {
+      await CharacterHandler.handleDeleteCharacterConfirm(interaction, client);
+    } else if (interaction.customId.startsWith('delete_character_cancel_')) {
+      await CharacterHandler.handleDeleteCharacterCancel(interaction, client);
+    } else if (interaction.customId.startsWith('delete_character_')) {
+      await CharacterHandler.handleDeleteCharacterButton(interaction, client);
     } else {
       // Handle tag removal button
       await TagRemovalHandler.handleTagRemovalButton(interaction, client);

@@ -33,6 +33,16 @@ export class CreateCharacterCommand extends Command {
   async createFromSheet(interaction, sheetUrl) {
     const userId = interaction.user.id;
 
+    // Check character limit (max 3 characters per user)
+    const existingCharacters = CharacterStorage.getUserCharacters(userId);
+    if (existingCharacters.length >= 3) {
+      await interaction.reply({
+        content: `❌ You have reached the maximum limit of 3 characters.\n\nTo create a new character, you must first delete one of your existing characters using the character edit screen.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
     // Validate URL format
     const urlPattern = /https:\/\/docs\.google\.com\/spreadsheets\/d\/[a-zA-Z0-9-_]+/;
     if (!urlPattern.test(sheetUrl)) {

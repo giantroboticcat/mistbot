@@ -152,9 +152,17 @@ export class EditCharacterCommand extends Command {
 
       const buttonRow2 = new ActionRowBuilder().setComponents([setSheetButton, syncToButton, syncFromButton]);
 
+      // Create delete button (third row, destructive action)
+      const deleteButton = new ButtonBuilder()
+        .setCustomId(`delete_character_${character.id}`)
+        .setLabel('🗑️ Delete Character')
+        .setStyle(ButtonStyle.Danger);
+
+      const buttonRow3 = new ActionRowBuilder().setComponents([deleteButton]);
+
       await interaction.reply({
         content,
-        components: [buttonRow1, buttonRow2],
+        components: [buttonRow1, buttonRow2, buttonRow3],
         flags: MessageFlags.Ephemeral,
       });
     } else {

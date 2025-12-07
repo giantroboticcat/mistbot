@@ -568,6 +568,230 @@ export async function handleBurnRefreshSelect(interaction, client) {
 }
 
 /**
+ * Handle delete character button interaction
+ */
+export async function handleDeleteCharacterButton(interaction, client) {
+  const customId = interaction.customId;
+  // Extract character ID: format is "delete_character_123"
+  const characterId = parseInt(customId.replace('delete_character_', ''));
+  const userId = interaction.user.id;
+  
+  const character = CharacterStorage.getCharacter(userId, characterId);
+  if (!character) {
+    await interaction.reply({
+      content: 'Character not found.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Show confirmation message with confirm/cancel buttons
+  const confirmButton = new ButtonBuilder()
+    .setCustomId(`delete_character_confirm_${characterId}`)
+    .setLabel('Yes, Delete Character')
+    .setStyle(ButtonStyle.Danger);
+
+  const cancelButton = new ButtonBuilder()
+    .setCustomId(`delete_character_cancel_${characterId}`)
+    .setLabel('Cancel')
+    .setStyle(ButtonStyle.Secondary);
+
+  const buttonRow = new ActionRowBuilder().setComponents([confirmButton, cancelButton]);
+
+  await interaction.reply({
+    content: `⚠️ **Are you sure you want to delete "${character.name}"?**\n\nAny unsynced changes will be lost.`,
+    components: [buttonRow],
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
+/**
+ * Handle delete character confirmation
+ */
+export async function handleDeleteCharacterConfirm(interaction, client) {
+  const customId = interaction.customId;
+  // Extract character ID: format is "delete_character_confirm_123"
+  const characterId = parseInt(customId.replace('delete_character_confirm_', ''));
+  const userId = interaction.user.id;
+  
+  const character = CharacterStorage.getCharacter(userId, characterId);
+  if (!character) {
+    await interaction.reply({
+      content: 'Character not found.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const characterName = character.name;
+  const wasActive = character.is_active;
+
+  // Delete the character
+  const deleted = CharacterStorage.deleteCharacter(userId, characterId);
+  
+  if (deleted) {
+    // If this was the active character, check if there are other characters
+    let message = `✅ Character "${characterName}" has been deleted.`;
+    
+    if (wasActive) {
+      const remainingCharacters = CharacterStorage.getUserCharacters(userId);
+      if (remainingCharacters.length > 0) {
+        // Auto-activate the first remaining character
+        const newActive = remainingCharacters[0];
+        CharacterStorage.setActiveCharacter(userId, newActive.id);
+        message += `\n\nYour active character has been set to "${newActive.name}".`;
+      } else {
+        message += '\n\nYou no longer have any characters. Use `/char-create` to create a new one.';
+      }
+    }
+
+    // Update the interaction (it was a reply with buttons, so we can update it)
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply({
+        content: message,
+        components: [],
+      });
+    } else {
+      await interaction.update({
+        content: message,
+        components: [],
+      });
+    }
+  } else {
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply({
+        content: 'Failed to delete character. It may have already been deleted.',
+      });
+    } else {
+      await interaction.reply({
+        content: 'Failed to delete character. It may have already been deleted.',
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+  }
+}
+
+/**
+ * Handle delete character cancellation
+ */
+export async function handleDeleteCharacterCancel(interaction, client) {
+  const customId = interaction.customId;
+  // Extract character ID: format is "delete_character_cancel_123"
+  const characterId = parseInt(customId.replace('delete_character_cancel_', ''));
+  const userId = interaction.user.id;
+  
+  const character = CharacterStorage.getCharacter(userId, characterId);
+  if (!character) {
+    await interaction.update({
+      content: 'Character not found.',
+      components: [],
+    });
+    return;
+  }
+
+  // Update the confirmation message to show cancellation
+  await interaction.update({
+    content: '❌ Character deletion cancelled.',
+    components: [],
+  });
+  
+  // Show the character display in a follow-up (since interaction is already replied)
+  // We need to manually build the character display content and buttons
+  const themeParts = [];
+  character.themes.forEach((theme) => {
+    if (theme.tags.length > 0 || theme.weaknesses.length > 0) {
+      const tagNames = theme.tags.map(t => {
+        const tagText = typeof t === 'string' ? t : t.tag;
+        const isBurned = typeof t === 'object' ? t.isBurned : false;
+        return isBurned ? `🔥${tagText}🔥` : tagText;
+      });
+      const weaknessNames = theme.weaknesses.map(w => {
+        const weakText = typeof w === 'string' ? w : w.tag;
+        const isBurned = typeof w === 'object' ? w.isBurned : false;
+        return isBurned ? `🔥${weakText}🔥` : weakText;
+      });
+      
+      const formatted = TagFormatter.formatTagsAndWeaknessesInCodeBlock(tagNames, weaknessNames);
+      const themeName = theme.isBurned ? `🔥${theme.name}🔥` : theme.name;
+      themeParts.push(`**${themeName}:**\n${formatted}`);
+    }
+  });
+
+  const statusDisplay = character.tempStatuses.length > 0 
+    ? character.tempStatuses.map(s => {
+      if (typeof s === 'string') return s;
+      let highestPower = 0;
+      for (let p = 6; p >= 1; p--) {
+        if (s.powerLevels && s.powerLevels[p]) {
+          highestPower = p;
+          break;
+        }
+      }
+      return highestPower > 0 ? `${s.status}-${highestPower}` : s.status;
+    }).join(', ')
+    : 'None';
+  
+  let fellowshipInfo = '';
+  if (character.fellowship) {
+    fellowshipInfo = `\n**Fellowship: ${character.fellowship.name}**`;
+  }
+  
+  const content = `**Character: ${character.name}**${fellowshipInfo}\n\n` +
+    themeParts.join('\n\n') +
+    `\n\n*Backpack: ${character.backpack.length > 0 ? character.backpack.join(', ') : 'Empty'}*\n*Story Tags: ${character.storyTags.length > 0 ? character.storyTags.join(', ') : 'None'}*\n*Statuses: ${statusDisplay}*`;
+
+  // Build buttons
+  const editButton = new ButtonBuilder()
+    .setCustomId(`edit_character_${character.id}`)
+    .setLabel('Edit Name/Themes')
+    .setStyle(ButtonStyle.Primary);
+
+  const backpackButton = new ButtonBuilder()
+    .setCustomId(`edit_backpack_${character.id}`)
+    .setLabel('Edit Backpack, Story Tags & Statuses')
+    .setStyle(ButtonStyle.Secondary);
+
+  const burnRefreshButton = new ButtonBuilder()
+    .setCustomId(`burn_refresh_${character.id}`)
+    .setLabel('Burn/Refresh Tags')
+    .setStyle(ButtonStyle.Secondary);
+
+  const buttonRow1 = new ActionRowBuilder().setComponents([editButton, backpackButton, burnRefreshButton]);
+
+  const setSheetButton = new ButtonBuilder()
+    .setCustomId(`set_sheet_url_btn_${character.id}`)
+    .setLabel('🔗 Set Sheet URL')
+    .setStyle(ButtonStyle.Secondary);
+
+  const syncToButton = new ButtonBuilder()
+    .setCustomId(`sync_to_sheet_${character.id}`)
+    .setLabel('📤 Sync to Sheet')
+    .setStyle(ButtonStyle.Success)
+    .setDisabled(!character.google_sheet_url);
+
+  const syncFromButton = new ButtonBuilder()
+    .setCustomId(`sync_from_sheet_${character.id}`)
+    .setLabel('📥 Sync from Sheet')
+    .setStyle(ButtonStyle.Success)
+    .setDisabled(!character.google_sheet_url);
+
+  const buttonRow2 = new ActionRowBuilder().setComponents([setSheetButton, syncToButton, syncFromButton]);
+
+  const deleteButton = new ButtonBuilder()
+    .setCustomId(`delete_character_${character.id}`)
+    .setLabel('🗑️ Delete Character')
+    .setStyle(ButtonStyle.Danger);
+
+  const buttonRow3 = new ActionRowBuilder().setComponents([deleteButton]);
+
+  await interaction.followUp({
+    content,
+    components: [buttonRow1, buttonRow2, buttonRow3],
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
+/**
  * Handle select menu for active character selection
  */
 export async function handleSelectActiveCharacter(interaction, client) {
