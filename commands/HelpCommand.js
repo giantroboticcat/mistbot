@@ -2,12 +2,12 @@ import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { Command } from './Command.js';
 
 /**
- * Help command - shows all available commands organized by category
+ * Commands command - shows all available commands organized by category
  */
 export class HelpCommand extends Command {
   getData() {
     return new SlashCommandBuilder()
-      .setName('help')
+      .setName('commands')
       .setDescription('Show all available commands and how to use them');
   }
 
@@ -76,7 +76,9 @@ export class HelpCommand extends Command {
     });
 
     embed.setFooter({ 
-      text: 'For Questions, Comments, or Concerns: please reach out to @GiantRoboticCat on Discord' 
+      text: 'For Questions, Comments, or Concerns: please reach out to @GiantRoboticCat on Discord\n' +
+        '`/get-started` to learn how to get started with the bot as a player.\n' + 
+        '`/narrator-guide` to learn more about how to use the bot as a narrator.'
     });
 
     await interaction.reply({ embeds: [embed], ephemeral: true });

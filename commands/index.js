@@ -1,4 +1,6 @@
 import { HelpCommand } from './HelpCommand.js';
+import { GetStartedCommand } from './GetStartedCommand.js';
+import { NarratorGuideCommand } from './NarratorGuideCommand.js';
 import { AddTagsCommand } from './AddTagsCommand.js';
 import { RemoveTagsCommand } from './RemoveTagsCommand.js';
 import { ListSceneStatusCommand } from './ListSceneStatusCommand.js';
@@ -18,6 +20,8 @@ import { RollExecuteCommand } from './RollExecuteCommand.js';
  */
 export const commands = [
   new HelpCommand(),
+  new GetStartedCommand(),
+  new NarratorGuideCommand(),
   new AddTagsCommand(),
   new RemoveTagsCommand(),
   new ListSceneStatusCommand(),

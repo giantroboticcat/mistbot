@@ -5,6 +5,7 @@ import * as TagRemovalHandler from './handlers/TagRemovalHandler.js';
 import * as CharacterHandler from './handlers/CharacterHandler.js';
 import * as FellowshipHandler from './handlers/FellowshipHandler.js';
 import * as RollHandler from './handlers/RollHandler.js';
+import * as NarratorGuideHandler from './handlers/NarratorGuideHandler.js';
 
 // Load environment variables
 dotenv.config();
@@ -120,6 +121,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await CharacterHandler.handleStatusesRemove(interaction, client);
     } else if (interaction.customId.startsWith('statuses_edit_select_')) {
       await CharacterHandler.handleStatusesEditSelect(interaction, client);
+    } else if (interaction.customId.startsWith('narrator_guide_select_')) {
+      await NarratorGuideHandler.handleNarratorGuideSelect(interaction, client);
     } else if (interaction.customId.startsWith('roll_help_page_') || interaction.customId.startsWith('roll_hinder_page_')) {
       await RollHandler.handleRollPageSelect(interaction, client);
     } else if (interaction.customId.startsWith('roll_burn_')) {
