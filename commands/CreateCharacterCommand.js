@@ -4,6 +4,8 @@ import { CharacterStorage } from '../utils/CharacterStorage.js';
 import { FellowshipStorage } from '../utils/FellowshipStorage.js';
 import { TagFormatter } from '../utils/TagFormatter.js';
 import sheetsService from '../utils/GoogleSheetsService.js';
+import sheetTabCache from '../utils/SheetTabCache.js';
+import { isGidBlacklisted } from '../utils/SheetTabBlacklist.js';
 
 /**
  * Create a new character with themes
@@ -15,15 +17,71 @@ export class CreateCharacterCommand extends Command {
       .setDescription('Create a new character by importing from Google Sheets')
       .addStringOption(option =>
         option
-          .setName('sheet-url')
-          .setDescription('Google Sheets URL to import character from')
-          .setRequired(true));
+          .setName('character')
+          .setDescription('Select a character from the fellowship sheet')
+          .setRequired(true)
+          .setAutocomplete(true));
   }
 
   async execute(interaction) {
-    const sheetUrl = interaction.options.getString('sheet-url', true);
+    const characterValue = interaction.options.getString('character', true);
+    console.log('characterValue', characterValue);
+    // The value is in format "tabTitle|||gid" to identify the specific tab
+    // Using ||| as delimiter since single | is common in tab names
+    const lastDelimiterIndex = characterValue.lastIndexOf('|||');
     
-    // Import from sheet (only method available)
+    if (lastDelimiterIndex === -1) {
+      await interaction.reply({
+        content: '❌ Invalid character selection. Please use autocomplete to select a character.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    
+    const tabTitle = characterValue.substring(0, lastDelimiterIndex);
+    const gid = characterValue.substring(lastDelimiterIndex + 3); // +3 to skip past "|||"
+    
+    if (!gid) {
+      await interaction.reply({
+        content: '❌ Invalid character selection. Please use autocomplete to select a character.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Check if gid is blacklisted
+    if (isGidBlacklisted(gid)) {
+      await interaction.reply({
+        content: '❌ This character sheet is not available for selection.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Get FELLOWSHIP_SHEET_URL from environment
+    const fellowshipSheetUrl = process.env.FELLOWSHIP_SHEET_URL;
+    if (!fellowshipSheetUrl) {
+      await interaction.reply({
+        content: '❌ FELLOWSHIP_SHEET_URL is not configured. Please contact an administrator.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Parse the fellowship sheet URL to get spreadsheet ID
+    const parsed = sheetsService.parseSpreadsheetUrl(fellowshipSheetUrl);
+    if (!parsed) {
+      await interaction.reply({
+        content: '❌ Invalid fellowship sheet URL configuration.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Construct the sheet URL with the selected tab's gid
+    const sheetUrl = `https://docs.google.com/spreadsheets/d/${parsed.spreadsheetId}/edit#gid=${gid}`;
+    console.log('sheetUrl', sheetUrl);
+    // Import from sheet
     await this.createFromSheet(interaction, sheetUrl);
   }
 

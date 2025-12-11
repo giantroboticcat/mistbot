@@ -83,6 +83,33 @@ export class GoogleSheetsService {
   }
 
   /**
+   * Get all tabs/sheets from a spreadsheet
+   * @param {string} spreadsheetId - The spreadsheet ID
+   * @returns {Promise<Array>} Array of tab objects with { title, sheetId, gid }
+   */
+  async getAllTabs(spreadsheetId) {
+    if (!this.isReady()) {
+      throw new Error('Google Sheets service not initialized');
+    }
+
+    try {
+      const response = await this.sheets.spreadsheets.get({
+        spreadsheetId,
+      });
+
+      const tabs = response.data.sheets.map(sheet => ({
+        title: sheet.properties.title,
+        sheetId: sheet.properties.sheetId,
+        gid: sheet.properties.sheetId.toString(),
+      }));
+
+      return tabs;
+    } catch (error) {
+      throw new Error(`Failed to get tabs from spreadsheet: ${error.message}`);
+    }
+  }
+
+  /**
    * Read a single cell value
    */
   async readCell(spreadsheetId, cell, sheetName = null) {

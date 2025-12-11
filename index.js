@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import { commands } from './commands/index.js';
 import * as TagRemovalHandler from './handlers/TagRemovalHandler.js';
 import * as CharacterHandler from './handlers/CharacterHandler.js';
+import * as CharacterCreateHandler from './handlers/CharacterCreateHandler.js';
 import * as FellowshipHandler from './handlers/FellowshipHandler.js';
 import * as RollHandler from './handlers/RollHandler.js';
 import * as NarratorGuideHandler from './handlers/NarratorGuideHandler.js';
@@ -51,6 +52,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
     
     if (commandName === 'char-lookup') {
       await CharacterHandler.handleCharLookupAutocomplete(interaction);
+    } else if (commandName === 'char-create') {
+      await CharacterCreateHandler.handleCharacterCreateAutocomplete(interaction);
     } else if (commandName === 'fellowship-lookup') {
       await FellowshipHandler.handleFellowshipLookupAutocomplete(interaction);
     }
