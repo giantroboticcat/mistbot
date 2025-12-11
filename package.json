@@ -7,8 +7,8 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
-    "deploy": "node deploy-commands.js",
-    "deploy:guild": "node deploy-commands.js",
+    "dev:local": "DB_PATH=./data/mistbot-test.db node --watch index.js",
+    "deploy:local": "node deploy-commands.js",
     "deploy:global": "GUILD_ID= node deploy-commands.js",
     "migrate": "node migrate-to-sqlite.js",
     "migration:run": "node scripts/run-migrations.js",

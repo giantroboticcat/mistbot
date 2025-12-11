@@ -1,9 +1,13 @@
 import Database from 'better-sqlite3';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { MigrationManager } from './MigrationManager.js';
 
-const DB_PATH = join(process.cwd(), 'data', 'mistbot.db');
+// Allow database path to be overridden via environment variable for testing
+// Resolve to absolute path to avoid issues with relative paths
+const DB_PATH = process.env.DB_PATH 
+  ? resolve(process.cwd(), process.env.DB_PATH)
+  : join(process.cwd(), 'data', 'mistbot.db');
 
 /**
  * Database initialization and connection management
@@ -61,6 +65,37 @@ class DatabaseManager {
 
 // Export singleton instance
 const dbManager = new DatabaseManager();
-export const db = dbManager.getConnection();
+
+// Lazy getter function - returns the db connection only when accessed
+let _db = null;
+function getDb() {
+  if (!_db) {
+    _db = dbManager.getConnection();
+  }
+  return _db;
+}
+
+// Create a proxy that forwards all property access to the actual database
+// This allows us to use db.prepare() etc. without initializing the DB on import
+export const db = new Proxy({}, {
+  get(target, prop) {
+    // Handle special properties
+    if (prop === Symbol.toPrimitive || prop === 'toString' || prop === 'valueOf') {
+      return () => '[Database Proxy]';
+    }
+    const actualDb = getDb();
+    const value = actualDb[prop];
+    // If it's a function, bind it to the actual database
+    if (typeof value === 'function') {
+      return value.bind(actualDb);
+    }
+    return value;
+  },
+  has(target, prop) {
+    const actualDb = getDb();
+    return prop in actualDb;
+  }
+});
+
 export default dbManager;
 
