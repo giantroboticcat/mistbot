@@ -552,33 +552,14 @@ export class CharacterStorage {
    */
   static getCharacterBySheetUrl(sheetUrl) {
     // Extract spreadsheet ID from the URL
-    const urlPattern = /https:\/\/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/;
-    const match = sheetUrl.match(urlPattern);
     
-    if (!match) {
-      return null;
-    }
+    const parsedUrl = new URL(sheetUrl);
     
-    const spreadsheetId = match[1];
+    const whereClauses = ['google_sheet_url = ?'];
+    const params = [`%${parsedUrl.href}%`];
     
-    // Extract gid (tab) so different tabs on the same sheet can be reused
-    let gidParam = null;
-    try {
-      const parsedUrl = new URL(sheetUrl);
-      gidParam = parsedUrl.searchParams.get('gid');
-    } catch (error) {
-      // If URL can't be parsed, fall back to spreadsheet ID only
-    }
-    
-    const whereClauses = ['google_sheet_url LIKE ?'];
-    const params = [`%/d/${spreadsheetId}%`];
-    
-    // Also require matching gid when present to allow multiple tabs per sheet
-    if (gidParam) {
-      whereClauses.push('google_sheet_url LIKE ?');
-      params.push(`%gid=${gidParam}%`);
-    }
-    
+    console.log(whereClauses.join('\n        AND '));
+    console.log(params);
     const stmt = db.prepare(`
       SELECT id, user_id, name, google_sheet_url
       FROM characters
