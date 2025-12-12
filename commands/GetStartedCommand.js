@@ -21,7 +21,7 @@ export class GetStartedCommand extends Command {
     embed.addFields({
       name: '📝 Step 1: Import Your Character',
       value:
-        '1. Use `/char-create` and provide a Google Sheet URL\n' +
+        '1. Use `/char-create` and search for your character/player name in the character sheet\n' +
         '2. The bot will do the heavy lifting and import your character data (name, themes, tags, etc.)\n' +
         '💡 **Tip:** You can have up to 3 characters. Use `/char-select` to switch between them.',
       inline: false,
