@@ -837,16 +837,10 @@ export class RollView {
         .setContent(resultText)
     );
     
-    // Add dice text display
+    // Add dice and power in a single line for clarity
     container.addTextDisplayComponents(
       new TextDisplayBuilder()
-        .setContent(`### Dice\n${die1} + ${die2} = **${baseRoll}**`)
-    );
-    
-    // Add power text display
-    container.addTextDisplayComponents(
-      new TextDisplayBuilder()
-        .setContent(`### Power **${modifierText}**`)
+        .setContent(`### Roll\n${die1} + ${die2} = ${baseRoll} (${modifierText} POWER) = **${finalResult}**`)
     );
     
     // Add help tags text display
