@@ -14,8 +14,8 @@ export class AddTagsCommand extends Command {
       .setDescription('Add tags, statuses, and/or limits to the current scene (auto-detects type from format)')
       .addStringOption(option =>
         option
-          .setName('items')
-          .setDescription('Comma-separated list of items.')
+          .setName('tags')
+          .setDescription('Comma-separated list of tags.')
           .setRequired(true))
       .addBooleanOption(option =>
         option
@@ -25,16 +25,16 @@ export class AddTagsCommand extends Command {
   }
 
   async execute(interaction) {
-    const itemsInput = interaction.options.getString('items', true);
+    const tagsInput = interaction.options.getString('tags', true);
     const sceneId = interaction.channelId;
     const ephemeral = interaction.options.getBoolean('ephemeral') ?? false;
 
-    // Parse items from comma-separated string
-    const items = itemsInput.split(',').map(item => item.trim()).filter(item => item.length > 0);
+    // Parse tags from comma-separated string
+    const items = tagsInput.split(',').map(item => item.trim()).filter(item => item.length > 0);
 
     if (items.length === 0) {
       await interaction.reply({
-        content: 'Please provide at least one valid item.',
+        content: 'Please provide at least one valid tag.',
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -121,7 +121,7 @@ export class AddTagsCommand extends Command {
 
     if (totalAdded === 0) {
       await interaction.reply({
-        content: 'All items already exist in this scene.',
+        content: 'All tags already exist in this scene.',
         flags: MessageFlags.Ephemeral,
       });
       return;
