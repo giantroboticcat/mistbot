@@ -89,7 +89,9 @@ export class RollProposeCommand extends Command {
       hinderOptions: hinderOptions,
       helpPage: 0,
       hinderPage: 0,
-      buttons: {submit: true, cancel: true}
+      buttons: {submit: true, cancel: true},
+      isReaction: false,
+      reactionToRollId: null
     });
 
     const interactiveComponents = RollView.buildRollInteractives(tempRollKey, helpOptions, hinderOptions, 0, 0, initialHelpTags, initialHinderTags, {submit: true, cancel: true}, initialBurnedTags, "", true);

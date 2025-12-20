@@ -25,8 +25,8 @@ export class RollStorage {
     const transaction = db.transaction(() => {
       // Insert roll
       const insertRoll = db.prepare(`
-        INSERT INTO rolls (creator_id, character_id, scene_id, description, narration_link, justification_notes, status)
-        VALUES (?, ?, ?, ?, ?, ?, 'proposed')
+        INSERT INTO rolls (creator_id, character_id, scene_id, description, narration_link, justification_notes, status, reaction_to_roll_id, is_reaction)
+        VALUES (?, ?, ?, ?, ?, ?, 'proposed', ?, ?)
       `);
       
       const result = insertRoll.run(
@@ -35,7 +35,9 @@ export class RollStorage {
         rollData.sceneId,
         rollData.description || null,
         rollData.narrationLink || null,
-        rollData.justificationNotes || null
+        rollData.justificationNotes || null,
+        rollData.reactionToRollId || null,
+        rollData.isReaction ? 1 : 0
       );
       
       const rollId = result.lastInsertRowid;
@@ -85,7 +87,7 @@ export class RollStorage {
    */
   static getRoll(rollId) {
     const stmt = db.prepare(`
-      SELECT id, creator_id, character_id, scene_id, description, narration_link, justification_notes, status, confirmed_by, created_at, updated_at
+      SELECT id, creator_id, character_id, scene_id, description, narration_link, justification_notes, status, confirmed_by, created_at, updated_at, reaction_to_roll_id, is_reaction
       FROM rolls
       WHERE id = ?
     `);
@@ -129,6 +131,8 @@ export class RollStorage {
       confirmedBy: roll.confirmed_by,
       createdAt: roll.created_at,
       updatedAt: roll.updated_at,
+      reactionToRollId: roll.reaction_to_roll_id,
+      isReaction: Boolean(roll.is_reaction),
       helpTags: roll.helpTags,
       hinderTags: roll.hinderTags,
       burnedTags: roll.burnedTags,

@@ -102,7 +102,7 @@ export class StatusesEditorView {
           const toggleButton = new ButtonBuilder()
             .setCustomId(`statuses_toggle_${character.id}_${statusIndex}_${level}`)
             .setLabel(`${level}${isChecked ? ' ✓' : ''}`)
-            .setStyle(isChecked ? ButtonStyle.Success : ButtonStyle.Secondary);
+            .setStyle(isChecked ? ButtonStyle.Success : ButtonStyle.Danger);
           toggleButtons.push(toggleButton);
         }
         

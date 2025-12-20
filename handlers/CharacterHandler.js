@@ -690,7 +690,7 @@ export async function handleDeleteCharacterButton(interaction, client) {
   const cancelButton = new ButtonBuilder()
     .setCustomId(`delete_character_cancel_${characterId}`)
     .setLabel('Cancel')
-    .setStyle(ButtonStyle.Secondary);
+    .setStyle(ButtonStyle.Primary);
 
   const buttonRow = new ActionRowBuilder().setComponents([confirmButton, cancelButton]);
 

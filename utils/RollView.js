@@ -351,7 +351,7 @@ export class RollView {
       const justificationButton = new ButtonBuilder()
         .setCustomId(`roll_edit_justification_${rollKey}`)
         .setLabel(justificationNotes ? 'Edit Justification Notes' : 'Add Justification Notes')
-        .setStyle(ButtonStyle.Secondary);
+        .setStyle(ButtonStyle.Primary);
       descriptionRows.push(new ActionRowBuilder().setComponents([justificationButton]));
     }
     
@@ -374,7 +374,7 @@ export class RollView {
       const button = new ButtonBuilder()
         .setCustomId(`roll_cancel_${rollKey}`)
         .setLabel('Cancel')
-        .setStyle(ButtonStyle.Secondary);
+        .setStyle(ButtonStyle.Primary);
       buttonsArray.push(button);
     } 
     
@@ -793,27 +793,47 @@ export class RollView {
    * @param {number} finalResult - Final roll result
    * @param {string|null} description - Optional description of what the roll is for
    * @param {string|null} narratorMention - Optional narrator mention to include
+   * @param {boolean} isReaction - Whether this is a reaction roll
+   * @param {number|null} reactionToRollId - Original roll ID if this is a reaction
    * @returns {Object} Object with components array and IsComponentsV2 flag
    */
-  static formatRollResult(die1, die2, baseRoll, modifier, finalResult, description, narratorMention = null) {
+  static formatRollResult(die1, die2, baseRoll, modifier, finalResult, description, narratorMention = null, isReaction = false, reactionToRollId = null) {
     const modifierText = modifier >= 0 ? `+${modifier}` : `${modifier}`;
 
     // Determine result classification
-    // Special cases: double 1's = automatic failure, double 6's = automatic success
+    // For reaction rolls, use different thresholds
     let resultType;
     let isAutomatic = false;
-    if (die1 === 1 && die2 === 1) {
-      resultType = 'Consequences';
-      isAutomatic = true;
-    } else if (die1 === 6 && die2 === 6) {
-      resultType = 'Success';
-      isAutomatic = true;
-    } else if (finalResult >= 10) {
-      resultType = 'Success';
-    } else if (finalResult >= 7) {
-      resultType = 'Success & Consequences';
+    let reactionOutcome = null;
+    
+    if (isReaction) {
+      // Reaction roll outcomes
+      if (finalResult >= 10) {
+        resultType = 'Reaction: Spend Power +1';
+        reactionOutcome = 'Spend your Power plus 1, on any Effect';
+      } else if (finalResult >= 7) {
+        resultType = 'Reaction: Spend Power';
+        reactionOutcome = 'Spend your Power, only to lessen the Consequences';
+      } else {
+        resultType = 'Reaction: Suffer Consequences';
+        reactionOutcome = 'Suffer the Consequences as-is';
+      }
     } else {
-      resultType = 'Consequences';
+      // Regular roll outcomes
+      // Special cases: double 1's = automatic failure, double 6's = automatic success
+      if (die1 === 1 && die2 === 1) {
+        resultType = 'Consequences';
+        isAutomatic = true;
+      } else if (die1 === 6 && die2 === 6) {
+        resultType = 'Success';
+        isAutomatic = true;
+      } else if (finalResult >= 10) {
+        resultType = 'Success';
+      } else if (finalResult >= 7) {
+        resultType = 'Success & Consequences';
+      } else {
+        resultType = 'Consequences';
+      }
     }
 
     // Format tags
@@ -824,8 +844,13 @@ export class RollView {
     const container = new ContainerBuilder();
     
     // Add title text display
-    let resultText = `## ${description || 'Roll Result'}\n**Result: ${finalResult}** (${resultType})`;
-    if (isAutomatic) {
+    const rollType = isReaction ? 'Reaction Roll' : 'Roll Result';
+    const reactionPrefix = isReaction && reactionToRollId ? `(to Roll #${reactionToRollId}) ` : '';
+    let resultText = `## ${reactionPrefix}${description || rollType}\n**Result: ${finalResult}** (${resultType})`;
+    
+    if (isReaction && reactionOutcome) {
+      resultText += `\n*${reactionOutcome}*`;
+    } else if (isAutomatic) {
       if (die1 === 1 && die2 === 1) {
         resultText += '\n*Double 1\'s - Automatic Consequences*';
       } else if (die1 === 6 && die2 === 6) {

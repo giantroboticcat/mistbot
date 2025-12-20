@@ -62,8 +62,9 @@ export class RollConfirmCommand extends Command {
     }
 
     if (roll.status !== RollStatus.PROPOSED) {
+      const rollType = roll.isReaction ? 'reaction roll' : 'action roll';
       await interaction.reply({
-        content: `Roll proposal #${rollId} has already been ${roll.status}.`,
+        content: `${rollType.charAt(0).toUpperCase() + rollType.slice(1)} #${rollId} has already been ${roll.status}.`,
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -86,12 +87,33 @@ export class RollConfirmCommand extends Command {
 
     const rollKey = `confirm_${rollId}`;
     
+    // If this is a reaction roll, exclude tags from the original roll
+    let excludedTags = new Set();
+    if (roll.isReaction && roll.reactionToRollId) {
+      const originalRoll = RollStorage.getRoll(roll.reactionToRollId);
+      if (originalRoll) {
+        excludedTags = new Set([
+          ...(originalRoll.helpTags || []),
+          ...(originalRoll.hinderTags || [])
+        ]);
+      }
+    }
+    
     // Collect all available tags (exclude burned tags - they can't be used until refreshed)
     const helpOptions = RollView.collectHelpTags(character, roll.sceneId, StoryTagStorage, false);
+    const filteredHelpOptions = (roll.isReaction && roll.reactionToRollId)
+      ? helpOptions.filter(opt => !excludedTags.has(opt.data.value))
+      : helpOptions;
+    
     const hinderOptions = RollView.collectHinderTags(character, roll.sceneId, StoryTagStorage, false);
+    const filteredHinderOptions = (roll.isReaction && roll.reactionToRollId)
+      ? hinderOptions.filter(opt => !excludedTags.has(opt.data.value))
+      : hinderOptions;
     
     // Store the roll state for editing
     const burnedTags = roll.burnedTags || new Set();
+    const isReaction = roll.isReaction === true;
+    
     interaction.client.rollStates.set(rollKey, {
       rollId: rollId,
       creatorId: roll.creatorId,
@@ -104,15 +126,21 @@ export class RollConfirmCommand extends Command {
       narrationLink: roll.narrationLink,
       justificationNotes: roll.justificationNotes,
       showJustificationButton: false,
-      helpOptions: helpOptions,
-      hinderOptions: hinderOptions,
+      helpOptions: filteredHelpOptions,
+      hinderOptions: filteredHinderOptions,
       helpPage: 0,
       hinderPage: 0,
-      buttons: {confirm: true, cancel: true}
+      buttons: {confirm: true, cancel: true},
+      isReaction: isReaction,
+      reactionToRollId: roll.reactionToRollId
     });
 
     // Build components for editing (don't show justification button in confirm view)
-    const interactiveComponents = RollView.buildRollInteractives(rollKey, helpOptions, hinderOptions, 0, 0, roll.helpTags, roll.hinderTags, {confirm: true, cancel: true}, burnedTags, roll.justificationNotes, false);
+    const interactiveComponents = RollView.buildRollInteractives(rollKey, filteredHelpOptions, filteredHinderOptions, 0, 0, roll.helpTags, roll.hinderTags, {confirm: true, cancel: true}, burnedTags, roll.justificationNotes, false);
+
+    const title = isReaction
+      ? `Reviewing Reaction Roll #${rollId}${roll.reactionToRollId ? ` (to Roll #${roll.reactionToRollId})` : ''}`
+      : `Reviewing Action Roll #${rollId}`;
 
     const displayData = RollView.buildRollDisplays(
       roll.helpTags, 
@@ -121,7 +149,7 @@ export class RollConfirmCommand extends Command {
       true, 
       burnedTags,
       {
-        title: `Reviewing Roll Proposal #${rollId}`,
+        title: title,
         descriptionText: `**Player:** <@${roll.creatorId}>`,
         narrationLink: roll.narrationLink,
         justificationNotes: roll.justificationNotes,

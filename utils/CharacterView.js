@@ -182,19 +182,19 @@ export class CharacterView {
     const backpackButton = new ButtonBuilder()
       .setCustomId(`edit_backpack_${character.id}`)
       .setLabel('Edit Backpack')
-      .setStyle(ButtonStyle.Secondary);
+      .setStyle(ButtonStyle.Primary);
 
     const statusesButton = new ButtonBuilder()
       .setCustomId(`edit_statuses_${character.id}`)
       .setLabel('Edit Statuses')
-      .setStyle(ButtonStyle.Secondary);
+      .setStyle(ButtonStyle.Primary);
 
     const row1Components = [editButton, backpackButton, statusesButton];
 
     const burnRefreshButton = new ButtonBuilder()
     .setCustomId(`burn_refresh_${character.id}`)
     .setLabel('Burn/Refresh Tags')
-    .setStyle(ButtonStyle.Secondary);
+    .setStyle(ButtonStyle.Primary);
     row1Components.push(burnRefreshButton);
     
 
@@ -204,7 +204,7 @@ export class CharacterView {
     const setSheetButton = new ButtonBuilder()
     .setCustomId(`set_sheet_url_btn_${character.id}`)
     .setLabel('🔗 Set Sheet URL')
-    .setStyle(ButtonStyle.Secondary);
+    .setStyle(ButtonStyle.Primary);
 
     const syncToButton = new ButtonBuilder()
     .setCustomId(`sync_to_sheet_${character.id}`)

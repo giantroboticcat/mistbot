@@ -118,6 +118,9 @@ export class RollExecuteCommand extends Command {
     // Format narrator mention if they confirmed the roll
     const narratorMention = roll.confirmedBy ? `<@${roll.confirmedBy}>` : null;
 
+    // Check if this is a reaction roll
+    const isReaction = roll.isReaction === true;
+    
     // Format roll result using RollView
     const resultData = RollView.formatRollResult(
       die1,
@@ -125,13 +128,10 @@ export class RollExecuteCommand extends Command {
       baseRoll,
       modifier,
       finalResult,
-      // roll.helpTags,
-      // roll.hinderTags,
-      // burnedTags,
       roll.description,
       narratorMention,
-      // roll.narrationLink,
-      // roll.justificationNotes
+      isReaction,
+      roll.reactionToRollId
     );
 
     // Send as a public message

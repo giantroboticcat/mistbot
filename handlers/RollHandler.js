@@ -446,8 +446,9 @@ export async function handleRollSubmit(interaction, client) {
   const rollKey = customId.replace('roll_submit_', '');
   
   if (!client.rollStates.has(rollKey)) {
+    const rollType = rollKey.includes('reaction') ? '/roll-reaction' : '/roll-propose';
     await interaction.reply({
-      content: 'This roll session has expired. Please run /roll-propose again.',
+      content: `This roll session has expired. Please run ${rollType} again.`,
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -475,6 +476,8 @@ export async function handleRollSubmit(interaction, client) {
     description: rollState.description,
     narrationLink: rollState.narrationLink || null,
     justificationNotes: rollState.justificationNotes || null,
+    reactionToRollId: rollState.reactionToRollId || null,
+    isReaction: rollState.isReaction || false,
   });
 
   // Clean up temporary state
@@ -482,9 +485,12 @@ export async function handleRollSubmit(interaction, client) {
 
   // Update ephemeral message to show submission (use Components V2 to match original message)
   const submitContainer = new ContainerBuilder();
+  const isReaction = rollState.isReaction || false;
+  const rollType = isReaction ? 'Reaction Roll' : 'Action Roll';
+  
   submitContainer.addTextDisplayComponents(
     new TextDisplayBuilder()
-      .setContent(`**Roll Proposal #${rollId} Submitted!**\n\nYour roll proposal has been submitted for narrator approval.`)
+      .setContent(`**${rollType} #${rollId} Submitted!**\n\nYour ${rollType.toLowerCase()} proposal has been submitted for narrator approval.`)
   );
 
   await interaction.update({
@@ -495,6 +501,10 @@ export async function handleRollSubmit(interaction, client) {
   // Post public message to channel with narrator ping
   const narratorMention = process.env.ROLL_EDITOR_ROLE_ID ? `<@&${process.env.ROLL_EDITOR_ROLE_ID}>` : 'Narrators';
   
+  const title = isReaction 
+    ? `Reaction Roll #${rollId}${rollState.reactionToRollId ? ` (to Roll #${rollState.reactionToRollId})` : ''}\n${rollState.description}`
+    : `Roll Proposal #${rollId}\n${rollState.description}`;
+  
   const displayData = RollView.buildRollDisplays(
     rollState.helpTags,
     rollState.hinderTags,
@@ -502,7 +512,7 @@ export async function handleRollSubmit(interaction, client) {
     true,
     rollState.burnedTags || new Set(),
     {
-      title: `Roll Proposal #${rollId}\n${rollState.description}`,
+      title: title,
       descriptionText: `**From:** <@${rollState.creatorId}>`,
       narrationLink: rollState.narrationLink,
       justificationNotes: rollState.justificationNotes,
@@ -696,11 +706,16 @@ export async function handleRollConfirm(interaction, client) {
   // Clean up temporary state
   client.rollStates.delete(rollKey);
 
+  // Get the roll to check if it's a reaction roll
+  const roll = RollStorage.getRoll(rollState.rollId);
+  const isReaction = roll && roll.isReaction === true;
+  const rollType = isReaction ? 'Reaction Roll' : 'Action Roll';
+  
   // Update ephemeral message (use Components V2 to match original message)
   const confirmContainer = new ContainerBuilder();
   confirmContainer.addTextDisplayComponents(
     new TextDisplayBuilder()
-      .setContent(`**Roll Proposal #${rollState.rollId} Confirmed by <@${interaction.user.id}>!**`)
+      .setContent(`**${rollType} #${rollState.rollId} Confirmed by <@${interaction.user.id}>!**`)
   );
 
   await interaction.update({
@@ -709,6 +724,10 @@ export async function handleRollConfirm(interaction, client) {
   });
 
   // Post public message to channel with creator ping
+  const title = isReaction
+    ? `Reaction Roll #${rollState.rollId}${roll.reactionToRollId ? ` (to Roll #${roll.reactionToRollId})` : ''} Confirmed\n${rollState.description}`
+    : `Roll #${rollState.rollId} Confirmed\n${rollState.description}`;
+  
   const displayData = RollView.buildRollDisplays(
     rollState.helpTags,
     rollState.hinderTags,
@@ -716,11 +735,11 @@ export async function handleRollConfirm(interaction, client) {
     true,
     rollState.burnedTags || new Set(),
       {
-        title: `Roll #${rollState.rollId} Confirmed\n${rollState.description}`,
+        title: title,
         descriptionText: `**Player:** <@${rollState.creatorId}>\n**Confirmed by:** <@${interaction.user.id}>`,
         narrationLink: rollState.narrationLink,
         justificationNotes: rollState.justificationNotes,
-        footer: `You can now execute this roll with /roll ${rollState.rollId}`
+        footer: `<@${rollState.creatorId}> can now execute this roll with /roll ${rollState.rollId}`
       }
   );
 
