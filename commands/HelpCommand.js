@@ -49,6 +49,10 @@ export class HelpCommand extends Command {
         '`/roll-propose` - Propose a roll with help/hinder tags\n' +
         '  • Select from your character tags, statuses, scene tags, and fellowship tags\n' +
         '  • Can burn tags for extra power\n' +
+        '`/roll-reaction` - Propose a reaction roll for narrator approval\n' +
+        '  • Optional `roll-id` parameter to react to consequences of a specific roll\n' +
+        '  • If `roll-id` is provided, tags from that roll cannot be reused\n' +
+        '  • Reaction outcomes: 10+ (Spend Power+1), 7-9 (Spend Power), 6- (Suffer Consequences)\n' +
         '`/roll-confirm` - Confirm/edit a proposed roll (narrator only)\n' +
         '`/roll-execute` - Execute a confirmed roll and roll the dice',
       inline: false,

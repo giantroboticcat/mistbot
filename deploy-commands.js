@@ -1,9 +1,9 @@
 import { REST, Routes } from 'discord.js';
-import dotenv from 'dotenv';
+import { initializeEnvs } from './utils/ServerConfig.js';
 import { commands } from './commands/index.js';
 
-// Load environment variables
-dotenv.config();
+// Load environment variables (base .env and all guild-specific .env.{guildId} files)
+initializeEnvs();
 
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID;

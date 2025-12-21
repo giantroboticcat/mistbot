@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { Command } from './Command.js';
 import { StoryTagStorage } from '../utils/StoryTagStorage.js';
+import { requireGuildId } from '../utils/GuildUtils.js';
 
 /**
  * Clear all scene data (tags, statuses, and limits)
@@ -18,11 +19,12 @@ export class ClearSceneCommand extends Command {
   }
 
   async execute(interaction) {
+    const guildId = requireGuildId(interaction);
     const sceneId = interaction.channelId;
     const ephemeral = interaction.options.getBoolean('ephemeral') ?? false;
-    const tags = StoryTagStorage.getTags(sceneId);
-    const statuses = StoryTagStorage.getStatuses(sceneId);
-    const limits = StoryTagStorage.getLimits(sceneId);
+    const tags = StoryTagStorage.getTags(guildId, sceneId);
+    const statuses = StoryTagStorage.getStatuses(guildId, sceneId);
+    const limits = StoryTagStorage.getLimits(guildId, sceneId);
     
     const totalCount = tags.length + statuses.length + limits.length;
 
@@ -34,7 +36,7 @@ export class ClearSceneCommand extends Command {
       return;
     }
 
-    StoryTagStorage.clearScene(sceneId);
+    StoryTagStorage.clearScene(guildId, sceneId);
 
     const parts = [];
     if (tags.length > 0) parts.push(`${tags.length} tag(s)`);

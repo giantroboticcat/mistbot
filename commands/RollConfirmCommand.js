@@ -6,6 +6,8 @@ import { RollView } from '../utils/RollView.js';
 import { CharacterStorage } from '../utils/CharacterStorage.js';
 import { StoryTagStorage } from '../utils/StoryTagStorage.js';
 import { combineRollComponents } from '../handlers/RollHandler.js';
+import { getServerEnv } from '../utils/ServerConfig.js';
+import { getGuildId } from '../utils/GuildUtils.js';
 
 /**
  * Confirm a roll proposal (narrator only)
@@ -23,11 +25,12 @@ export class RollConfirmCommand extends Command {
   }
 
   async execute(interaction) {
+    const guildId = getGuildId(interaction);
     const rollId = interaction.options.getInteger('id', true);
     
     // Check narrator permissions
-    const ROLL_EDITOR_ROLE_ID = process.env.ROLL_EDITOR_ROLE_ID || null;
-    if (!ROLL_EDITOR_ROLE_ID) {
+    const rollEditorRoleId = getServerEnv('ROLL_EDITOR_ROLE_ID', guildId);
+    if (!rollEditorRoleId) {
       await interaction.reply({
         content: 'Roll confirmation is not configured. Please set ROLL_EDITOR_ROLE_ID.',
         flags: MessageFlags.Ephemeral,
@@ -36,7 +39,7 @@ export class RollConfirmCommand extends Command {
     }
 
     try {
-      if (!interaction.member.roles.includes(ROLL_EDITOR_ROLE_ID)) {
+      if (!interaction.member.roles.includes(rollEditorRoleId)) {
         await interaction.reply({
           content: 'Only narrators can confirm roll proposals.',
           flags: MessageFlags.Ephemeral,
@@ -52,7 +55,7 @@ export class RollConfirmCommand extends Command {
     }
 
     // Get the roll proposal
-    const roll = RollStorage.getRoll(rollId);
+    const roll = RollStorage.getRoll(guildId, rollId);
     if (!roll) {
       await interaction.reply({
         content: `Roll proposal #${rollId} not found.`,
@@ -71,7 +74,7 @@ export class RollConfirmCommand extends Command {
     }
 
     // Get the character to rebuild options
-    const character = CharacterStorage.getCharacter(roll.creatorId, roll.characterId);
+    const character = CharacterStorage.getCharacter(guildId, roll.creatorId, roll.characterId);
     if (!character) {
       await interaction.reply({
         content: 'Character not found for this roll proposal.',
@@ -90,7 +93,7 @@ export class RollConfirmCommand extends Command {
     // If this is a reaction roll, exclude tags from the original roll
     let excludedTags = new Set();
     if (roll.isReaction && roll.reactionToRollId) {
-      const originalRoll = RollStorage.getRoll(roll.reactionToRollId);
+      const originalRoll = RollStorage.getRoll(guildId, roll.reactionToRollId);
       if (originalRoll) {
         excludedTags = new Set([
           ...(originalRoll.helpTags || []),
@@ -100,12 +103,12 @@ export class RollConfirmCommand extends Command {
     }
     
     // Collect all available tags (exclude burned tags - they can't be used until refreshed)
-    const helpOptions = RollView.collectHelpTags(character, roll.sceneId, StoryTagStorage, false);
+    const helpOptions = RollView.collectHelpTags(character, roll.sceneId, StoryTagStorage, false, guildId);
     const filteredHelpOptions = (roll.isReaction && roll.reactionToRollId)
       ? helpOptions.filter(opt => !excludedTags.has(opt.data.value))
       : helpOptions;
     
-    const hinderOptions = RollView.collectHinderTags(character, roll.sceneId, StoryTagStorage, false);
+    const hinderOptions = RollView.collectHinderTags(character, roll.sceneId, StoryTagStorage, false, guildId);
     const filteredHinderOptions = (roll.isReaction && roll.reactionToRollId)
       ? hinderOptions.filter(opt => !excludedTags.has(opt.data.value))
       : hinderOptions;

@@ -2,6 +2,7 @@ import { SlashCommandBuilder, MessageFlags, ActionRowBuilder, StringSelectMenuBu
 import { Command } from './Command.js';
 import { StoryTagStorage } from '../utils/StoryTagStorage.js';
 import { TagFormatter } from '../utils/TagFormatter.js';
+import { requireGuildId } from '../utils/GuildUtils.js';
 
 /**
  * Remove story tags, statuses, and limits from a scene using interactive multiselect dropdown
@@ -14,10 +15,11 @@ export class RemoveTagsCommand extends Command {
   }
 
   async execute(interaction) {
+    const guildId = requireGuildId(interaction);
     const sceneId = interaction.channelId;
-    const existingTags = StoryTagStorage.getTags(sceneId);
-    const existingStatuses = StoryTagStorage.getStatuses(sceneId);
-    const existingLimits = StoryTagStorage.getLimits(sceneId);
+    const existingTags = StoryTagStorage.getTags(guildId, sceneId);
+    const existingStatuses = StoryTagStorage.getStatuses(guildId, sceneId);
+    const existingLimits = StoryTagStorage.getLimits(guildId, sceneId);
 
     const totalItems = existingTags.length + existingStatuses.length + existingLimits.length;
 

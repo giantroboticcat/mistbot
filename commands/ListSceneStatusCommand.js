@@ -2,6 +2,7 @@ import { SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { Command } from './Command.js';
 import { StoryTagStorage } from '../utils/StoryTagStorage.js';
 import { TagFormatter } from '../utils/TagFormatter.js';
+import { requireGuildId } from '../utils/GuildUtils.js';
 
 /**
  * List all scene information (tags, statuses, limits)
@@ -19,10 +20,11 @@ export class ListSceneStatusCommand extends Command {
   }
 
   async execute(interaction) {
+    const guildId = requireGuildId(interaction);
     const sceneId = interaction.channelId;
-    const tags = StoryTagStorage.getTags(sceneId);
-    const statuses = StoryTagStorage.getStatuses(sceneId);
-    const limits = StoryTagStorage.getLimits(sceneId);
+    const tags = StoryTagStorage.getTags(guildId, sceneId);
+    const statuses = StoryTagStorage.getStatuses(guildId, sceneId);
+    const limits = StoryTagStorage.getLimits(guildId, sceneId);
     const ephemeral = interaction.options.getBoolean('ephemeral') ?? false;
 
     if (tags.length === 0 && statuses.length === 0 && limits.length === 0) {

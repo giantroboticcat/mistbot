@@ -1,4 +1,4 @@
-import { db } from './Database.js';
+import { getDbForGuild } from './Database.js';
 import sheetsService from './GoogleSheetsService.js';
 
 /**
@@ -9,7 +9,8 @@ export class FellowshipStorage {
    * Get all fellowships
    * @returns {Array} Array of fellowship objects
    */
-  static getAllFellowships() {
+  static getAllFellowships(guildId) {
+    const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
       SELECT id, name, created_at, updated_at
       FROM fellowships
@@ -19,7 +20,7 @@ export class FellowshipStorage {
     const fellowships = stmt.all();
     
     // Load related data for each fellowship
-    return fellowships.map(fellowship => this.loadFellowshipRelations(fellowship));
+    return fellowships.map(fellowship => this.loadFellowshipRelations(guildId, fellowship));
   }
 
   /**
@@ -27,7 +28,8 @@ export class FellowshipStorage {
    * @param {number} fellowshipId - Fellowship ID
    * @returns {Object|null} Fellowship object or null if not found
    */
-  static getFellowship(fellowshipId) {
+  static getFellowship(guildId, fellowshipId) {
+    const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
       SELECT id, name, created_at, updated_at
       FROM fellowships
@@ -35,7 +37,7 @@ export class FellowshipStorage {
     `);
     
     const fellowship = stmt.get(fellowshipId);
-    return fellowship ? this.loadFellowshipRelations(fellowship) : null;
+    return fellowship ? this.loadFellowshipRelations(guildId, fellowship) : null;
   }
 
   /**
@@ -43,7 +45,8 @@ export class FellowshipStorage {
    * @param {string} name - Fellowship name
    * @returns {Object|null} Fellowship object or null if not found
    */
-  static getFellowshipByName(name) {
+  static getFellowshipByName(guildId, name) {
+    const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
       SELECT id, name, created_at, updated_at
       FROM fellowships
@@ -51,7 +54,7 @@ export class FellowshipStorage {
     `);
     
     const fellowship = stmt.get(name);
-    return fellowship ? this.loadFellowshipRelations(fellowship) : null;
+    return fellowship ? this.loadFellowshipRelations(guildId, fellowship) : null;
   }
 
   /**
@@ -59,7 +62,8 @@ export class FellowshipStorage {
    * @param {Object} fellowship - Base fellowship object
    * @returns {Object} Fellowship with all related data
    */
-  static loadFellowshipRelations(fellowship) {
+  static loadFellowshipRelations(guildId, fellowship) {
+    const db = getDbForGuild(guildId);
     // Load tags and weaknesses
     const tagsStmt = db.prepare(`
       SELECT tag, is_weakness
@@ -82,7 +86,8 @@ export class FellowshipStorage {
    * @param {Array} weaknesses - Array of weakness strings
    * @returns {Object} The created or updated fellowship
    */
-  static upsertFellowship(name, tags = [], weaknesses = []) {
+  static upsertFellowship(guildId, name, tags = [], weaknesses = []) {
+    const db = getDbForGuild(guildId);
     const transaction = db.transaction(() => {
       // Check if fellowship exists
       const existingStmt = db.prepare('SELECT id FROM fellowships WHERE name = ?');
@@ -136,7 +141,8 @@ export class FellowshipStorage {
    * @param {number} fellowshipId - Fellowship ID
    * @returns {boolean} True if deleted, false if not found
    */
-  static deleteFellowship(fellowshipId) {
+  static deleteFellowship(guildId, fellowshipId) {
+    const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
       DELETE FROM fellowships
       WHERE id = ?

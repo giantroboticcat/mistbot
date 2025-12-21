@@ -6,6 +6,7 @@ import { RollStorage } from '../utils/RollStorage.js';
 import { RollView } from '../utils/RollView.js';
 import { combineRollComponents } from '../handlers/RollHandler.js';
 import RollStatus from '../constants/RollStatus.js';
+import { requireGuildId } from '../utils/GuildUtils.js';
 
 /**
  * Propose a reaction roll for narrator approval
@@ -28,11 +29,12 @@ export class RollReactionCommand extends Command {
   }
 
   async execute(interaction) {
+    const guildId = requireGuildId(interaction);
     const userId = interaction.user.id;
     const sceneId = interaction.channelId;
     
     // Get active character
-    const character = CharacterStorage.getActiveCharacter(userId);
+    const character = CharacterStorage.getActiveCharacter(guildId, userId);
     if (!character) {
       await interaction.reply({
         content: 'You don\'t have an active character. Use `/char-create` to import from Google Sheets, or `/char-select` to select an active character.',
@@ -53,7 +55,7 @@ export class RollReactionCommand extends Command {
     let originalRoll = null;
     let excludedTags = new Set();
     if (originalRollId) {
-      originalRoll = RollStorage.getRoll(originalRollId);
+      originalRoll = RollStorage.getRoll(guildId, originalRollId);
       if (!originalRoll) {
         await interaction.reply({
           content: `Roll #${originalRollId} not found.`,
@@ -81,13 +83,13 @@ export class RollReactionCommand extends Command {
     // Exclude burned tags from roll selection (they can't be used until refreshed)
     // Also exclude tags from original roll if roll-id was provided
     // Collect all available tags for help dropdown (exclude burned tags and original roll tags)
-    const helpOptions = RollView.collectHelpTags(character, sceneId, StoryTagStorage, false);
+    const helpOptions = RollView.collectHelpTags(character, sceneId, StoryTagStorage, false, guildId);
     const filteredHelpOptions = originalRollId 
       ? helpOptions.filter(opt => !excludedTags.has(opt.data.value))
       : helpOptions;
     
     // Collect all available tags + weaknesses for hinder dropdown (exclude burned tags and original roll tags)
-    const hinderOptions = RollView.collectHinderTags(character, sceneId, StoryTagStorage, false);
+    const hinderOptions = RollView.collectHinderTags(character, sceneId, StoryTagStorage, false, guildId);
     const filteredHinderOptions = originalRollId
       ? hinderOptions.filter(opt => !excludedTags.has(opt.data.value))
       : hinderOptions;

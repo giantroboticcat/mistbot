@@ -2,11 +2,8 @@ import { MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBu
 import { RollView } from '../utils/RollView.js';
 import { RollStorage } from '../utils/RollStorage.js';
 import RollStatus from '../constants/RollStatus.js';
-
-// Role ID that can edit rolls (set via environment variable)
-const ROLL_EDITOR_ROLE_ID = process.env.ROLL_EDITOR_ROLE_ID || null;
-// Role name for error messages (optional, set via environment variable)
-const ROLL_EDITOR_ROLE = process.env.ROLL_EDITOR_ROLE || 'editor role';
+import { getServerEnv } from '../utils/ServerConfig.js';
+import { getGuildId, requireGuildId } from '../utils/GuildUtils.js';
 
 /**
  * Check if a user can edit a roll (creator or has editor role)
@@ -25,13 +22,16 @@ export async function canEditRoll(interaction, rollState) {
     return false;
   }
 
+  const guildId = getGuildId(interaction);
+  const rollEditorRoleId = getServerEnv('ROLL_EDITOR_ROLE_ID', guildId);
+  
   // If no role ID is configured, only creator can edit
-  if (!ROLL_EDITOR_ROLE_ID) {
+  if (!rollEditorRoleId) {
     return false;
   }
 
   try {
-    return interaction.member.roles.includes(ROLL_EDITOR_ROLE_ID);
+    return interaction.member.roles.includes(rollEditorRoleId);
   } catch (error) {
     console.error('Error checking user roles:', error);
     return false;
@@ -75,13 +75,15 @@ export async function handleRollPageSelect(interaction, client) {
     const rollState = client.rollStates.get(rollKey);
     
     // Check if user can edit this roll (for confirm views, check narrator permissions)
+    const guildId = getGuildId(interaction);
+    const rollEditorRole = getServerEnv('ROLL_EDITOR_ROLE', guildId, 'editor role');
     let hasPermission = false;
     if (rollKey.startsWith('confirm_')) {
       // For confirm views, only narrators can edit
-      const ROLL_EDITOR_ROLE_ID = process.env.ROLL_EDITOR_ROLE_ID || null;
-      if (ROLL_EDITOR_ROLE_ID) {
+      const rollEditorRoleId = getServerEnv('ROLL_EDITOR_ROLE_ID', guildId);
+      if (rollEditorRoleId) {
         try {
-          hasPermission = interaction.member.roles.includes(ROLL_EDITOR_ROLE_ID);
+          hasPermission = interaction.member.roles.includes(rollEditorRoleId);
         } catch (error) {
           hasPermission = false;
         }
@@ -99,7 +101,7 @@ export async function handleRollPageSelect(interaction, client) {
     
     if (!hasPermission) {
       await interaction.reply({
-        content: `You don't have permission to edit this roll. Only the creator or users with the "${ROLL_EDITOR_ROLE}" role can edit.`,
+        content: `You don't have permission to edit this roll. Only the creator or users with the "${rollEditorRole}" role can edit.`,
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -175,13 +177,15 @@ export async function handleRollSelect(interaction, client) {
     const rollState = client.rollStates.get(rollKey);
     
     // Check if user can edit this roll (for confirm views, check narrator permissions)
+    const guildId = getGuildId(interaction);
+    const rollEditorRole = getServerEnv('ROLL_EDITOR_ROLE', guildId, 'editor role');
     let hasPermission = false;
     if (rollKey.startsWith('confirm_')) {
       // For confirm views, only narrators can edit
-      const ROLL_EDITOR_ROLE_ID = process.env.ROLL_EDITOR_ROLE_ID || null;
-      if (ROLL_EDITOR_ROLE_ID) {
+      const rollEditorRoleId = getServerEnv('ROLL_EDITOR_ROLE_ID', guildId);
+      if (rollEditorRoleId) {
         try {
-          hasPermission = interaction.member.roles.includes(ROLL_EDITOR_ROLE_ID);
+          hasPermission = interaction.member.roles.includes(rollEditorRoleId);
         } catch (error) {
           hasPermission = false;
         }
@@ -199,7 +203,7 @@ export async function handleRollSelect(interaction, client) {
     
     if (!hasPermission) {
       await interaction.reply({
-        content: `You don't have permission to edit this roll. Only the creator or users with the "${ROLL_EDITOR_ROLE}" role can edit.`,
+        content: `You don't have permission to edit this roll. Only the creator or users with the "${rollEditorRole}" role can edit.`,
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -466,7 +470,8 @@ export async function handleRollSubmit(interaction, client) {
   }
 
   // Create the roll proposal in storage
-  const rollId = RollStorage.createRoll({
+  const guildId = requireGuildId(interaction);
+  const rollId = RollStorage.createRoll(guildId, {
     creatorId: rollState.creatorId,
     characterId: rollState.characterId,
     sceneId: interaction.channelId,
@@ -499,7 +504,8 @@ export async function handleRollSubmit(interaction, client) {
   });
 
   // Post public message to channel with narrator ping
-  const narratorMention = process.env.ROLL_EDITOR_ROLE_ID ? `<@&${process.env.ROLL_EDITOR_ROLE_ID}>` : 'Narrators';
+  const rollEditorRoleId = getServerEnv('ROLL_EDITOR_ROLE_ID', guildId);
+  const narratorMention = rollEditorRoleId ? `<@&${rollEditorRoleId}>` : 'Narrators';
   
   const title = isReaction 
     ? `Reaction Roll #${rollId}${rollState.reactionToRollId ? ` (to Roll #${rollState.reactionToRollId})` : ''}\n${rollState.description}`
@@ -655,8 +661,9 @@ export async function handleRollConfirm(interaction, client) {
   const rollKey = customId.replace('roll_confirm_', '');
   
   // Check narrator permissions
-  const ROLL_EDITOR_ROLE_ID = process.env.ROLL_EDITOR_ROLE_ID || null;
-  if (!ROLL_EDITOR_ROLE_ID) {
+  const guildId = getGuildId(interaction);
+  const rollEditorRoleId = getServerEnv('ROLL_EDITOR_ROLE_ID', guildId);
+  if (!rollEditorRoleId) {
     await interaction.reply({
       content: 'Roll confirmation is not configured.',
       flags: MessageFlags.Ephemeral,
@@ -665,7 +672,7 @@ export async function handleRollConfirm(interaction, client) {
   }
 
   try {
-    if (!interaction.member.roles.includes(ROLL_EDITOR_ROLE_ID)) {
+    if (!interaction.member.roles.includes(rollEditorRoleId)) {
       await interaction.reply({
         content: 'Only narrators can confirm roll proposals.',
         flags: MessageFlags.Ephemeral,
@@ -692,7 +699,7 @@ export async function handleRollConfirm(interaction, client) {
   }
 
   // Update the roll with any edits made
-  RollStorage.updateRoll(rollState.rollId, {
+  RollStorage.updateRoll(guildId, rollState.rollId, {
     status: RollStatus.CONFIRMED,
     helpTags: rollState.helpTags,
     hinderTags: rollState.hinderTags,
@@ -707,7 +714,7 @@ export async function handleRollConfirm(interaction, client) {
   client.rollStates.delete(rollKey);
 
   // Get the roll to check if it's a reaction roll
-  const roll = RollStorage.getRoll(rollState.rollId);
+  const roll = RollStorage.getRoll(guildId, rollState.rollId);
   const isReaction = roll && roll.isReaction === true;
   const rollType = isReaction ? 'Reaction Roll' : 'Action Roll';
   

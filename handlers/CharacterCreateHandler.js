@@ -1,16 +1,19 @@
 import sheetsService from '../utils/GoogleSheetsService.js';
 import sheetTabCache from '../utils/SheetTabCache.js';
 import { getBlacklistedGids } from '../utils/SheetTabBlacklist.js';
+import { getServerEnv } from '../utils/ServerConfig.js';
+import { requireGuildId } from '../utils/GuildUtils.js';
 
 /**
  * Handle autocomplete for char-create command
  * Scans FELLOWSHIP_SHEET_URL for tabs and returns them as autocomplete options
  */
 export async function handleCharacterCreateAutocomplete(interaction) {
+  const guildId = requireGuildId(interaction);
   const focusedValue = interaction.options.getFocused().toLowerCase();
 
-  // Get FELLOWSHIP_SHEET_URL from environment
-  const fellowshipSheetUrl = process.env.FELLOWSHIP_SHEET_URL;
+  // Get FELLOWSHIP_SHEET_URL from environment (server-specific)
+  const fellowshipSheetUrl = getServerEnv('FELLOWSHIP_SHEET_URL', guildId);
   if (!fellowshipSheetUrl) {
     await interaction.respond([]);
     return;
@@ -30,8 +33,8 @@ export async function handleCharacterCreateAutocomplete(interaction) {
   }
 
   try {
-    // Get blacklisted gids
-    const blacklistGids = getBlacklistedGids();
+    // Get blacklisted gids (server-specific)
+    const blacklistGids = getBlacklistedGids(guildId);
 
     // Get tabs using cache
     const tabs = await sheetTabCache.getTabs(async () => {

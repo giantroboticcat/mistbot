@@ -1,4 +1,4 @@
-import { db } from './Database.js';
+import { getDbForGuild } from './Database.js';
 import sheetsService from './GoogleSheetsService.js';
 import { FellowshipStorage } from './FellowshipStorage.js';
 
@@ -9,10 +9,12 @@ export class CharacterStorage {
 
   /**
    * Get user's characters
+   * @param {string} guildId - Discord guild ID
    * @param {string} userId - Discord user ID
    * @returns {Array} Array of character objects
    */
-  static getUserCharacters(userId) {
+  static getUserCharacters(guildId, userId) {
+    const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
       SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url, fellowship_id
       FROM characters
@@ -23,15 +25,17 @@ export class CharacterStorage {
     const characters = stmt.all(userId);
     
     // Load related data for each character
-    return characters.map(char => this.loadCharacterRelations(char));
+    return characters.map(char => this.loadCharacterRelations(guildId, char));
   }
 
   /**
    * Load all related data for a character
+   * @param {string} guildId - Discord guild ID
    * @param {Object} character - Base character object
    * @returns {Object} Character with all related data
    */
-  static loadCharacterRelations(character) {
+  static loadCharacterRelations(guildId, character) {
+    const db = getDbForGuild(guildId);
     // Load themes
     const themesStmt = db.prepare(`
       SELECT id, name, theme_order, is_burned
@@ -100,7 +104,7 @@ export class CharacterStorage {
     
     // Load fellowship if assigned
     if (character.fellowship_id) {
-      character.fellowship = FellowshipStorage.getFellowship(character.fellowship_id);
+      character.fellowship = FellowshipStorage.getFellowship(guildId, character.fellowship_id);
     } else {
       character.fellowship = null;
     }
@@ -113,7 +117,8 @@ export class CharacterStorage {
    * @param {string} userId - Discord user ID
    * @returns {number|null} The active character ID or null if none
    */
-  static getActiveCharacterId(userId) {
+  static getActiveCharacterId(guildId, userId) {
+    const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
       SELECT id, google_sheet_url, fellowship_id
       FROM characters
@@ -131,7 +136,8 @@ export class CharacterStorage {
    * @param {number} characterId - Character ID to set as active
    * @returns {boolean} True if set successfully, false if character not found
    */
-  static setActiveCharacter(userId, characterId) {
+  static setActiveCharacter(guildId, userId, characterId) {
+    const db = getDbForGuild(guildId);
     // Verify character exists and belongs to user
     const verifyStmt = db.prepare(`
       SELECT id
@@ -169,7 +175,8 @@ export class CharacterStorage {
    * @param {string} userId - Discord user ID
    * @returns {Object|null} Character object or null if none active
    */
-  static getActiveCharacter(userId) {
+  static getActiveCharacter(guildId, userId) {
+    const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
       SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url, fellowship_id
       FROM characters
@@ -178,7 +185,7 @@ export class CharacterStorage {
     `);
     
     const character = stmt.get(userId);
-    return character ? this.loadCharacterRelations(character) : null;
+    return character ? this.loadCharacterRelations(guildId, character) : null;
   }
 
   /**
@@ -187,7 +194,8 @@ export class CharacterStorage {
    * @param {number} characterId - Character ID
    * @returns {Object|null} Character object or null if not found
    */
-  static getCharacter(userId, characterId) {
+  static getCharacter(guildId, userId, characterId) {
+    const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
       SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url, fellowship_id
       FROM characters
@@ -195,7 +203,7 @@ export class CharacterStorage {
     `);
     
     const character = stmt.get(characterId, userId);
-    return character ? this.loadCharacterRelations(character) : null;
+    return character ? this.loadCharacterRelations(guildId, character) : null;
   }
 
   /**
@@ -205,7 +213,8 @@ export class CharacterStorage {
    * @param {number|null} fellowshipId - Fellowship ID to assign, or null to remove
    * @returns {boolean} True if updated, false if not found
    */
-  static setFellowship(userId, characterId, fellowshipId) {
+  static setFellowship(guildId, userId, characterId, fellowshipId) {
+    const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
       UPDATE characters
       SET fellowship_id = ?, updated_at = strftime('%s', 'now')
@@ -223,7 +232,8 @@ export class CharacterStorage {
    * @param {string[]} tagValues - Array of tagValue strings (e.g., ["theme:ThemeName", "tag:TagName"])
    * @returns {Object|null} Updated character or null if not found
    */
-  static markTagsAsBurned(userId, characterId, tagValues) {
+  static markTagsAsBurned(guildId, userId, characterId, tagValues) {
+    const db = getDbForGuild(guildId);
     // Verify character exists and belongs to user
     const verifyStmt = db.prepare('SELECT id FROM characters WHERE id = ? AND user_id = ?');
     if (!verifyStmt.get(characterId, userId)) {
@@ -256,7 +266,7 @@ export class CharacterStorage {
     });
     
     transaction();
-    return this.getCharacter(userId, characterId);
+    return this.getCharacter(guildId, userId, characterId);
   }
 
   /**
@@ -266,7 +276,8 @@ export class CharacterStorage {
    * @param {string[]} tagValues - Array of tagValue strings to refresh
    * @returns {Object|null} Updated character or null if not found
    */
-  static refreshBurnedTags(userId, characterId, tagValues) {
+  static refreshBurnedTags(guildId, userId, characterId, tagValues) {
+    const db = getDbForGuild(guildId);
     // Verify character exists and belongs to user
     const verifyStmt = db.prepare('SELECT id FROM characters WHERE id = ? AND user_id = ?');
     if (!verifyStmt.get(characterId, userId)) {
@@ -298,7 +309,7 @@ export class CharacterStorage {
     });
     
     transaction();
-    return this.getCharacter(userId, characterId);
+    return this.getCharacter(guildId, userId, characterId);
   }
 
   /**
@@ -308,7 +319,8 @@ export class CharacterStorage {
    * @param {Array} themes - Array of theme objects { name, tags, weaknesses }
    * @returns {Object} The created character
    */
-  static createCharacter(userId, name, themes) {
+  static createCharacter(guildId, userId, name, themes) {
+    const db = getDbForGuild(guildId);
     const transaction = db.transaction(() => {
       // Insert character
       const insertChar = db.prepare(`
@@ -365,7 +377,7 @@ export class CharacterStorage {
     });
     
     const characterId = transaction();
-    return this.getCharacter(userId, characterId);
+    return this.getCharacter(guildId, userId, characterId);
   }
 
   /**
@@ -375,7 +387,8 @@ export class CharacterStorage {
    * @param {Object} updates - Updates to apply
    * @returns {Object|null} Updated character or null if not found
    */
-  static updateCharacter(userId, characterId, updates) {
+  static updateCharacter(guildId, userId, characterId, updates) {
+    const db = getDbForGuild(guildId);
     // Verify character exists and belongs to user
     const verifyStmt = db.prepare('SELECT id FROM characters WHERE id = ? AND user_id = ?');
     if (!verifyStmt.get(characterId, userId)) {
@@ -489,7 +502,7 @@ export class CharacterStorage {
     });
     
     transaction();
-    return this.getCharacter(userId, characterId);
+    return this.getCharacter(guildId, userId, characterId);
   }
 
   /**
@@ -498,7 +511,8 @@ export class CharacterStorage {
    * @param {number} characterId - Character ID
    * @returns {boolean} True if deleted, false if not found
    */
-  static deleteCharacter(userId, characterId) {
+  static deleteCharacter(guildId, userId, characterId) {
+    const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
       DELETE FROM characters
       WHERE id = ? AND user_id = ?
@@ -515,7 +529,8 @@ export class CharacterStorage {
    * @param {string} sheetUrl - Google Sheets URL
    * @returns {boolean} True if updated, false if not found
    */
-  static setSheetUrl(userId, characterId, sheetUrl) {
+  static setSheetUrl(guildId, userId, characterId, sheetUrl) {
+    const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
       UPDATE characters
       SET google_sheet_url = ?, updated_at = strftime('%s', 'now')
@@ -532,7 +547,8 @@ export class CharacterStorage {
    * @param {number} characterId - Character ID
    * @returns {string|null} Sheet URL or null if not set
    */
-  static getSheetUrl(userId, characterId) {
+  static getSheetUrl(guildId, userId, characterId) {
+    const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
       SELECT google_sheet_url
       FROM characters
@@ -550,7 +566,8 @@ export class CharacterStorage {
    * @param {string} sheetUrl - Google Sheets URL to check
    * @returns {Object|null} Character object using this URL, or null if not in use
    */
-  static getCharacterBySheetUrl(sheetUrl) {
+  static getCharacterBySheetUrl(guildId, sheetUrl) {
+    const db = getDbForGuild(guildId);
     // Extract spreadsheet ID from the URL
     
     const parsedUrl = new URL(sheetUrl);
@@ -576,10 +593,10 @@ export class CharacterStorage {
    * @param {number} characterId - Character ID
    * @returns {Promise<Object>} Result with success status and message
    */
-  static async syncToSheet(userId, characterId) {
+  static async syncToSheet(guildId, userId, characterId) {
     try {
       // Get character
-      const character = this.getCharacter(userId, characterId);
+      const character = this.getCharacter(guildId, userId, characterId);
       if (!character) {
         return { success: false, message: 'Character not found' };
       }
@@ -610,10 +627,10 @@ export class CharacterStorage {
    * @param {number} characterId - Character ID
    * @returns {Promise<Object>} Result with success status and message
    */
-  static async syncFromSheet(userId, characterId) {
+  static async syncFromSheet(guildId, userId, characterId) {
     try {
       // Get character to get sheet URL
-      const character = this.getCharacter(userId, characterId);
+      const character = this.getCharacter(guildId, userId, characterId);
       if (!character) {
         return { success: false, message: 'Character not found' };
       }
@@ -634,7 +651,7 @@ export class CharacterStorage {
       // Look up fellowship if fellowship name is provided
       let fellowshipId = null;
       if (sheetData.fellowshipName) {
-        const fellowship = FellowshipStorage.getFellowshipByName(sheetData.fellowshipName);
+        const fellowship = FellowshipStorage.getFellowshipByName(guildId, sheetData.fellowshipName);
         if (fellowship) {
           fellowshipId = fellowship.id;
         } else {
@@ -694,14 +711,14 @@ export class CharacterStorage {
         tempStatuses: sheetData.tempStatuses,
       };
 
-      const updatedCharacter = this.updateCharacter(userId, characterId, updates);
+      const updatedCharacter = this.updateCharacter(guildId, userId, characterId, updates);
       
       // Set fellowship if found
       if (fellowshipId !== null) {
-        this.setFellowship(userId, characterId, fellowshipId);
+        this.setFellowship(guildId, userId, characterId, fellowshipId);
       } else if (updatedCharacter && updatedCharacter.fellowship_id) {
         // If no fellowship name in sheet but character has one, remove it
-        this.setFellowship(userId, characterId, null);
+        this.setFellowship(guildId, userId, characterId, null);
       }
 
       return { success: true, message: 'Character successfully synced from Google Sheet!' };

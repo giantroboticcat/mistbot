@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, MessageFlags, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } from 'discord.js';
 import { Command } from './Command.js';
 import { CharacterStorage } from '../utils/CharacterStorage.js';
+import { requireGuildId } from '../utils/GuildUtils.js';
 
 /**
  * Select an active character
@@ -13,8 +14,9 @@ export class SelectCharacterCommand extends Command {
   }
 
   async execute(interaction) {
+    const guildId = requireGuildId(interaction);
     const userId = interaction.user.id;
-    const characters = CharacterStorage.getUserCharacters(userId);
+    const characters = CharacterStorage.getUserCharacters(guildId, userId);
 
     if (characters.length === 0) {
       await interaction.reply({
@@ -25,7 +27,7 @@ export class SelectCharacterCommand extends Command {
     }
 
     // Get current active character
-    const activeCharacterId = CharacterStorage.getActiveCharacterId(userId);
+    const activeCharacterId = CharacterStorage.getActiveCharacterId(guildId, userId);
 
     // Create a select menu to choose which character to make active
     const options = characters.map(char => {

@@ -6,6 +6,8 @@ import { TagFormatter } from '../utils/TagFormatter.js';
 import sheetsService from '../utils/GoogleSheetsService.js';
 import sheetTabCache from '../utils/SheetTabCache.js';
 import { isGidBlacklisted } from '../utils/SheetTabBlacklist.js';
+import { getServerEnv } from '../utils/ServerConfig.js';
+import { requireGuildId } from '../utils/GuildUtils.js';
 
 /**
  * Create a new character with themes
@@ -50,7 +52,9 @@ export class CreateCharacterCommand extends Command {
     }
 
     // Check if gid is blacklisted
-    if (isGidBlacklisted(gid)) {
+    const guildId = requireGuildId(interaction);
+    console.log('guildId', guildId);
+    if (isGidBlacklisted(guildId, gid)) {
       await interaction.reply({
         content: '❌ This character sheet is not available for selection.',
         flags: MessageFlags.Ephemeral,
@@ -59,7 +63,7 @@ export class CreateCharacterCommand extends Command {
     }
 
     // Get FELLOWSHIP_SHEET_URL from environment
-    const fellowshipSheetUrl = process.env.FELLOWSHIP_SHEET_URL;
+    const fellowshipSheetUrl = getServerEnv('FELLOWSHIP_SHEET_URL', guildId);
     if (!fellowshipSheetUrl) {
       await interaction.reply({
         content: '❌ FELLOWSHIP_SHEET_URL is not configured. Please contact an administrator.',
@@ -89,10 +93,11 @@ export class CreateCharacterCommand extends Command {
    * Create character from Google Sheet
    */
   async createFromSheet(interaction, sheetUrl) {
+    const guildId = requireGuildId(interaction);
     const userId = interaction.user.id;
 
     // Check character limit (max 3 characters per user)
-    const existingCharacters = CharacterStorage.getUserCharacters(userId);
+    const existingCharacters = CharacterStorage.getUserCharacters(guildId, userId);
     if (existingCharacters.length >= 3) {
       await interaction.reply({
         content: `❌ You have reached the maximum limit of 3 characters.\n\nTo create a new character, you must first delete one of your existing characters using the character edit screen.`,
@@ -112,7 +117,7 @@ export class CreateCharacterCommand extends Command {
     }
 
     // Check if this sheet URL is already in use
-    const existingCharacter = CharacterStorage.getCharacterBySheetUrl(sheetUrl);
+    const existingCharacter = CharacterStorage.getCharacterBySheetUrl(guildId, sheetUrl);
     if (existingCharacter) {
       await interaction.reply({
         content: `❌ This Google Sheet has already been imported.\n\n**Character:** ${existingCharacter.name}\n**Owner:** <@${existingCharacter.user_id}>\n\nEach sheet can only be imported once. If you need to update an existing character, use the character edit commands.`,
@@ -139,6 +144,7 @@ export class CreateCharacterCommand extends Command {
 
       // Create character in database
       const character = CharacterStorage.createCharacter(
+        guildId,
         userId,
         characterData.name,
         characterData.themes
@@ -157,17 +163,17 @@ export class CreateCharacterCommand extends Command {
       }
 
       if (Object.keys(updates).length > 0) {
-        CharacterStorage.updateCharacter(userId, character.id, updates);
+        CharacterStorage.updateCharacter(guildId, userId, character.id, updates);
       }
 
       // Set the sheet URL
-      CharacterStorage.setSheetUrl(userId, character.id, sheetUrl);
+      CharacterStorage.setSheetUrl(guildId, userId, character.id, sheetUrl);
 
       // Look up and assign fellowship if fellowship name is provided
       if (characterData.fellowshipName) {
-        const fellowship = FellowshipStorage.getFellowshipByName(characterData.fellowshipName);
+        const fellowship = FellowshipStorage.getFellowshipByName(guildId, characterData.fellowshipName);
         if (fellowship) {
-          CharacterStorage.setFellowship(userId, character.id, fellowship.id);
+          CharacterStorage.setFellowship(guildId, userId, character.id, fellowship.id);
         } else {
           console.warn(`Fellowship "${characterData.fellowshipName}" not found in database. Character will not be assigned to a fellowship.`);
         }

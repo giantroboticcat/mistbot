@@ -6,11 +6,13 @@ import { EditCharacterCommand } from '../commands/EditCharacterCommand.js';
 import { CharacterView } from '../utils/CharacterView.js';
 import { StatusesEditorView } from '../utils/StatusesEditorView.js';
 import { Validation } from '../utils/Validation.js';
+import { requireGuildId, getGuildId } from '../utils/GuildUtils.js';
 
 /**
  * Handle modal submissions (character creation/editing)
  */
 export async function handleModalSubmit(interaction, client) {
+  const guildId = requireGuildId(interaction);
   const customId = interaction.customId;
   
   if (customId.startsWith('edit_character_modal_')) {
@@ -18,7 +20,7 @@ export async function handleModalSubmit(interaction, client) {
     const characterId = parseInt(customId.split('_')[3]);
     const userId = interaction.user.id;
     
-    const character = CharacterStorage.getCharacter(userId, characterId);
+    const character = CharacterStorage.getCharacter(guildId, userId, characterId);
     if (!character) {
       await interaction.reply({
         content: 'Character not found.',
@@ -69,7 +71,7 @@ export async function handleModalSubmit(interaction, client) {
     }
 
     // Update the character
-    const updatedCharacter = CharacterStorage.updateCharacter(userId, characterId, {
+    const updatedCharacter = CharacterStorage.updateCharacter(guildId, userId, characterId, {
       name: name.trim(),
       themes: themes.map(theme => ({
         name: theme.name || '',
@@ -99,7 +101,7 @@ export async function handleModalSubmit(interaction, client) {
     const characterId = parseInt(customId.split('_')[3]);
     const userId = interaction.user.id;
     
-    const character = CharacterStorage.getCharacter(userId, characterId);
+    const character = CharacterStorage.getCharacter(guildId, userId, characterId);
     if (!character) {
       await interaction.reply({
         content: 'Character not found.',
@@ -124,7 +126,7 @@ export async function handleModalSubmit(interaction, client) {
       .filter(item => item.length > 0);
 
     // Update the character's backpack and story tags
-    const updatedCharacter = CharacterStorage.updateCharacter(userId, characterId, {
+    const updatedCharacter = CharacterStorage.updateCharacter(guildId, userId, characterId, {
       backpack: backpack,
       storyTags: storyTags,
     });
@@ -155,7 +157,7 @@ export async function handleModalSubmit(interaction, client) {
     const characterId = parseInt(customId.split('_')[3]);
     const userId = interaction.user.id;
     
-    const character = CharacterStorage.getCharacter(userId, characterId);
+    const character = CharacterStorage.getCharacter(guildId, userId, characterId);
     if (!character) {
       await interaction.reply({
         content: 'Character not found.',
@@ -177,7 +179,7 @@ export async function handleModalSubmit(interaction, client) {
     const updatedStatuses = [...(character.tempStatuses || [])];
     updatedStatuses.push(statusName);
 
-    const updatedCharacter = CharacterStorage.updateCharacter(userId, characterId, {
+    const updatedCharacter = CharacterStorage.updateCharacter(guildId, userId, characterId, {
       tempStatuses: updatedStatuses,
     });
 
@@ -204,12 +206,13 @@ export async function handleModalSubmit(interaction, client) {
  * Handle edit character button interaction
  */
 export async function handleEditCharacterButton(interaction, client) {
+  const guildId = requireGuildId(interaction);
   const customId = interaction.customId;
   // Extract character ID: format is "edit_character_123"
   const characterId = parseInt(customId.replace('edit_character_', ''));
   const userId = interaction.user.id;
   
-  const character = CharacterStorage.getCharacter(userId, characterId);
+  const character = CharacterStorage.getCharacter(guildId, userId, characterId);
   if (!character) {
     await interaction.reply({
       content: 'Character not found.',
@@ -248,12 +251,13 @@ export async function handleRetryCreateCharacter(interaction, client) {
  * Handle edit backpack button interaction
  */
 export async function handleEditBackpackButton(interaction, client) {
+  const guildId = requireGuildId(interaction);
   const customId = interaction.customId;
   // Extract character ID: format is "edit_backpack_123"
   const characterId = parseInt(customId.replace('edit_backpack_', ''));
   const userId = interaction.user.id;
   
-  const character = CharacterStorage.getCharacter(userId, characterId);
+  const character = CharacterStorage.getCharacter(guildId, userId, characterId);
   if (!character) {
     await interaction.reply({
       content: 'Character not found.',
@@ -270,12 +274,13 @@ export async function handleEditBackpackButton(interaction, client) {
  * Handle edit statuses button interaction
  */
 export async function handleEditStatusesButton(interaction, client) {
+  const guildId = requireGuildId(interaction);
   const customId = interaction.customId;
   // Extract character ID: format is "edit_statuses_123"
   const characterId = parseInt(customId.replace('edit_statuses_', ''));
   const userId = interaction.user.id;
   
-  const character = CharacterStorage.getCharacter(userId, characterId);
+  const character = CharacterStorage.getCharacter(guildId, userId, characterId);
   if (!character) {
     await interaction.reply({
       content: 'Character not found.',
@@ -298,11 +303,12 @@ export async function handleEditStatusesButton(interaction, client) {
  * Handle statuses remove select menu interaction
  */
 export async function handleStatusesRemove(interaction, client) {
+  const guildId = requireGuildId(interaction);
   const customId = interaction.customId;
   const userId = interaction.user.id;
   const characterId = parseInt(customId.replace('statuses_remove_', ''));
 
-  const character = CharacterStorage.getCharacter(userId, characterId);
+  const character = CharacterStorage.getCharacter(guildId, userId, characterId);
   if (!character) {
     await interaction.reply({
       content: 'Character not found.',
@@ -333,7 +339,7 @@ export async function handleStatusesRemove(interaction, client) {
   if (!isNaN(selectedIndex) && selectedIndex >= 0 && selectedIndex < updatedStatuses.length) {
     updatedStatuses.splice(selectedIndex, 1);
     
-    const updatedCharacter = CharacterStorage.updateCharacter(userId, characterId, {
+    const updatedCharacter = CharacterStorage.updateCharacter(guildId, userId, characterId, {
       tempStatuses: updatedStatuses,
     });
 
@@ -353,11 +359,12 @@ export async function handleStatusesRemove(interaction, client) {
  * Handle statuses edit select menu interaction
  */
 export async function handleStatusesEditSelect(interaction, client) {
+  const guildId = requireGuildId(interaction);
   const customId = interaction.customId;
   const userId = interaction.user.id;
   const characterId = parseInt(customId.replace('statuses_edit_select_', ''));
 
-  const character = CharacterStorage.getCharacter(userId, characterId);
+  const character = CharacterStorage.getCharacter(guildId, userId, characterId);
   if (!character) {
     await interaction.reply({
       content: 'Character not found.',
@@ -388,6 +395,7 @@ export async function handleStatusesEditSelect(interaction, client) {
  * Handle statuses editor interactions (add, toggle, done)
  */
 export async function handleStatusesEditor(interaction, client) {
+  const guildId = requireGuildId(interaction);
   const customId = interaction.customId;
   const userId = interaction.user.id;
   
@@ -408,7 +416,7 @@ export async function handleStatusesEditor(interaction, client) {
     return;
   }
 
-  const character = CharacterStorage.getCharacter(userId, characterId);
+  const character = CharacterStorage.getCharacter(guildId, userId, characterId);
   if (!character) {
     await interaction.reply({
       content: 'Character not found.',
@@ -466,7 +474,7 @@ export async function handleStatusesEditor(interaction, client) {
         };
       }
 
-      const updatedCharacter = CharacterStorage.updateCharacter(userId, characterId, {
+      const updatedCharacter = CharacterStorage.updateCharacter(guildId, userId, characterId, {
         tempStatuses: updatedStatuses,
       });
 
@@ -498,12 +506,13 @@ export async function handleStatusesEditor(interaction, client) {
  * Handle burn/refresh tags button interaction
  */
 export async function handleBurnRefreshButton(interaction, client) {
+  const guildId = requireGuildId(interaction);
   const customId = interaction.customId;
   // Extract character ID: format is "burn_refresh_123"
   const characterId = parseInt(customId.replace('burn_refresh_', ''));
   const userId = interaction.user.id;
   
-  const character = CharacterStorage.getCharacter(userId, characterId);
+  const character = CharacterStorage.getCharacter(guildId, userId, characterId);
   if (!character) {
     await interaction.reply({
       content: 'Character not found.',
@@ -600,12 +609,13 @@ export async function handleBurnRefreshButton(interaction, client) {
  * Handle burn/refresh select menu interaction
  */
 export async function handleBurnRefreshSelect(interaction, client) {
+  const guildId = requireGuildId(interaction);
   const customId = interaction.customId;
   // Extract character ID: format is "burn_refresh_select_123"
   const characterId = parseInt(customId.replace('burn_refresh_select_', ''));
   const userId = interaction.user.id;
   
-  const character = CharacterStorage.getCharacter(userId, characterId);
+  const character = CharacterStorage.getCharacter(guildId, userId, characterId);
   if (!character) {
     await interaction.reply({
       content: 'Character not found.',
@@ -653,26 +663,27 @@ export async function handleBurnRefreshSelect(interaction, client) {
   }
   // Update character with burned/refreshed tags
   if (tagsToBurn.length > 0) {
-    CharacterStorage.markTagsAsBurned(userId, characterId, tagsToBurn);
+    CharacterStorage.markTagsAsBurned(guildId, userId, characterId, tagsToBurn);
   }
   if (tagsToRefresh.length > 0) {
-    CharacterStorage.refreshBurnedTags(userId, characterId, tagsToRefresh);
+    CharacterStorage.refreshBurnedTags(guildId, userId, characterId, tagsToRefresh);
   }
 
   // Refresh character display
-  await EditCharacterCommand.displayCharacter(interaction, CharacterStorage.getCharacter(userId, characterId), true, userId);
+  await EditCharacterCommand.displayCharacter(interaction, CharacterStorage.getCharacter(guildId, userId, characterId), true, userId);
 }
 
 /**
  * Handle delete character button interaction
  */
 export async function handleDeleteCharacterButton(interaction, client) {
+  const guildId = requireGuildId(interaction);
   const customId = interaction.customId;
   // Extract character ID: format is "delete_character_123"
   const characterId = parseInt(customId.replace('delete_character_', ''));
   const userId = interaction.user.id;
   
-  const character = CharacterStorage.getCharacter(userId, characterId);
+  const character = CharacterStorage.getCharacter(guildId, userId, characterId);
   if (!character) {
     await interaction.reply({
       content: 'Character not found.',
@@ -705,12 +716,13 @@ export async function handleDeleteCharacterButton(interaction, client) {
  * Handle delete character confirmation
  */
 export async function handleDeleteCharacterConfirm(interaction, client) {
+  const guildId = requireGuildId(interaction);
   const customId = interaction.customId;
   // Extract character ID: format is "delete_character_confirm_123"
   const characterId = parseInt(customId.replace('delete_character_confirm_', ''));
   const userId = interaction.user.id;
   
-  const character = CharacterStorage.getCharacter(userId, characterId);
+  const character = CharacterStorage.getCharacter(guildId, userId, characterId);
   if (!character) {
     await interaction.reply({
       content: 'Character not found.',
@@ -723,18 +735,18 @@ export async function handleDeleteCharacterConfirm(interaction, client) {
   const wasActive = character.is_active;
 
   // Delete the character
-  const deleted = CharacterStorage.deleteCharacter(userId, characterId);
+  const deleted = CharacterStorage.deleteCharacter(guildId, userId, characterId);
   
   if (deleted) {
     // If this was the active character, check if there are other characters
     let message = `✅ Character "${characterName}" has been deleted.`;
     
     if (wasActive) {
-      const remainingCharacters = CharacterStorage.getUserCharacters(userId);
+      const remainingCharacters = CharacterStorage.getUserCharacters(guildId, userId);
       if (remainingCharacters.length > 0) {
         // Auto-activate the first remaining character
         const newActive = remainingCharacters[0];
-        CharacterStorage.setActiveCharacter(userId, newActive.id);
+        CharacterStorage.setActiveCharacter(guildId, userId, newActive.id);
         message += `\n\nYour active character has been set to "${newActive.name}".`;
       } else {
         message += '\n\nYou no longer have any characters. Use `/char-create` to create a new one.';
@@ -771,12 +783,13 @@ export async function handleDeleteCharacterConfirm(interaction, client) {
  * Handle delete character cancellation
  */
 export async function handleDeleteCharacterCancel(interaction, client) {
+  const guildId = requireGuildId(interaction);
   const customId = interaction.customId;
   // Extract character ID: format is "delete_character_cancel_123"
   const characterId = parseInt(customId.replace('delete_character_cancel_', ''));
   const userId = interaction.user.id;
   
-  const character = CharacterStorage.getCharacter(userId, characterId);
+  const character = CharacterStorage.getCharacter(guildId, userId, characterId);
   if (!character) {
     await interaction.update({
       content: 'Character not found.',
@@ -809,6 +822,7 @@ export async function handleDeleteCharacterCancel(interaction, client) {
  * Handle select menu for active character selection
  */
 export async function handleSelectActiveCharacter(interaction, client) {
+  const guildId = requireGuildId(interaction);
   const customId = interaction.customId;
   const userId = interaction.user.id;
   
@@ -816,7 +830,7 @@ export async function handleSelectActiveCharacter(interaction, client) {
     const selectedValue = interaction.values[0];
     const characterId = parseInt(selectedValue);
     
-    const character = CharacterStorage.getCharacter(userId, characterId);
+    const character = CharacterStorage.getCharacter(guildId, userId, characterId);
     if (!character) {
       await interaction.reply({
         content: 'Character not found.',
@@ -826,7 +840,7 @@ export async function handleSelectActiveCharacter(interaction, client) {
     }
 
     // Set as active character
-    const success = CharacterStorage.setActiveCharacter(userId, characterId);
+    const success = CharacterStorage.setActiveCharacter(guildId, userId, characterId);
     
     if (!success) {
       await interaction.reply({
@@ -888,10 +902,11 @@ export async function handleCharLookupAutocomplete(interaction) {
  * Handle "Set Sheet URL" button click (show modal)
  */
 export async function handleSetSheetUrlButton(interaction, client) {
+  const guildId = requireGuildId(interaction);
   const characterId = parseInt(interaction.customId.split('_').pop());
   const userId = interaction.user.id;
   
-  const activeCharacter = CharacterStorage.getActiveCharacter(userId);
+  const activeCharacter = CharacterStorage.getActiveCharacter(guildId, userId);
   
   if (!activeCharacter) {
     await interaction.reply({
@@ -926,11 +941,12 @@ export async function handleSetSheetUrlButton(interaction, client) {
  * Handle "Sync to Sheet" button click
  */
 export async function handleSyncToSheetButton(interaction, client) {
+  const guildId = requireGuildId(interaction);
   const characterId = parseInt(interaction.customId.split('_').pop());
   const userId = interaction.user.id;
   
   // Verify character belongs to user
-  const character = CharacterStorage.getCharacter(userId, characterId);
+  const character = CharacterStorage.getCharacter(guildId, userId, characterId);
   if (!character) {
     await interaction.reply({
       content: '❌ Character not found or you don\'t have permission to sync it.',
@@ -943,7 +959,7 @@ export async function handleSyncToSheetButton(interaction, client) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   // Perform sync
-  const result = await CharacterStorage.syncToSheet(userId, characterId);
+  const result = await CharacterStorage.syncToSheet(guildId, userId, characterId);
 
   if (result.success) {
     await interaction.editReply({
@@ -960,11 +976,12 @@ export async function handleSyncToSheetButton(interaction, client) {
  * Handle "Sync from Sheet" button click
  */
 export async function handleSyncFromSheetButton(interaction, client) {
+  const guildId = requireGuildId(interaction);
   const characterId = parseInt(interaction.customId.split('_').pop());
   const userId = interaction.user.id;
   
   // Verify character belongs to user
-  const character = CharacterStorage.getCharacter(userId, characterId);
+  const character = CharacterStorage.getCharacter(guildId, userId, characterId);
   if (!character) {
     await interaction.reply({
       content: '❌ Character not found or you don\'t have permission to sync it.',
@@ -977,7 +994,7 @@ export async function handleSyncFromSheetButton(interaction, client) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   // Perform sync
-  const result = await CharacterStorage.syncFromSheet(userId, characterId);
+  const result = await CharacterStorage.syncFromSheet(guildId, userId, characterId);
 
   if (result.success) {
     await interaction.editReply({
@@ -1009,7 +1026,7 @@ export async function handleSetSheetUrlModal(interaction) {
   }
 
   // Check if this sheet URL is already in use by a different character
-  const existingCharacter = CharacterStorage.getCharacterBySheetUrl(sheetUrl);
+  const existingCharacter = CharacterStorage.getCharacterBySheetUrl(guildId, sheetUrl);
   if (existingCharacter && existingCharacter.id !== characterId) {
     await interaction.reply({
       content: `❌ This Google Sheet has already been imported by another character.\n\n**Character:** ${existingCharacter.name}\n**Owner:** <@${existingCharacter.user_id}>\n\nEach sheet can only be used by one character.`,
@@ -1019,7 +1036,7 @@ export async function handleSetSheetUrlModal(interaction) {
   }
 
   // Update character
-  const success = CharacterStorage.setSheetUrl(userId, characterId, sheetUrl);
+  const success = CharacterStorage.setSheetUrl(guildId, userId, characterId, sheetUrl);
 
   if (success) {
     await interaction.reply({

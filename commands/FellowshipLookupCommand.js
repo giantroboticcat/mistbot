@@ -2,6 +2,7 @@ import { SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { Command } from './Command.js';
 import { FellowshipStorage } from '../utils/FellowshipStorage.js';
 import { TagFormatter } from '../utils/TagFormatter.js';
+import { requireGuildId } from '../utils/GuildUtils.js';
 
 /**
  * View a fellowship sheet
@@ -20,10 +21,11 @@ export class FellowshipLookupCommand extends Command {
   }
 
   async execute(interaction) {
+    const guildId = requireGuildId(interaction);
     const value = interaction.options.getString('fellowship', true);
     
     // Get the fellowship
-    const fellowship = FellowshipStorage.getFellowshipByName(value);
+    const fellowship = FellowshipStorage.getFellowshipByName(guildId, value);
     
     if (!fellowship) {
       await interaction.reply({

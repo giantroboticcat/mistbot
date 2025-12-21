@@ -1,4 +1,4 @@
-import { db } from './Database.js';
+import { getDbForGuild } from './Database.js';
 
 /**
  * Storage utility for managing story tags, statuses, and limits per scene (channel/thread)
@@ -8,7 +8,8 @@ export class StoryTagStorage {
    * Ensure scene exists in database
    * @param {string} sceneId - Scene/channel ID
    */
-  static ensureScene(sceneId) {
+  static ensureScene(guildId, sceneId) {
+    const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
       INSERT OR IGNORE INTO scenes (id)
       VALUES (?)
@@ -21,9 +22,10 @@ export class StoryTagStorage {
    * @param {string} sceneId - Channel or thread ID
    * @returns {Object} { tags: [], statuses: [], limits: [] }
    */
-  static getScene(sceneId) {
-    this.ensureScene(sceneId);
+  static getScene(guildId, sceneId) {
+    this.ensureScene(guildId, sceneId);
     
+    const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
       SELECT tag, tag_type
       FROM scene_tags
@@ -44,8 +46,8 @@ export class StoryTagStorage {
    * @param {string} sceneId - Channel or thread ID
    * @returns {string[]} Array of tags
    */
-  static getTags(sceneId) {
-    const scene = this.getScene(sceneId);
+  static getTags(guildId, sceneId) {
+    const scene = this.getScene(guildId, sceneId);
     return scene.tags;
   }
 
@@ -54,8 +56,8 @@ export class StoryTagStorage {
    * @param {string} sceneId - Channel or thread ID
    * @returns {string[]} Array of statuses
    */
-  static getStatuses(sceneId) {
-    const scene = this.getScene(sceneId);
+  static getStatuses(guildId, sceneId) {
+    const scene = this.getScene(guildId, sceneId);
     return scene.statuses;
   }
 
@@ -64,8 +66,8 @@ export class StoryTagStorage {
    * @param {string} sceneId - Channel or thread ID
    * @returns {string[]} Array of limits
    */
-  static getLimits(sceneId) {
-    const scene = this.getScene(sceneId);
+  static getLimits(guildId, sceneId) {
+    const scene = this.getScene(guildId, sceneId);
     return scene.limits;
   }
 
@@ -75,8 +77,9 @@ export class StoryTagStorage {
    * @param {string[]} tags - Tags to add
    * @returns {string[]} Updated array of tags
    */
-  static addTags(sceneId, tags) {
-    this.ensureScene(sceneId);
+  static addTags(guildId, sceneId, tags) {
+    const db = getDbForGuild(guildId);
+    this.ensureScene(guildId, sceneId);
     
     const insertStmt = db.prepare(`
       INSERT INTO scene_tags (scene_id, tag, tag_type)
@@ -91,20 +94,13 @@ export class StoryTagStorage {
     
     const transaction = db.transaction(() => {
       tags.forEach(tag => {
-        try {
-          insertStmt.run(sceneId, tag);
-        } catch (error) {
-          // Ignore duplicate tag errors
-          if (!error.message.includes('UNIQUE')) {
-            throw error;
-          }
-        }
+        insertStmt.run(sceneId, tag);
       });
       updateStmt.run(sceneId);
     });
     
     transaction();
-    return this.getTags(sceneId);
+    return this.getTags(guildId, sceneId);
   }
 
   /**
@@ -113,8 +109,9 @@ export class StoryTagStorage {
    * @param {string[]} statuses - Statuses to add
    * @returns {string[]} Updated array of statuses
    */
-  static addStatuses(sceneId, statuses) {
-    this.ensureScene(sceneId);
+  static addStatuses(guildId, sceneId, statuses) {
+    const db = getDbForGuild(guildId);
+    this.ensureScene(guildId, sceneId);
     
     const insertStmt = db.prepare(`
       INSERT INTO scene_tags (scene_id, tag, tag_type)
@@ -129,20 +126,13 @@ export class StoryTagStorage {
     
     const transaction = db.transaction(() => {
       statuses.forEach(status => {
-        try {
-          insertStmt.run(sceneId, status);
-        } catch (error) {
-          // Ignore duplicate status errors
-          if (!error.message.includes('UNIQUE')) {
-            throw error;
-          }
-        }
+        insertStmt.run(sceneId, status);
       });
       updateStmt.run(sceneId);
     });
     
     transaction();
-    return this.getStatuses(sceneId);
+    return this.getStatuses(guildId, sceneId);
   }
 
   /**
@@ -151,8 +141,9 @@ export class StoryTagStorage {
    * @param {string[]} limits - Limits to add
    * @returns {string[]} Updated array of limits
    */
-  static addLimits(sceneId, limits) {
-    this.ensureScene(sceneId);
+  static addLimits(guildId, sceneId, limits) {
+    const db = getDbForGuild(guildId);
+    this.ensureScene(guildId, sceneId);
     
     const insertStmt = db.prepare(`
       INSERT INTO scene_tags (scene_id, tag, tag_type)
@@ -167,20 +158,13 @@ export class StoryTagStorage {
     
     const transaction = db.transaction(() => {
       limits.forEach(limit => {
-        try {
-          insertStmt.run(sceneId, limit);
-        } catch (error) {
-          // Ignore duplicate limit errors
-          if (!error.message.includes('UNIQUE')) {
-            throw error;
-          }
-        }
+        insertStmt.run(sceneId, limit);
       });
       updateStmt.run(sceneId);
     });
     
     transaction();
-    return this.getLimits(sceneId);
+    return this.getLimits(guildId, sceneId);
   }
 
   /**
@@ -189,8 +173,9 @@ export class StoryTagStorage {
    * @param {string[]} tags - Tags to remove
    * @returns {string[]} Updated array of tags
    */
-  static removeTags(sceneId, tags) {
-    if (tags.length === 0) return this.getTags(sceneId);
+  static removeTags(guildId, sceneId, tags) {
+    const db = getDbForGuild(guildId);
+    if (tags.length === 0) return this.getTags(guildId, sceneId);
     
     const deleteStmt = db.prepare(`
       DELETE FROM scene_tags
@@ -211,7 +196,7 @@ export class StoryTagStorage {
     });
     
     transaction();
-    return this.getTags(sceneId);
+    return this.getTags(guildId, sceneId);
   }
 
   /**
@@ -220,8 +205,9 @@ export class StoryTagStorage {
    * @param {string[]} statuses - Statuses to remove
    * @returns {string[]} Updated array of statuses
    */
-  static removeStatuses(sceneId, statuses) {
-    if (statuses.length === 0) return this.getStatuses(sceneId);
+  static removeStatuses(guildId, sceneId, statuses) {
+    const db = getDbForGuild(guildId);
+    if (statuses.length === 0) return this.getStatuses(guildId, sceneId);
     
     const deleteStmt = db.prepare(`
       DELETE FROM scene_tags
@@ -242,7 +228,7 @@ export class StoryTagStorage {
     });
     
     transaction();
-    return this.getStatuses(sceneId);
+    return this.getStatuses(guildId, sceneId);
   }
 
   /**
@@ -251,8 +237,9 @@ export class StoryTagStorage {
    * @param {string[]} limits - Limits to remove
    * @returns {string[]} Updated array of limits
    */
-  static removeLimits(sceneId, limits) {
-    if (limits.length === 0) return this.getLimits(sceneId);
+  static removeLimits(guildId, sceneId, limits) {
+    const db = getDbForGuild(guildId);
+    if (limits.length === 0) return this.getLimits(guildId, sceneId);
     
     const deleteStmt = db.prepare(`
       DELETE FROM scene_tags
@@ -273,14 +260,15 @@ export class StoryTagStorage {
     });
     
     transaction();
-    return this.getLimits(sceneId);
+    return this.getLimits(guildId, sceneId);
   }
 
   /**
    * Clear all tags, statuses, and limits for a scene
    * @param {string} sceneId - Channel or thread ID
    */
-  static clearScene(sceneId) {
+  static clearScene(guildId, sceneId) {
+    const db = getDbForGuild(guildId);
     const transaction = db.transaction(() => {
       db.prepare('DELETE FROM scene_tags WHERE scene_id = ?').run(sceneId);
       db.prepare('DELETE FROM scenes WHERE id = ?').run(sceneId);

@@ -1,4 +1,4 @@
-import { db } from './Database.js';
+import { getDbForGuild } from './Database.js';
 import RollStatus from '../constants/RollStatus.js';
 
 /**
@@ -8,9 +8,11 @@ export class RollStorage {
 
   /**
    * Get the next sequential roll ID
+   * @param {string} guildId - Discord guild ID
    * @returns {number} Next roll ID
    */
-  static getNextId() {
+  static getNextId(guildId) {
+    const db = getDbForGuild(guildId);
     const stmt = db.prepare('SELECT MAX(id) as maxId FROM rolls');
     const result = stmt.get();
     return (result.maxId || 0) + 1;
@@ -18,10 +20,12 @@ export class RollStorage {
 
   /**
    * Create a new roll proposal
+   * @param {string} guildId - Discord guild ID
    * @param {Object} rollData - Roll proposal data
    * @returns {number} The roll ID
    */
-  static createRoll(rollData) {
+  static createRoll(guildId, rollData) {
+    const db = getDbForGuild(guildId);
     const transaction = db.transaction(() => {
       // Insert roll
       const insertRoll = db.prepare(`
@@ -82,10 +86,12 @@ export class RollStorage {
 
   /**
    * Get a roll by ID
+   * @param {string} guildId - Discord guild ID
    * @param {number} rollId - Roll ID
    * @returns {Object|null} Roll data or null if not found
    */
-  static getRoll(rollId) {
+  static getRoll(guildId, rollId) {
+    const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
       SELECT id, creator_id, character_id, scene_id, description, narration_link, justification_notes, status, confirmed_by, created_at, updated_at, reaction_to_roll_id, is_reaction
       FROM rolls
@@ -141,11 +147,13 @@ export class RollStorage {
 
   /**
    * Update a roll
+   * @param {string} guildId - Discord guild ID
    * @param {number} rollId - Roll ID
    * @param {Object} updates - Updates to apply
    * @returns {Object|null} Updated roll or null if not found
    */
-  static updateRoll(rollId, updates) {
+  static updateRoll(guildId, rollId, updates) {
+    const db = getDbForGuild(guildId);
     // Verify roll exists
     const verifyStmt = db.prepare('SELECT id FROM rolls WHERE id = ?');
     if (!verifyStmt.get(rollId)) {
@@ -227,15 +235,17 @@ export class RollStorage {
     });
     
     transaction();
-    return this.getRoll(rollId);
+    return this.getRoll(guildId, rollId);
   }
 
   /**
    * Delete a roll
+   * @param {string} guildId - Discord guild ID
    * @param {number} rollId - Roll ID
    * @returns {boolean} True if deleted, false if not found
    */
-  static deleteRoll(rollId) {
+  static deleteRoll(guildId, rollId) {
+    const db = getDbForGuild(guildId);
     const stmt = db.prepare('DELETE FROM rolls WHERE id = ?');
     const result = stmt.run(rollId);
     return result.changes > 0;
@@ -243,10 +253,12 @@ export class RollStorage {
 
   /**
    * Get all rolls for a scene
+   * @param {string} guildId - Discord guild ID
    * @param {string} sceneId - Scene/channel ID
    * @returns {Array} Array of roll objects
    */
-  static getRollsByScene(sceneId) {
+  static getRollsByScene(guildId, sceneId) {
+    const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
       SELECT id
       FROM rolls
@@ -255,15 +267,17 @@ export class RollStorage {
     `);
     
     const rollIds = stmt.all(sceneId);
-    return rollIds.map(row => this.getRoll(row.id));
+    return rollIds.map(row => this.getRoll(guildId, row.id));
   }
 
   /**
    * Get all rolls by status
+   * @param {string} guildId - Discord guild ID
    * @param {string} status - Roll status
    * @returns {Array} Array of roll objects
    */
-  static getRollsByStatus(status) {
+  static getRollsByStatus(guildId, status) {
+    const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
       SELECT id
       FROM rolls
@@ -272,6 +286,6 @@ export class RollStorage {
     `);
     
     const rollIds = stmt.all(status);
-    return rollIds.map(row => this.getRoll(row.id));
+    return rollIds.map(row => this.getRoll(guildId, row.id));
   }
 }

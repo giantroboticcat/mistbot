@@ -1,6 +1,7 @@
 import { MessageFlags } from 'discord.js';
 import { TagFormatter } from '../utils/TagFormatter.js';
 import { StoryTagStorage } from '../utils/StoryTagStorage.js';
+import { requireGuildId } from '../utils/GuildUtils.js';
 
 /**
  * Handle select menu interactions for item removal (tags, statuses, limits)
@@ -68,6 +69,7 @@ export async function handleTagRemovalButton(interaction, client) {
 
   // Handle confirm button
   if (customId.startsWith('confirm_remove_tags_')) {
+    const guildId = requireGuildId(interaction);
     const sceneId = customId.split('_').slice(3).join('_');
     const selectionKey = `${interaction.user.id}-${sceneId}`;
 
@@ -114,22 +116,22 @@ export async function handleTagRemovalButton(interaction, client) {
     const remainingCounts = {};
 
     if (tagsToRemove.length > 0) {
-      const existingTags = StoryTagStorage.getTags(sceneId);
-      const updatedTags = StoryTagStorage.removeTags(sceneId, tagsToRemove);
+      const existingTags = StoryTagStorage.getTags(guildId, sceneId);
+      const updatedTags = StoryTagStorage.removeTags(guildId, sceneId, tagsToRemove);
       removedCounts.tags = existingTags.length - updatedTags.length;
       remainingCounts.tags = updatedTags.length;
     }
 
     if (statusesToRemove.length > 0) {
-      const existingStatuses = StoryTagStorage.getStatuses(sceneId);
-      const updatedStatuses = StoryTagStorage.removeStatuses(sceneId, statusesToRemove);
+      const existingStatuses = StoryTagStorage.getStatuses(guildId, sceneId);
+      const updatedStatuses = StoryTagStorage.removeStatuses(guildId, sceneId, statusesToRemove);
       removedCounts.statuses = existingStatuses.length - updatedStatuses.length;
       remainingCounts.statuses = updatedStatuses.length;
     }
 
     if (limitsToRemove.length > 0) {
-      const existingLimits = StoryTagStorage.getLimits(sceneId);
-      const updatedLimits = StoryTagStorage.removeLimits(sceneId, limitsToRemove);
+      const existingLimits = StoryTagStorage.getLimits(guildId, sceneId);
+      const updatedLimits = StoryTagStorage.removeLimits(guildId, sceneId, limitsToRemove);
       removedCounts.limits = existingLimits.length - updatedLimits.length;
       remainingCounts.limits = updatedLimits.length;
     }
@@ -142,7 +144,7 @@ export async function handleTagRemovalButton(interaction, client) {
     if (tagsToRemove.length > 0) {
       removedParts.push(`**Tags Removed:**\n${TagFormatter.formatTagsInCodeBlock(tagsToRemove)}`);
       if (remainingCounts.tags !== undefined) {
-        const remainingTags = StoryTagStorage.getTags(sceneId);
+        const remainingTags = StoryTagStorage.getTags(guildId, sceneId);
         remainingParts.push(`**Remaining Tags (${remainingCounts.tags}):**\n${TagFormatter.formatTagsInCodeBlock(remainingTags)}`);
       }
     }
@@ -150,7 +152,7 @@ export async function handleTagRemovalButton(interaction, client) {
     if (statusesToRemove.length > 0) {
       removedParts.push(`**Statuses Removed:**\n${TagFormatter.formatStatusesInCodeBlock(statusesToRemove)}`);
       if (remainingCounts.statuses !== undefined) {
-        const remainingStatuses = StoryTagStorage.getStatuses(sceneId);
+        const remainingStatuses = StoryTagStorage.getStatuses(guildId, sceneId);
         remainingParts.push(`**Remaining Statuses (${remainingCounts.statuses}):**\n${TagFormatter.formatStatusesInCodeBlock(remainingStatuses)}`);
       }
     }
@@ -158,7 +160,7 @@ export async function handleTagRemovalButton(interaction, client) {
     if (limitsToRemove.length > 0) {
       removedParts.push(`**Limits Removed:**\n${TagFormatter.formatLimitsInCodeBlock(limitsToRemove)}`);
       if (remainingCounts.limits !== undefined) {
-        const remainingLimits = StoryTagStorage.getLimits(sceneId);
+        const remainingLimits = StoryTagStorage.getLimits(guildId, sceneId);
         remainingParts.push(`**Remaining Limits (${remainingCounts.limits}):**\n${TagFormatter.formatLimitsInCodeBlock(remainingLimits)}`);
       }
     }
@@ -174,9 +176,9 @@ export async function handleTagRemovalButton(interaction, client) {
     });
 
     // Get updated scene data for public message
-    const updatedTags = StoryTagStorage.getTags(sceneId);
-    const updatedStatuses = StoryTagStorage.getStatuses(sceneId);
-    const updatedLimits = StoryTagStorage.getLimits(sceneId);
+    const updatedTags = StoryTagStorage.getTags(guildId, sceneId);
+    const updatedStatuses = StoryTagStorage.getStatuses(guildId, sceneId);
+    const updatedLimits = StoryTagStorage.getLimits(guildId, sceneId);
 
     // Post public message with updated scene status
     const totalCount = updatedTags.length + updatedStatuses.length + updatedLimits.length;

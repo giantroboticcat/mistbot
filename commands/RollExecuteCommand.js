@@ -4,6 +4,7 @@ import { RollStorage } from '../utils/RollStorage.js';
 import RollStatus from '../constants/RollStatus.js';
 import { RollView } from '../utils/RollView.js';
 import { CharacterStorage } from '../utils/CharacterStorage.js';
+import { requireGuildId } from '../utils/GuildUtils.js';
 
 /**
  * Execute a confirmed roll
@@ -21,11 +22,12 @@ export class RollExecuteCommand extends Command {
   }
 
   async execute(interaction) {
+    const guildId = requireGuildId(interaction);
     const rollId = interaction.options.getInteger('id', true);
     const userId = interaction.user.id;
     
     // Get the roll
-    const roll = RollStorage.getRoll(rollId);
+    const roll = RollStorage.getRoll(guildId, rollId);
     if (!roll) {
       await interaction.reply({
         content: `Roll #${rollId} not found.`,
@@ -52,12 +54,12 @@ export class RollExecuteCommand extends Command {
     }
 
     // Mark as executed
-    RollStorage.updateRoll(rollId, { status: RollStatus.EXECUTED });
+    RollStorage.updateRoll(guildId, rollId, { status: RollStatus.EXECUTED });
 
     // Process burned tags - delete backpack/storyTags, mark others as burned
     const burnedTags = roll.burnedTags || [];
     if (burnedTags.size > 0) {
-      const character = CharacterStorage.getCharacter(roll.creatorId, roll.characterId);
+      const character = CharacterStorage.getCharacter(guildId, roll.creatorId, roll.characterId);
       if (character) {
         const backpackToRemove = [];
         const storyTagsToRemove = [];
@@ -96,12 +98,12 @@ export class RollExecuteCommand extends Command {
         
         // Mark themes/tags as burned (only for non-backpack/non-storyTag items)
         if (tagsToBurn.length > 0) {
-          CharacterStorage.markTagsAsBurned(roll.creatorId, roll.characterId, tagsToBurn);
+          CharacterStorage.markTagsAsBurned(guildId, roll.creatorId, roll.characterId, tagsToBurn);
         }
         
         // Apply all updates (backpack and storyTags)
         if (Object.keys(updates).length > 0) {
-          CharacterStorage.updateCharacter(roll.creatorId, roll.characterId, updates);
+          CharacterStorage.updateCharacter(guildId, roll.creatorId, roll.characterId, updates);
         }
       }
     }

@@ -1,5 +1,4 @@
 import { Client, GatewayIntentBits, Events, MessageFlags } from 'discord.js';
-import dotenv from 'dotenv';
 import { commands } from './commands/index.js';
 import * as TagRemovalHandler from './handlers/TagRemovalHandler.js';
 import * as CharacterHandler from './handlers/CharacterHandler.js';
@@ -7,9 +6,10 @@ import * as CharacterCreateHandler from './handlers/CharacterCreateHandler.js';
 import * as FellowshipHandler from './handlers/FellowshipHandler.js';
 import * as RollHandler from './handlers/RollHandler.js';
 import * as NarratorGuideHandler from './handlers/NarratorGuideHandler.js';
+import { initializeEnvs } from './utils/ServerConfig.js';
 
-// Load environment variables
-dotenv.config();
+// Load environment variables (base .env and all guild-specific .env.{guildId} files)
+initializeEnvs();
 
 // Create a new client instance
 const client = new Client({
@@ -18,11 +18,6 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
   ],
 });
-
-// Role ID that can edit rolls (set via environment variable)
-const ROLL_EDITOR_ROLE_ID = process.env.ROLL_EDITOR_ROLE_ID || null;
-// Role name for error messages (optional, set via environment variable)
-const ROLL_EDITOR_ROLE = process.env.ROLL_EDITOR_ROLE || 'editor role';
 
 // Create a map of command names to command instances for quick lookup
 const commandMap = new Map();

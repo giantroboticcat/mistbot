@@ -3,6 +3,7 @@ import { Command } from './Command.js';
 import { StoryTagStorage } from '../utils/StoryTagStorage.js';
 import { TagFormatter } from '../utils/TagFormatter.js';
 import { Validation } from '../utils/Validation.js';
+import { requireGuildId } from '../utils/GuildUtils.js';
 
 /**
  * Add tags, statuses, or limits to a scene (auto-detects type from format)
@@ -25,6 +26,7 @@ export class AddTagsCommand extends Command {
   }
 
   async execute(interaction) {
+    const guildId = requireGuildId(interaction);
     const tagsInput = interaction.options.getString('tags', true);
     const sceneId = interaction.channelId;
     const ephemeral = interaction.options.getBoolean('ephemeral') ?? false;
@@ -81,58 +83,95 @@ export class AddTagsCommand extends Command {
       return;
     }
 
-    // Add items to storage
-    const addedCounts = {};
-    const addedItems = { tags: [], statuses: [], limits: [] };
-    const allItems = { tags: [], statuses: [], limits: [] };
+    // Get existing items to check for duplicates
+    const existingTags = StoryTagStorage.getTags(guildId, sceneId);
+    const existingStatuses = StoryTagStorage.getStatuses(guildId, sceneId);
+    const existingLimits = StoryTagStorage.getLimits(guildId, sceneId);
 
-    if (tags.length > 0) {
-      const existingTags = StoryTagStorage.getTags(sceneId);
-      const updatedTags = StoryTagStorage.addTags(sceneId, tags);
-      addedCounts.tags = updatedTags.length - existingTags.length;
-      addedItems.tags = tags.filter(tag => 
-        !existingTags.some(existing => existing.toLowerCase() === tag.toLowerCase())
-      );
-      allItems.tags = updatedTags;
-    }
+    // Filter out duplicates (case-insensitive comparison)
+    const duplicateTags = [];
+    const duplicateStatuses = [];
+    const duplicateLimits = [];
+    
+    const newTags = tags.filter(tag => {
+      const isDuplicate = existingTags.some(existing => existing.toLowerCase() === tag.toLowerCase());
+      if (isDuplicate) {
+        duplicateTags.push(tag);
+        return false;
+      }
+      return true;
+    });
 
-    if (statuses.length > 0) {
-      const existingStatuses = StoryTagStorage.getStatuses(sceneId);
-      const updatedStatuses = StoryTagStorage.addStatuses(sceneId, statuses);
-      addedCounts.statuses = updatedStatuses.length - existingStatuses.length;
-      addedItems.statuses = statuses.filter(status => 
-        !existingStatuses.some(existing => existing.toLowerCase() === status.toLowerCase())
-      );
-      allItems.statuses = updatedStatuses;
-    }
+    const newStatuses = statuses.filter(status => {
+      const isDuplicate = existingStatuses.some(existing => existing.toLowerCase() === status.toLowerCase());
+      if (isDuplicate) {
+        duplicateStatuses.push(status);
+        return false;
+      }
+      return true;
+    });
 
-    if (limits.length > 0) {
-      const existingLimits = StoryTagStorage.getLimits(sceneId);
-      const updatedLimits = StoryTagStorage.addLimits(sceneId, limits);
-      addedCounts.limits = updatedLimits.length - existingLimits.length;
-      addedItems.limits = limits.filter(limit => 
-        !existingLimits.some(existing => existing.toLowerCase() === limit.toLowerCase())
-      );
-      allItems.limits = updatedLimits;
-    }
+    const newLimits = limits.filter(limit => {
+      const isDuplicate = existingLimits.some(existing => existing.toLowerCase() === limit.toLowerCase());
+      if (isDuplicate) {
+        duplicateLimits.push(limit);
+        return false;
+      }
+      return true;
+    });
 
-    // Check if anything was actually added
-    const totalAdded = (addedCounts.tags || 0) + (addedCounts.statuses || 0) + (addedCounts.limits || 0);
+    // Check if all items are duplicates
+    const totalDuplicates = duplicateTags.length + duplicateStatuses.length + duplicateLimits.length;
+    const totalNew = newTags.length + newStatuses.length + newLimits.length;
 
-    if (totalAdded === 0) {
+    if (totalNew === 0) {
+      const duplicateMessages = [];
+      if (duplicateTags.length > 0) {
+        duplicateMessages.push(`**Tags:** ${duplicateTags.join(', ')}`);
+      }
+      if (duplicateStatuses.length > 0) {
+        duplicateMessages.push(`**Statuses:** ${duplicateStatuses.join(', ')}`);
+      }
+      if (duplicateLimits.length > 0) {
+        duplicateMessages.push(`**Limits:** ${duplicateLimits.join(', ')}`);
+      }
+      
       await interaction.reply({
-        content: 'All tags already exist in this scene.',
+        content: `❌ All items already exist in this scene:\n${duplicateMessages.join('\n')}`,
         flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
-    // Get all current items after adding
-    const currentTags = StoryTagStorage.getTags(sceneId);
-    const currentStatuses = StoryTagStorage.getStatuses(sceneId);
-    const currentLimits = StoryTagStorage.getLimits(sceneId);
+    // Add only non-duplicate items to storage
+    const addedCounts = {};
+    const allItems = { tags: [], statuses: [], limits: [] };
 
-    // Build summary of what was added
+    if (newTags.length > 0) {
+      const updatedTags = StoryTagStorage.addTags(guildId, sceneId, newTags);
+      addedCounts.tags = newTags.length;
+      allItems.tags = updatedTags;
+    } else {
+      allItems.tags = existingTags;
+    }
+
+    if (newStatuses.length > 0) {
+      const updatedStatuses = StoryTagStorage.addStatuses(guildId, sceneId, newStatuses);
+      addedCounts.statuses = newStatuses.length;
+      allItems.statuses = updatedStatuses;
+    } else {
+      allItems.statuses = existingStatuses;
+    }
+
+    if (newLimits.length > 0) {
+      const updatedLimits = StoryTagStorage.addLimits(guildId, sceneId, newLimits);
+      addedCounts.limits = newLimits.length;
+      allItems.limits = updatedLimits;
+    } else {
+      allItems.limits = existingLimits;
+    }
+
+    // Build response with added items and duplicate warnings
     const addedSummary = [];
     if (addedCounts.tags > 0) {
       addedSummary.push(`${addedCounts.tags} tag${addedCounts.tags !== 1 ? 's' : ''}`);
@@ -144,15 +183,29 @@ export class AddTagsCommand extends Command {
       addedSummary.push(`${addedCounts.limits} limit${addedCounts.limits !== 1 ? 's' : ''}`);
     }
 
-    const totalCount = currentTags.length + currentStatuses.length + currentLimits.length;
-    const counts = [];
-    if (currentTags.length > 0) counts.push(`${currentTags.length} tag${currentTags.length !== 1 ? 's' : ''}`);
-    if (currentStatuses.length > 0) counts.push(`${currentStatuses.length} status${currentStatuses.length !== 1 ? 'es' : ''}`);
-    if (currentLimits.length > 0) counts.push(`${currentLimits.length} limit${currentLimits.length !== 1 ? 's' : ''}`);
+    const duplicateWarnings = [];
+    if (duplicateTags.length > 0) {
+      duplicateWarnings.push(`⚠️ **Tags already exist:** ${duplicateTags.join(', ')}`);
+    }
+    if (duplicateStatuses.length > 0) {
+      duplicateWarnings.push(`⚠️ **Statuses already exist:** ${duplicateStatuses.join(', ')}`);
+    }
+    if (duplicateLimits.length > 0) {
+      duplicateWarnings.push(`⚠️ **Limits already exist:** ${duplicateLimits.join(', ')}`);
+    }
 
-    const formatted = TagFormatter.formatSceneStatusInCodeBlock(currentTags, currentStatuses, currentLimits);
-    const content = `**Added ${addedSummary.join(', ')}**\n\n` +
-      `**Scene Status (${totalCount} total${counts.length > 0 ? ': ' + counts.join(', ') : ''})**\n${formatted}`;
+    const totalCount = allItems.tags.length + allItems.statuses.length + allItems.limits.length;
+    const counts = [];
+    if (allItems.tags.length > 0) counts.push(`${allItems.tags.length} tag${allItems.tags.length !== 1 ? 's' : ''}`);
+    if (allItems.statuses.length > 0) counts.push(`${allItems.statuses.length} status${allItems.statuses.length !== 1 ? 'es' : ''}`);
+    if (allItems.limits.length > 0) counts.push(`${allItems.limits.length} limit${allItems.limits.length !== 1 ? 's' : ''}`);
+
+    const formatted = TagFormatter.formatSceneStatusInCodeBlock(allItems.tags, allItems.statuses, allItems.limits);
+    let content = `**Added ${addedSummary.join(', ')}**`;
+    if (duplicateWarnings.length > 0) {
+      content += `\n\n${duplicateWarnings.join('\n')}`;
+    }
+    content += `\n\n**Scene Status (${totalCount} total${counts.length > 0 ? ': ' + counts.join(', ') : ''})**\n${formatted}`;
 
     await interaction.reply({
       content,

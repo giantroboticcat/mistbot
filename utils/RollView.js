@@ -397,7 +397,7 @@ export class RollView {
    * @param {Object} StoryTagStorage - StoryTagStorage class
    * @param {boolean} includeBurned - Whether to include burned tags (default: false)
    */
-  static collectHelpTags(character, sceneId, StoryTagStorage, includeBurned = false) {
+  static collectHelpTags(character, sceneId, StoryTagStorage, includeBurned = false, guildId = null) {
     const options = [];
     const seen = new Set();
 
@@ -496,7 +496,7 @@ export class RollView {
     });
 
     // Scene tags - yellow tag icon
-    const sceneTags = StoryTagStorage.getTags(sceneId);
+    const sceneTags = guildId ? StoryTagStorage.getTags(guildId, sceneId) : [];
     sceneTags.forEach(tag => {
       const tagValue = `sceneTag:${tag}`;
       if (!seen.has(tagValue)) {
@@ -510,7 +510,7 @@ export class RollView {
     });
 
     // Scene statuses - green status icon
-    const sceneStatuses = StoryTagStorage.getStatuses(sceneId);
+    const sceneStatuses = guildId ? StoryTagStorage.getStatuses(guildId, sceneId) : [];
     sceneStatuses.forEach(status => {
       const tagValue = `sceneStatus:${status}`;
       if (!seen.has(tagValue)) {
@@ -548,8 +548,8 @@ export class RollView {
    * @param {Object} StoryTagStorage - StoryTagStorage class
    * @param {boolean} includeBurned - Whether to include burned tags (default: false)
    */
-  static collectHinderTags(character, sceneId, StoryTagStorage, includeBurned = false) {
-    const options = this.collectHelpTags(character, sceneId, StoryTagStorage, includeBurned);
+  static collectHinderTags(character, sceneId, StoryTagStorage, includeBurned = false, guildId = null) {
+    const options = this.collectHelpTags(character, sceneId, StoryTagStorage, includeBurned, guildId);
     const seen = new Set(options.map(opt => opt.data.value));
 
     // Add theme weaknesses - orange weakness icon, show which theme

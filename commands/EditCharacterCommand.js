@@ -5,6 +5,7 @@ import { CharacterView } from '../utils/CharacterView.js';
 import { EditThemesModal } from '../utils/modals/EditThemesModal.js';
 import { EditBackpackModal } from '../utils/modals/EditBackpackModal.js';
 import { EditStatusesModal } from '../utils/modals/EditStatusesModal.js';
+import { requireGuildId } from '../utils/GuildUtils.js';
 
 
 /**
@@ -18,8 +19,9 @@ export class EditCharacterCommand extends Command {
   }
 
   async execute(interaction) {
+    const guildId = requireGuildId(interaction);
     const userId = interaction.user.id;
-    const activeCharacter = CharacterStorage.getActiveCharacter(userId);
+    const activeCharacter = CharacterStorage.getActiveCharacter(guildId, userId);
 
     if (!activeCharacter) {
       await interaction.reply({

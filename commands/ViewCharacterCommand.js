@@ -2,6 +2,7 @@ import { SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { Command } from './Command.js';
 import { CharacterStorage } from '../utils/CharacterStorage.js';
 import { EditCharacterCommand } from './EditCharacterCommand.js';
+import { requireGuildId } from '../utils/GuildUtils.js';
 
 /**
  * View a character sheet (your own or another player's)
@@ -20,6 +21,7 @@ export class ViewCharacterCommand extends Command {
   }
 
   async execute(interaction) {
+    const guildId = requireGuildId(interaction);
     const value = interaction.options.getString('character', true);
     const userId = interaction.user.id;
     
@@ -37,7 +39,7 @@ export class ViewCharacterCommand extends Command {
     const characterId = parseInt(parts[1]);
     
     // Get the character directly from the owner's data
-    const character = CharacterStorage.getCharacter(ownerId, characterId);
+    const character = CharacterStorage.getCharacter(guildId, ownerId, characterId);
     
     if (!character) {
       await interaction.reply({
