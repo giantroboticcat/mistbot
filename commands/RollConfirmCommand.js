@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { SlashCommandBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, TextDisplayBuilder } from 'discord.js';
 import { Command } from './Command.js';
 import { RollStorage } from '../utils/RollStorage.js';
 import RollStatus from '../constants/RollStatus.js';
@@ -64,11 +64,44 @@ export class RollConfirmCommand extends Command {
       return;
     }
 
-    if (roll.status !== RollStatus.PROPOSED) {
+    // Allow confirming proposed or confirmed rolls (but not executed)
+    if (roll.status === RollStatus.EXECUTED) {
       const rollType = roll.isReaction ? 'reaction roll' : 'action roll';
       await interaction.reply({
-        content: `${rollType.charAt(0).toUpperCase() + rollType.slice(1)} #${rollId} has already been ${roll.status}.`,
+        content: `${rollType.charAt(0).toUpperCase() + rollType.slice(1)} #${rollId} has already been executed and cannot be confirmed.`,
         flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // If already confirmed, show warning and require confirmation
+    const isReconfirming = roll.status === RollStatus.CONFIRMED;
+    
+    if (isReconfirming) {
+      const rollType = roll.isReaction ? 'reaction roll' : 'action roll';
+      const confirmedByMention = roll.confirmedBy ? ` by <@${roll.confirmedBy}>` : '';
+      
+      const warningContainer = new ContainerBuilder();
+      warningContainer.addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(`⚠️ **Warning: This ${rollType} has already been confirmed${confirmedByMention}.**\n\nRe-confirming will update the roll with any changes you make. Click "Confirm Anyway" to proceed.`)
+      );
+      
+      const confirmButton = new ButtonBuilder()
+        .setCustomId(`roll_reconfirm_${rollId}`)
+        .setLabel('Confirm Anyway')
+        .setStyle(ButtonStyle.Primary);
+      
+      const cancelButton = new ButtonBuilder()
+        .setCustomId(`roll_reconfirm_cancel_${rollId}`)
+        .setLabel('Cancel')
+        .setStyle(ButtonStyle.Secondary);
+      
+      const buttonRow = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
+      
+      await interaction.reply({
+        components: [warningContainer, buttonRow],
+        flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
       });
       return;
     }

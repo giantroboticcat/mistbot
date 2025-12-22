@@ -1,6 +1,8 @@
 import { MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, TextDisplayBuilder } from 'discord.js';
 import { RollView } from '../utils/RollView.js';
 import { RollStorage } from '../utils/RollStorage.js';
+import { CharacterStorage } from '../utils/CharacterStorage.js';
+import { StoryTagStorage } from '../utils/StoryTagStorage.js';
 import RollStatus from '../constants/RollStatus.js';
 import { getServerEnv } from '../utils/ServerConfig.js';
 import { getGuildId, requireGuildId } from '../utils/GuildUtils.js';
@@ -450,7 +452,7 @@ export async function handleRollSubmit(interaction, client) {
   const rollKey = customId.replace('roll_submit_', '');
   
   if (!client.rollStates.has(rollKey)) {
-    const rollType = rollKey.includes('reaction') ? '/roll-reaction' : '/roll-propose';
+    const rollType = rollKey.includes('reaction') ? '/roll-reaction' : rollKey.startsWith('amend_') ? '/roll-amend' : '/roll-propose';
     await interaction.reply({
       content: `This roll session has expired. Please run ${rollType} again.`,
       flags: MessageFlags.Ephemeral,
@@ -469,21 +471,44 @@ export async function handleRollSubmit(interaction, client) {
     return;
   }
 
-  // Create the roll proposal in storage
   const guildId = requireGuildId(interaction);
-  const rollId = RollStorage.createRoll(guildId, {
-    creatorId: rollState.creatorId,
-    characterId: rollState.characterId,
-    sceneId: interaction.channelId,
-    helpTags: rollState.helpTags,
-    hinderTags: rollState.hinderTags,
-    burnedTags: rollState.burnedTags || new Set(),
-    description: rollState.description,
-    narrationLink: rollState.narrationLink || null,
-    justificationNotes: rollState.justificationNotes || null,
-    reactionToRollId: rollState.reactionToRollId || null,
-    isReaction: rollState.isReaction || false,
-  });
+  let rollId;
+  const isAmendment = rollKey.startsWith('amend_');
+  
+  if (isAmendment) {
+    // This is an amendment - update existing roll
+    rollId = rollState.rollId;
+    
+    // Determine new status: if it was CONFIRMED, set back to PROPOSED
+    const newStatus = rollState.originalStatus === RollStatus.CONFIRMED 
+      ? RollStatus.PROPOSED 
+      : rollState.originalStatus;
+    
+    // Update the roll with new tags and status
+    RollStorage.updateRoll(guildId, rollId, {
+      helpTags: rollState.helpTags,
+      hinderTags: rollState.hinderTags,
+      burnedTags: rollState.burnedTags || new Set(),
+      status: newStatus,
+      // Clear confirmed_by if resetting to proposed
+      confirmedBy: newStatus === RollStatus.PROPOSED ? null : undefined,
+    });
+  } else {
+    // This is a new roll - create it
+    rollId = RollStorage.createRoll(guildId, {
+      creatorId: rollState.creatorId,
+      characterId: rollState.characterId,
+      sceneId: interaction.channelId,
+      helpTags: rollState.helpTags,
+      hinderTags: rollState.hinderTags,
+      burnedTags: rollState.burnedTags || new Set(),
+      description: rollState.description,
+      narrationLink: rollState.narrationLink || null,
+      justificationNotes: rollState.justificationNotes || null,
+      reactionToRollId: rollState.reactionToRollId || null,
+      isReaction: rollState.isReaction || false,
+    });
+  }
 
   // Clean up temporary state
   client.rollStates.delete(rollKey);
@@ -493,9 +518,19 @@ export async function handleRollSubmit(interaction, client) {
   const isReaction = rollState.isReaction || false;
   const rollType = isReaction ? 'Reaction Roll' : 'Action Roll';
   
+  let submitMessage;
+  if (isAmendment) {
+    const statusChange = rollState.originalStatus === RollStatus.CONFIRMED 
+      ? '\n\nThe roll has been reset to proposed status and needs narrator confirmation again.' 
+      : '';
+    submitMessage = `**Roll #${rollId} Amended!**\n\nYour roll has been updated with the new tags.${statusChange}`;
+  } else {
+    submitMessage = `**${rollType} #${rollId} Submitted!**\n\nYour ${rollType.toLowerCase()} proposal has been submitted for narrator approval.`;
+  }
+  
   submitContainer.addTextDisplayComponents(
     new TextDisplayBuilder()
-      .setContent(`**${rollType} #${rollId} Submitted!**\n\nYour ${rollType.toLowerCase()} proposal has been submitted for narrator approval.`)
+      .setContent(submitMessage)
   );
 
   await interaction.update({
@@ -503,33 +538,67 @@ export async function handleRollSubmit(interaction, client) {
     flags: MessageFlags.IsComponentsV2,
   });
 
-  // Post public message to channel with narrator ping
-  const rollEditorRoleId = getServerEnv('ROLL_EDITOR_ROLE_ID', guildId);
-  const narratorMention = rollEditorRoleId ? `<@&${rollEditorRoleId}>` : 'Narrators';
-  
-  const title = isReaction 
-    ? `Reaction Roll #${rollId}${rollState.reactionToRollId ? ` (to Roll #${rollState.reactionToRollId})` : ''}\n${rollState.description}`
-    : `Roll Proposal #${rollId}\n${rollState.description}`;
-  
-  const displayData = RollView.buildRollDisplays(
-    rollState.helpTags,
-    rollState.hinderTags,
-    rollState.description,
-    true,
-    rollState.burnedTags || new Set(),
-    {
-      title: title,
-      descriptionText: `**From:** <@${rollState.creatorId}>`,
-      narrationLink: rollState.narrationLink,
-      justificationNotes: rollState.justificationNotes,
-      footer: `${narratorMention} should use /roll-confirm ${rollId} to review and confirm.`
-    }
-  );
+  // Post public message to channel with narrator ping (only for new rolls, not amendments)
+  if (!isAmendment) {
+    const rollEditorRoleId = getServerEnv('ROLL_EDITOR_ROLE_ID', guildId);
+    const narratorMention = rollEditorRoleId ? `<@&${rollEditorRoleId}>` : 'Narrators';
+    
+    const title = isReaction 
+      ? `Reaction Roll #${rollId}${rollState.reactionToRollId ? ` (to Roll #${rollState.reactionToRollId})` : ''}\n${rollState.description}`
+      : `Roll Proposal #${rollId}\n${rollState.description}`;
+    
+    const displayData = RollView.buildRollDisplays(
+      rollState.helpTags,
+      rollState.hinderTags,
+      rollState.description,
+      true,
+      rollState.burnedTags || new Set(),
+      {
+        title: title,
+        descriptionText: `**From:** <@${rollState.creatorId}>`,
+        narrationLink: rollState.narrationLink,
+        justificationNotes: rollState.justificationNotes,
+        footer: `${narratorMention} should use /roll-confirm ${rollId} to review and confirm.`
+      }
+    );
 
-  await interaction.followUp({
-    components: [displayData.descriptionContainer, displayData.helpContainer, displayData.hinderContainer, displayData.footerContainer],
-    flags: MessageFlags.IsComponentsV2,
-  });
+    await interaction.followUp({
+      components: [displayData.descriptionContainer, displayData.helpContainer, displayData.hinderContainer, displayData.footerContainer],
+      flags: MessageFlags.IsComponentsV2,
+    });
+  } else {
+    // For amendments, post an update message
+    const rollEditorRoleId = getServerEnv('ROLL_EDITOR_ROLE_ID', guildId);
+    const narratorMention = rollEditorRoleId ? `<@&${rollEditorRoleId}>` : 'Narrators';
+    
+    const title = isReaction 
+      ? `Reaction Roll #${rollId}${rollState.reactionToRollId ? ` (to Roll #${rollState.reactionToRollId})` : ''} - Amended\n${rollState.description}`
+      : `Roll Proposal #${rollId} - Amended\n${rollState.description}`;
+    
+    const statusNote = rollState.originalStatus === RollStatus.CONFIRMED 
+      ? '\n\n⚠️ **Status reset to proposed** - requires narrator confirmation again.' 
+      : '';
+    
+    const displayData = RollView.buildRollDisplays(
+      rollState.helpTags,
+      rollState.hinderTags,
+      rollState.description,
+      true,
+      rollState.burnedTags || new Set(),
+      {
+        title: title,
+        descriptionText: `**From:** <@${rollState.creatorId}>${statusNote}`,
+        narrationLink: rollState.narrationLink,
+        justificationNotes: rollState.justificationNotes,
+        footer: `${narratorMention} should use /roll-confirm ${rollId} to review and confirm.`
+      }
+    );
+    
+    await interaction.followUp({
+      components: [displayData.descriptionContainer, displayData.helpContainer, displayData.hinderContainer, displayData.footerContainer],
+      flags: MessageFlags.IsComponentsV2,
+    });
+  }
 }
 
 /**
@@ -752,6 +821,164 @@ export async function handleRollConfirm(interaction, client) {
 
   await interaction.followUp({
     components: [displayData.descriptionContainer, displayData.helpContainer, displayData.hinderContainer, displayData.footerContainer],
+    flags: MessageFlags.IsComponentsV2,
+  });
+}
+
+/**
+ * Handle re-confirm button (proceed with confirming an already-confirmed roll)
+ */
+export async function handleRollReconfirm(interaction, client) {
+  const customId = interaction.customId;
+  const rollId = parseInt(customId.replace('roll_reconfirm_', ''));
+  
+  // Check narrator permissions
+  const guildId = getGuildId(interaction);
+  const rollEditorRoleId = getServerEnv('ROLL_EDITOR_ROLE_ID', guildId);
+  if (!rollEditorRoleId) {
+    await interaction.reply({
+      content: 'Roll confirmation is not configured.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  try {
+    if (!interaction.member.roles.includes(rollEditorRoleId)) {
+      await interaction.reply({
+        content: 'Only narrators can confirm roll proposals.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+  } catch (error) {
+    await interaction.reply({
+      content: 'Error checking permissions.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Get the roll
+  const roll = RollStorage.getRoll(guildId, rollId);
+  if (!roll) {
+    await interaction.reply({
+      content: `Roll #${rollId} not found.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Get the character to rebuild options
+  const character = CharacterStorage.getCharacter(guildId, roll.creatorId, roll.characterId);
+  if (!character) {
+    await interaction.reply({
+      content: 'Character not found for this roll proposal.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Initialize roll state for editing
+  if (!interaction.client.rollStates) {
+    interaction.client.rollStates = new Map();
+  }
+
+  const rollKey = `confirm_${rollId}`;
+  
+  // If this is a reaction roll, exclude tags from the original roll
+  let excludedTags = new Set();
+  if (roll.isReaction && roll.reactionToRollId) {
+    const originalRoll = RollStorage.getRoll(guildId, roll.reactionToRollId);
+    if (originalRoll) {
+      excludedTags = new Set([
+        ...(originalRoll.helpTags || []),
+        ...(originalRoll.hinderTags || [])
+      ]);
+    }
+  }
+  
+  // Collect all available tags (exclude burned tags - they can't be used until refreshed)
+  const helpOptions = RollView.collectHelpTags(character, roll.sceneId, StoryTagStorage, false, guildId);
+  const filteredHelpOptions = (roll.isReaction && roll.reactionToRollId)
+    ? helpOptions.filter(opt => !excludedTags.has(opt.data.value))
+    : helpOptions;
+  
+  const hinderOptions = RollView.collectHinderTags(character, roll.sceneId, StoryTagStorage, false, guildId);
+  const filteredHinderOptions = (roll.isReaction && roll.reactionToRollId)
+    ? hinderOptions.filter(opt => !excludedTags.has(opt.data.value))
+    : hinderOptions;
+  
+  // Store the roll state for editing
+  const burnedTags = roll.burnedTags || new Set();
+  const isReaction = roll.isReaction === true;
+  
+  interaction.client.rollStates.set(rollKey, {
+    rollId: rollId,
+    creatorId: roll.creatorId,
+    characterId: roll.characterId,
+    sceneId: roll.sceneId,
+    helpTags: roll.helpTags,
+    hinderTags: roll.hinderTags,
+    burnedTags: burnedTags,
+    description: roll.description,
+    narrationLink: roll.narrationLink,
+    justificationNotes: roll.justificationNotes,
+    showJustificationButton: false,
+    helpOptions: filteredHelpOptions,
+    hinderOptions: filteredHinderOptions,
+    helpPage: 0,
+    hinderPage: 0,
+    buttons: {confirm: true, cancel: true},
+    isReaction: isReaction,
+    reactionToRollId: roll.reactionToRollId
+  });
+
+  // Build components for editing (don't show justification button in confirm view)
+  const interactiveComponents = RollView.buildRollInteractives(rollKey, filteredHelpOptions, filteredHinderOptions, 0, 0, roll.helpTags, roll.hinderTags, {confirm: true, cancel: true}, burnedTags, roll.justificationNotes, false);
+
+  const title = isReaction
+    ? `Reviewing Reaction Roll #${rollId}${roll.reactionToRollId ? ` (to Roll #${roll.reactionToRollId})` : ''}`
+    : `Reviewing Action Roll #${rollId}`;
+
+  const displayData = RollView.buildRollDisplays(
+    roll.helpTags, 
+    roll.hinderTags, 
+    roll.description, 
+    true, 
+    burnedTags,
+    {
+      title: title,
+      descriptionText: `**Player:** <@${roll.creatorId}>`,
+      narrationLink: roll.narrationLink,
+      justificationNotes: roll.justificationNotes,
+    }
+  );
+
+  // Combine Components V2 display components with interactive components in the right order
+  const allComponents = combineRollComponents(displayData, interactiveComponents);
+
+  await interaction.update({
+    components: allComponents,
+    flags: MessageFlags.IsComponentsV2,
+  });
+}
+
+/**
+ * Handle re-confirm cancel button (dismiss the warning)
+ */
+export async function handleRollReconfirmCancel(interaction, client) {
+  const customId = interaction.customId;
+  const rollId = parseInt(customId.replace('roll_reconfirm_cancel_', ''));
+  
+  const cancelContainer = new ContainerBuilder();
+  cancelContainer.addTextDisplayComponents(
+    new TextDisplayBuilder()
+      .setContent('Re-confirmation cancelled.')
+  );
+
+  await interaction.update({
+    components: [cancelContainer],
     flags: MessageFlags.IsComponentsV2,
   });
 }

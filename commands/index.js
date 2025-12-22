@@ -12,6 +12,7 @@ import { ViewCharacterCommand } from './ViewCharacterCommand.js';
 import { FellowshipLookupCommand } from './FellowshipLookupCommand.js';
 import { RollProposeCommand } from './RollProposeCommand.js';
 import { RollReactionCommand } from './RollReactionCommand.js';
+import { RollAmendCommand } from './RollAmendCommand.js';
 import { RollConfirmCommand } from './RollConfirmCommand.js';
 import { RollExecuteCommand } from './RollExecuteCommand.js';
 
@@ -34,6 +35,7 @@ export const commands = [
   new FellowshipLookupCommand(),
   new RollProposeCommand(),
   new RollReactionCommand(),
+  new RollAmendCommand(),
   new RollConfirmCommand(),
   new RollExecuteCommand(),
 ];

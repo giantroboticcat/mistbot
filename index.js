@@ -77,6 +77,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await RollHandler.handleRollSubmit(interaction, client);
     } else if (interaction.customId.startsWith('roll_edit_justification_')) {
       await RollHandler.handleEditJustification(interaction, client);
+    } else if (interaction.customId.startsWith('roll_reconfirm_') && interaction.customId.includes('_cancel_')) {
+      await RollHandler.handleRollReconfirmCancel(interaction, client);
+    } else if (interaction.customId.startsWith('roll_reconfirm_')) {
+      await RollHandler.handleRollReconfirm(interaction, client);
     } else if (interaction.customId.startsWith('roll_confirm_')) {
       await RollHandler.handleRollConfirm(interaction, client);
     } else if (interaction.customId.startsWith('roll_cancel_')) {

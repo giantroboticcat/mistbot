@@ -5,9 +5,13 @@ import { commands } from './commands/index.js';
 // Load environment variables (base .env and all guild-specific .env.{guildId} files)
 initializeEnvs();
 
+// Get guild ID from command line argument or environment variable
+// Usage: node deploy-commands.js <guildId>
+const guildIdArg = process.argv[2];
+const guildId = guildIdArg || process.env.GUILD_ID;
+
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID;
-const guildId = process.env.GUILD_ID;
 
 if (!token) {
   console.error('DISCORD_TOKEN is not set in environment variables!');
@@ -43,6 +47,8 @@ const rest = new REST().setToken(token);
     } else {
       // Deploy globally (can take up to an hour to propagate)
       console.log('Deploying globally...');
+      console.log('Note: To deploy to a specific guild, pass the guild ID as an argument:');
+      console.log('  node deploy-commands.js <guildId>');
       data = await rest.put(
         Routes.applicationCommands(clientId),
         { body: commandsData },
