@@ -797,8 +797,16 @@ export class RollView {
    * @param {number|null} reactionToRollId - Original roll ID if this is a reaction
    * @returns {Object} Object with components array and IsComponentsV2 flag
    */
-  static formatRollResult(die1, die2, baseRoll, modifier, finalResult, description, narratorMention = null, isReaction = false, reactionToRollId = null) {
+  static formatRollResult(die1, die2, baseRoll, modifier, finalResult, description, narratorMention = null, isReaction = false, reactionToRollId = null, strategyName = null, strategyModifier = 0, originalPower = null, spendingPower = null) {
     const modifierText = modifier >= 0 ? `+${modifier}` : `${modifier}`;
+    
+    // Build roll calculation text with strategy modifier if applicable
+    let rollCalculation = `${die1} + ${die2} = ${baseRoll}`;
+    if (strategyModifier !== 0) {
+      const strategyModText = strategyModifier >= 0 ? `+${strategyModifier}` : `${strategyModifier}`;
+      rollCalculation += ` ${strategyModText} (${strategyName})`;
+    }
+    rollCalculation += ` ${modifierText} (Power) = **${finalResult}**`;
 
     // Determine result classification
     // For reaction rolls, use different thresholds
@@ -836,10 +844,6 @@ export class RollView {
       }
     }
 
-    // Format tags
-    // const helpFormatted = this.formatHelpTagsForResult(helpTags, burnedTags);
-    // const hinderFormatted = this.formatHinderTagsForResult(hinderTags);
-
     // Build Components V2 structure for roll result
     const container = new ContainerBuilder();
     
@@ -865,35 +869,20 @@ export class RollView {
     // Add dice and power in a single line for clarity
     container.addTextDisplayComponents(
       new TextDisplayBuilder()
-        .setContent(`### Roll\n${die1} + ${die2} = ${baseRoll} (${modifierText} POWER) = **${finalResult}**`)
+        .setContent(`### Roll\n${rollCalculation}`)
     );
     
-    // Add help tags text display
-    // container.addTextDisplayComponents(
-    //   new TextDisplayBuilder()
-    //     .setContent(`### Help Tags\n${helpFormatted}`)
-    // );
-    
-    // // Add hinder tags text display
-    // container.addTextDisplayComponents(
-    //   new TextDisplayBuilder()
-    //     .setContent(`### Hinder Tags\n${hinderFormatted}`)
-    // );
-    // // Add narration link if provided
-    // if (narrationLink) {
-    //   container.addTextDisplayComponents(
-    //     new TextDisplayBuilder()
-    //       .setContent(`**Narration:** ${narrationLink}`)
-    //   );
-    // }
-
-    // Add narration link if provided
-    // if (justificationNotes) {
-    //   container.addTextDisplayComponents(
-    //     new TextDisplayBuilder()
-    //       .setContent(`**Justification Notes:**\n ${justificationNotes}`)
-    //   );
-    // }
+    // Add strategy and spending power information
+    let spendingText = strategyName ? `*${strategyName}*\n` : '';
+    if (spendingPower !== null) {
+      spendingText += `*You may spend  ${spendingPower} Power*`;
+    } else {
+      spendingText += `*Roll was not successful - no power to spend*`;
+    }
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder()
+        .setContent(spendingText)
+    );
 
     // Add narrator mention if provided
     if (narratorMention) {

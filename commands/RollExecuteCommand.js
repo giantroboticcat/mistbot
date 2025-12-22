@@ -18,12 +18,23 @@ export class RollExecuteCommand extends Command {
         option
           .setName('id')
           .setDescription('The roll ID to execute')
-          .setRequired(true));
+          .setRequired(true))
+      .addStringOption(option =>
+        option
+          .setName('strategy')
+          .setDescription('Optional: Throw caution to the wind or Hedge your risks')
+          .setRequired(true)
+          .addChoices(
+            { name: 'None (No modifier)', value: 'none' },
+            { name: 'Throw caution to the wind (Power +1, Roll -1)', value: 'throw_caution' },
+            { name: 'Hedge your risks (Power -1, Roll +1)', value: 'hedge_risks' }
+          ));
   }
 
   async execute(interaction) {
     const guildId = requireGuildId(interaction);
     const rollId = interaction.options.getInteger('id', true);
+    const strategy = interaction.options.getString('strategy');
     const userId = interaction.user.id;
     
     // Get the roll
@@ -53,11 +64,45 @@ export class RollExecuteCommand extends Command {
       return;
     }
 
+    // Validate strategy before making any changes
+    // Calculate base modifier to check strategy conditions
+    const burnedTags = roll.burnedTags || new Set();
+    const baseModifier = RollView.calculateModifier(roll.helpTags, roll.hinderTags, burnedTags);
+    
+    let strategyModifier = 0;
+    let strategyName = null;
+    let originalPower = baseModifier;
+    let strategyError = null;
+    
+    if (strategy === 'throw_caution') {
+      if (baseModifier > 2) {
+        strategyError = `Cannot use "Throw caution to the wind" - your Power is ${baseModifier}, but it requires Power ≤ 2.`;
+      } else {
+        strategyModifier = -1; // Reduce Power by 1
+        strategyName = 'Throw caution to the wind';
+      }
+    } else if (strategy === 'hedge_risks') {
+      if (baseModifier < 2) {
+        strategyError = `Cannot use "Hedge your risks" - your Power is ${baseModifier}, but it requires Power ≥ 2.`;
+      } else {
+        strategyModifier = +1; // Add 1 to Power
+        strategyName = 'Hedge your risks';
+      }
+    }
+    
+    // If strategy was invalid, return error
+    if (strategyError) {
+      await interaction.reply({
+        content: `❌ ${strategyError}`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
     // Mark as executed
     RollStorage.updateRoll(guildId, rollId, { status: RollStatus.EXECUTED });
 
     // Process burned tags - delete backpack/storyTags, mark others as burned
-    const burnedTags = roll.burnedTags || [];
     if (burnedTags.size > 0) {
       const character = CharacterStorage.getCharacter(guildId, roll.creatorId, roll.characterId);
       if (character) {
@@ -112,28 +157,59 @@ export class RollExecuteCommand extends Command {
     const die1 = Math.floor(Math.random() * 6) + 1;
     const die2 = Math.floor(Math.random() * 6) + 1;
     const baseRoll = die1 + die2;
-
-    // Calculate modifier using status values and burned tags
-    const modifier = RollView.calculateModifier(roll.helpTags, roll.hinderTags, new Set(burnedTags));
-    const finalResult = baseRoll + modifier;
+    
+    // Apply strategy modifier to the roll result
+    const finalResult = baseRoll + baseModifier + strategyModifier;
 
     // Format narrator mention if they confirmed the roll
     const narratorMention = roll.confirmedBy ? `<@${roll.confirmedBy}>` : null;
 
-    // Check if this is a reaction roll
-    const isReaction = roll.isReaction === true;
+    // Check if this is a reaction roll and determine if roll is successful (for power modifications)
+    // For reaction rolls: 10+ is success, for regular rolls: 10+ is success (or 7-9 is partial)
+    const isReactionRoll = roll.isReaction === true;
+    let isSuccessful = false;
+    if (die1 === 6 && die2 === 6) {
+      isSuccessful = true;
+    } 
+    else if (die1 === 1 && die2 === 1) {
+      isSuccessful = false;
+    }
+    else if (isReactionRoll) {
+      isSuccessful = finalResult >= 10;
+    } else {
+      // Regular roll: 10+ is full success, 7-9 is partial (we'll count both as "successful" for power changes)
+      isSuccessful = finalResult >= 7;
+    }
+    
+    // Calculate spending power based on strategy and success
+    // Throw caution to the wind: if successful, can spend original Power + 1
+    // Hedge your risks: if successful, spend original Power - 1
+    let spendingPower = null;
+    if (isSuccessful) {
+      if (strategy === 'throw_caution') {
+        spendingPower = Math.max(originalPower, 1) + 1; // Can spend original Power + 1
+      } else if (strategy === 'hedge_risks') {
+        spendingPower = Math.max(originalPower, 1) - 1; // Spend original Power - 1
+      } else {
+        spendingPower = Math.max(originalPower, 1);
+      }
+    }
     
     // Format roll result using RollView
     const resultData = RollView.formatRollResult(
       die1,
       die2,
       baseRoll,
-      modifier,
+      baseModifier,
       finalResult,
       roll.description,
       narratorMention,
-      isReaction,
-      roll.reactionToRollId
+      isReactionRoll,
+      roll.reactionToRollId,
+      strategyName,
+      strategyModifier,
+      originalPower,
+      spendingPower
     );
 
     // Send as a public message
