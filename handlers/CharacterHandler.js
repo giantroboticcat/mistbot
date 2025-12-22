@@ -1,12 +1,12 @@
 import { MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, LabelBuilder } from 'discord.js';
 import { CharacterStorage } from '../utils/CharacterStorage.js';
-import { db } from '../utils/Database.js';
+import { getDbForGuild } from '../utils/Database.js';
 import { CreateCharacterCommand } from '../commands/CreateCharacterCommand.js';
 import { EditCharacterCommand } from '../commands/EditCharacterCommand.js';
 import { CharacterView } from '../utils/CharacterView.js';
 import { StatusesEditorView } from '../utils/StatusesEditorView.js';
 import { Validation } from '../utils/Validation.js';
-import { requireGuildId, getGuildId } from '../utils/GuildUtils.js';
+import { requireGuildId } from '../utils/GuildUtils.js';
 
 /**
  * Handle modal submissions (character creation/editing)
@@ -862,6 +862,8 @@ export async function handleSelectActiveCharacter(interaction, client) {
  * Handle autocomplete for char-lookup command
  */
 export async function handleCharLookupAutocomplete(interaction) {
+  const guildId = requireGuildId(interaction);
+  const db = getDbForGuild(guildId);
   const focusedOption = interaction.options.getFocused(true);
   
   if (focusedOption.name === 'character') {
