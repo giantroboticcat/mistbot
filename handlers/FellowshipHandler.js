@@ -1,13 +1,15 @@
 import { FellowshipStorage } from '../utils/FellowshipStorage.js';
+import { requireGuildId } from '../utils/GuildUtils.js';
 
 /**
  * Handle fellowship lookup autocomplete
  */
 export async function handleFellowshipLookupAutocomplete(interaction) {
   const focusedValue = interaction.options.getFocused();
+  const guildId = requireGuildId(interaction);
   
   // Get all fellowships
-  const fellowships = FellowshipStorage.getAllFellowships();
+  const fellowships = FellowshipStorage.getAllFellowships(guildId);
   
   // Filter by focused value (case-insensitive)
   const filtered = fellowships
