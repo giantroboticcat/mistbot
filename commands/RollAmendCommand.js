@@ -114,10 +114,12 @@ export class RollAmendCommand extends Command {
       isReaction: roll.isReaction || false,
       reactionToRollId: roll.reactionToRollId || null,
       originalStatus: roll.status, // Store original status to reset if needed
+      helpFromCharacterIdMap: roll.helpFromCharacterIdMap || new Map(),
     });
 
-    const interactiveComponents = RollView.buildRollInteractives(rollKey, helpOptions, hinderOptions, 0, 0, initialHelpTags, initialHinderTags, {submit: true, cancel: true}, initialBurnedTags, roll.justificationNotes || "", true);
-    const displayData = RollView.buildRollDisplays(initialHelpTags, initialHinderTags, roll.description, true, initialBurnedTags, { narrationLink: roll.narrationLink, showJustificationPlaceholder: true });
+    const interactiveComponents = RollView.buildRollInteractives(rollKey, helpOptions, hinderOptions, 0, 0, initialHelpTags, initialHinderTags, {submit: true, cancel: true}, initialBurnedTags, roll.justificationNotes || "", true, roll.helpFromCharacterIdMap || new Map());
+    const allCharacters = CharacterStorage.getAllCharacters(guildId);
+    const displayData = RollView.buildRollDisplays(initialHelpTags, initialHinderTags, roll.description, true, initialBurnedTags, { narrationLink: roll.narrationLink, showJustificationPlaceholder: true, helpFromCharacterIdMap: roll.helpFromCharacterIdMap || new Map(), allCharacters: allCharacters });
     const allComponents = combineRollComponents(displayData, interactiveComponents);
     
     // Add header message as a container component (required when using IsComponentsV2)

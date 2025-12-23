@@ -1,8 +1,9 @@
-import { MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, TextDisplayBuilder } from 'discord.js';
+import { MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, TextDisplayBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } from 'discord.js';
 import { RollView } from '../utils/RollView.js';
 import { RollStorage } from '../utils/RollStorage.js';
 import { CharacterStorage } from '../utils/CharacterStorage.js';
 import { StoryTagStorage } from '../utils/StoryTagStorage.js';
+import { Validation } from '../utils/Validation.js';
 import RollStatus from '../constants/RollStatus.js';
 import { getServerEnv } from '../utils/ServerConfig.js';
 import { getGuildId, requireGuildId } from '../utils/GuildUtils.js';
@@ -121,7 +122,7 @@ export async function handleRollPageSelect(interaction, client) {
 
     // Rebuild components with updated page    
     let interactiveComponents = RollView.buildRollInteractives(rollKey, rollState.helpOptions, rollState.hinderOptions, rollState.helpPage, 
-      rollState.hinderPage, rollState.helpTags, rollState.hinderTags, rollState.buttons, rollState.burnedTags, rollState.justificationNotes, rollState.showJustificationButton);
+      rollState.hinderPage, rollState.helpTags, rollState.hinderTags, rollState.buttons, rollState.burnedTags, rollState.justificationNotes, rollState.showJustificationButton, rollState.helpFromCharacterIdMap || new Map());
     
     let title;
     if (rollKey.startsWith('confirm_')) {
@@ -133,6 +134,8 @@ export async function handleRollPageSelect(interaction, client) {
 
 
 
+    const allCharacters = CharacterStorage.getAllCharacters(guildId);
+    
     let displayData = RollView.buildRollDisplays(
       rollState.helpTags,
       rollState.hinderTags,
@@ -145,6 +148,8 @@ export async function handleRollPageSelect(interaction, client) {
         descriptionText: `**Player:** <@${rollState.creatorId}>`,
         narrationLink: rollState.narrationLink,
         justificationNotes: rollState.justificationNotes,
+        helpFromCharacterIdMap: rollState.helpFromCharacterIdMap || new Map(),
+        allCharacters: allCharacters,
       }
     );
 
@@ -265,7 +270,7 @@ export async function handleRollSelect(interaction, client) {
 
     let interactiveComponents = RollView.buildRollInteractives(rollKey, rollState.helpOptions, rollState.hinderOptions, rollState.helpPage, 
       rollState.hinderPage, rollState.helpTags, rollState.hinderTags, rollState.buttons, rollState.burnedTags, 
-      rollState.justificationNotes, rollState.showJustificationButton);    
+      rollState.justificationNotes, rollState.showJustificationButton, rollState.helpFromCharacterIdMap || new Map());    
 
     // Update the message with new tag selections
     let title;
@@ -276,6 +281,9 @@ export async function handleRollSelect(interaction, client) {
       title = 'Roll Proposal';
     }
 
+    const guildIdForDisplay2 = requireGuildId(interaction);
+    const allCharactersForDisplay2 = CharacterStorage.getAllCharacters(guildIdForDisplay2);
+    
     let displayData = RollView.buildRollDisplays(
       rollState.helpTags,
       rollState.hinderTags,
@@ -287,6 +295,8 @@ export async function handleRollSelect(interaction, client) {
         descriptionText: `**Player:** <@${rollState.creatorId}>`,
         narrationLink: rollState.narrationLink,
         justificationNotes: rollState.justificationNotes,
+        helpFromCharacterIdMap: rollState.helpFromCharacterIdMap || new Map(),
+        allCharacters: allCharactersForDisplay2,
       }
     );
     
@@ -364,7 +374,7 @@ export async function handleRollBurn(interaction, client) {
 
   // Rebuild components to reflect current selection state
   let interactiveComponents = RollView.buildRollInteractives(rollKey, rollState.helpOptions, rollState.hinderOptions, rollState.helpPage, 
-    rollState.hinderPage, rollState.helpTags, rollState.hinderTags, rollState.buttons, rollState.burnedTags, rollState.justificationNotes, rollState.showJustificationButton);
+    rollState.hinderPage, rollState.helpTags, rollState.hinderTags, rollState.buttons, rollState.burnedTags, rollState.justificationNotes, rollState.showJustificationButton, rollState.helpFromCharacterIdMap || new Map());
   
   // Update the message with new tag selections
   let title;
@@ -374,6 +384,9 @@ export async function handleRollBurn(interaction, client) {
   } else {
     title = 'Roll Proposal';
   }
+  
+  const guildIdForDisplay3 = requireGuildId(interaction);
+  const allCharactersForDisplay3 = CharacterStorage.getAllCharacters(guildIdForDisplay3);
   
    let displayData = RollView.buildRollDisplays(
     rollState.helpTags,
@@ -386,6 +399,8 @@ export async function handleRollBurn(interaction, client) {
       descriptionText: `**Player:** <@${rollState.creatorId}>`,
       narrationLink: rollState.narrationLink,
       justificationNotes: rollState.justificationNotes,
+      helpFromCharacterIdMap: rollState.helpFromCharacterIdMap || new Map(),
+      allCharacters: allCharactersForDisplay3,
     }
   );
 
@@ -489,6 +504,7 @@ export async function handleRollSubmit(interaction, client) {
       helpTags: rollState.helpTags,
       hinderTags: rollState.hinderTags,
       burnedTags: rollState.burnedTags || new Set(),
+      helpFromCharacterIdMap: rollState.helpFromCharacterIdMap || new Map(),
       status: newStatus,
       // Clear confirmed_by if resetting to proposed
       confirmedBy: newStatus === RollStatus.PROPOSED ? null : undefined,
@@ -502,6 +518,7 @@ export async function handleRollSubmit(interaction, client) {
       helpTags: rollState.helpTags,
       hinderTags: rollState.hinderTags,
       burnedTags: rollState.burnedTags || new Set(),
+      helpFromCharacterIdMap: rollState.helpFromCharacterIdMap || new Map(),
       description: rollState.description,
       narrationLink: rollState.narrationLink || null,
       justificationNotes: rollState.justificationNotes || null,
@@ -547,6 +564,8 @@ export async function handleRollSubmit(interaction, client) {
       ? `Reaction Roll #${rollId}${rollState.reactionToRollId ? ` (to Roll #${rollState.reactionToRollId})` : ''}\n${rollState.description}`
       : `Roll Proposal #${rollId}\n${rollState.description}`;
     
+    const allCharactersForSubmit = CharacterStorage.getAllCharacters(guildId);
+    
     const displayData = RollView.buildRollDisplays(
       rollState.helpTags,
       rollState.hinderTags,
@@ -558,7 +577,9 @@ export async function handleRollSubmit(interaction, client) {
         descriptionText: `**From:** <@${rollState.creatorId}>`,
         narrationLink: rollState.narrationLink,
         justificationNotes: rollState.justificationNotes,
-        footer: `${narratorMention} should use /roll-confirm ${rollId} to review and confirm.`
+        footer: `${narratorMention} should use /roll-confirm ${rollId} to review and confirm.`,
+        helpFromCharacterIdMap: rollState.helpFromCharacterIdMap || new Map(),
+        allCharacters: allCharactersForSubmit,
       }
     );
 
@@ -579,6 +600,8 @@ export async function handleRollSubmit(interaction, client) {
       ? '\n\n⚠️ **Status reset to proposed** - requires narrator confirmation again.' 
       : '';
     
+    const allCharactersForAmend = CharacterStorage.getAllCharacters(guildId);
+    
     const displayData = RollView.buildRollDisplays(
       rollState.helpTags,
       rollState.hinderTags,
@@ -588,6 +611,8 @@ export async function handleRollSubmit(interaction, client) {
       {
         title: title,
         descriptionText: `**From:** <@${rollState.creatorId}>${statusNote}`,
+        helpFromCharacterIdMap: rollState.helpFromCharacterIdMap || new Map(),
+        allCharacters: allCharactersForAmend,
         narrationLink: rollState.narrationLink,
         justificationNotes: rollState.justificationNotes,
         footer: `${narratorMention} should use /roll-confirm ${rollId} to review and confirm.`
@@ -696,7 +721,8 @@ export async function handleJustificationModal(interaction, client) {
     rollState.buttons,
     rollState.burnedTags || new Set(),
     rollState.justificationNotes,
-    rollState.showJustificationButton
+    rollState.showJustificationButton,
+    rollState.helpFromCharacterIdMap || new Map()
   );
 
   // Rebuild display with updated justification notes
@@ -773,6 +799,7 @@ export async function handleRollConfirm(interaction, client) {
     helpTags: rollState.helpTags,
     hinderTags: rollState.hinderTags,
     burnedTags: rollState.burnedTags || new Set(),
+    helpFromCharacterIdMap: rollState.helpFromCharacterIdMap || new Map(),
     description: rollState.description,
     narrationLink: rollState.narrationLink,
     justificationNotes: rollState.justificationNotes,
@@ -935,7 +962,8 @@ export async function handleRollReconfirm(interaction, client) {
   });
 
   // Build components for editing (don't show justification button in confirm view)
-  const interactiveComponents = RollView.buildRollInteractives(rollKey, filteredHelpOptions, filteredHinderOptions, 0, 0, roll.helpTags, roll.hinderTags, {confirm: true, cancel: true}, burnedTags, roll.justificationNotes, false);
+  // Use helpFromCharacterIdMap from the roll if available
+  const interactiveComponents = RollView.buildRollInteractives(rollKey, filteredHelpOptions, filteredHinderOptions, 0, 0, roll.helpTags, roll.hinderTags, {confirm: true, cancel: true}, burnedTags, roll.justificationNotes, false, roll.helpFromCharacterIdMap || new Map());
 
   const title = isReaction
     ? `Reviewing Reaction Roll #${rollId}${roll.reactionToRollId ? ` (to Roll #${roll.reactionToRollId})` : ''}`
@@ -979,6 +1007,520 @@ export async function handleRollReconfirmCancel(interaction, client) {
 
   await interaction.update({
     components: [cancelContainer],
+    flags: MessageFlags.IsComponentsV2,
+  });
+}
+
+/**
+ * Handle Help Action button click - show character selection in the roll view
+ */
+export async function handleHelpAction(interaction, client) {
+  const customId = interaction.customId;
+  const rollKey = customId.replace('roll_help_action_', '');
+  
+  if (!client.rollStates.has(rollKey)) {
+    await interaction.reply({
+      content: 'This roll session has expired. Please run /roll-propose again.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const rollState = client.rollStates.get(rollKey);
+  const guildId = requireGuildId(interaction);
+  
+  // Get all characters in the guild
+  const allCharacters = CharacterStorage.getAllCharacters(guildId);
+  
+  // Get characters that already have help tags (one per character)
+  const helpFromCharacterIdMap = rollState.helpFromCharacterIdMap || new Map();
+  const charactersWithHelpTags = new Set();
+  helpFromCharacterIdMap.forEach((helpFrom, tag) => {
+    if (helpFrom && typeof helpFrom === 'object') {
+      // Use characterId:userId as unique identifier
+      charactersWithHelpTags.add(`${helpFrom.characterId}:${helpFrom.userId}`);
+    } else if (helpFrom) {
+      // Backward compatibility: if it's just a number, we can't uniquely identify
+      // but we'll try to match by characterId only
+      charactersWithHelpTags.add(`${helpFrom}:`);
+    }
+  });
+  
+  // Filter out:
+  // 1. The current player's character
+  // 2. Characters that already have help tags added
+  const otherCharacters = allCharacters.filter(char => {
+    // Exclude current player's character
+    if (char.user_id === rollState.creatorId && char.id === rollState.characterId) {
+      return false;
+    }
+    // Exclude characters that already have help tags
+    const charKey = `${char.id}:${char.user_id}`;
+    return !charactersWithHelpTags.has(charKey);
+  });
+  if (otherCharacters.length === 0) {
+    // Rebuild normal roll view if no characters
+    const interactiveComponents = RollView.buildRollInteractives(
+      rollKey,
+      rollState.helpOptions,
+      rollState.hinderOptions,
+      rollState.helpPage || 0,
+      rollState.hinderPage || 0,
+      rollState.helpTags,
+      rollState.hinderTags,
+      rollState.buttons,
+      rollState.burnedTags || new Set(),
+      rollState.justificationNotes,
+      rollState.showJustificationButton,
+      rollState.helpFromCharacterIdMap || new Map()
+    );
+    const displayData = RollView.buildRollDisplays(
+      rollState.helpTags,
+      rollState.hinderTags,
+      rollState.description,
+      true,
+      rollState.burnedTags || new Set(),
+      {
+        narrationLink: rollState.narrationLink,
+        justificationNotes: rollState.justificationNotes,
+        showJustificationPlaceholder: !rollState.justificationNotes
+      }
+    );
+    const allComponents = combineRollComponents(displayData, interactiveComponents);
+    await interaction.update({
+      components: allComponents,
+      flags: MessageFlags.IsComponentsV2,
+    });
+    return;
+  }
+
+  // Build character select menu
+  const characterOptions = otherCharacters.map(char => {
+    return new StringSelectMenuOptionBuilder()
+      .setLabel(char.name)
+      .setValue(`${char.id}`)
+  });
+
+  const characterSelect = new StringSelectMenuBuilder()
+    .setCustomId(`roll_help_character_${rollKey}`)
+    .setPlaceholder('Select a character to help...')
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(characterOptions.slice(0, 25)); // Discord limit is 25 options
+
+  // Add cancel button
+  const cancelButton = new ButtonBuilder()
+    .setCustomId(`roll_help_action_cancel_${rollKey}`)
+    .setLabel('Back to Roll Proposal')
+    .setStyle(ButtonStyle.Primary);
+
+  await interaction.update({
+    components: [
+      new ActionRowBuilder().setComponents([characterSelect]),
+      new ActionRowBuilder().setComponents([cancelButton])
+    ],
+    flags: MessageFlags.IsComponentsV2,
+  });
+}
+
+/**
+ * Handle character selection for Help Action - show tag selection in the roll view
+ */
+export async function handleHelpCharacterSelect(interaction, client) {
+  const customId = interaction.customId;
+  const rollKey = customId.replace('roll_help_character_', '');
+  
+  if (!client.rollStates.has(rollKey)) {
+    await interaction.reply({
+      content: 'This roll session has expired. Please run /roll-propose again.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const rollState = client.rollStates.get(rollKey);
+  const guildId = requireGuildId(interaction);
+  const characterId = parseInt(interaction.values[0]);
+  
+  // Get the selected character
+  const allCharacters = CharacterStorage.getAllCharacters(guildId);
+  const selectedCharacter = allCharacters.find(char => char.id === characterId);
+  
+  if (!selectedCharacter) {
+    await interaction.update({
+      content: 'Character not found.',
+      components: [],
+    });
+    return;
+  }
+
+  // Collect help tags from the selected character
+  const helpOptions = RollView.collectHelpTags(selectedCharacter, rollState.sceneId, StoryTagStorage, false, guildId);
+  
+  if (helpOptions.length === 0) {
+    await interaction.update({
+      content: `No help tags available for ${selectedCharacter.name}.`,
+      components: [],
+    });
+    return;
+  }
+
+  // Build tag select menu
+  const tagOptions = helpOptions.slice(0, 25).map(opt => {
+    return new StringSelectMenuOptionBuilder()
+      .setLabel(opt.data.label)
+      .setValue(opt.data.value)
+      .setDescription(opt.data.description);
+  });
+
+  const tagSelect = new StringSelectMenuBuilder()
+    .setCustomId(`roll_help_tag_${rollKey}_${characterId}`)
+    .setPlaceholder(`Select a tag from ${selectedCharacter.name}...`)
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(tagOptions);
+
+  // Add cancel button
+  const cancelButton = new ButtonBuilder()
+    .setCustomId(`roll_help_action_cancel_${rollKey}`)
+    .setLabel('Back to Roll Proposal')
+    .setStyle(ButtonStyle.Primary);
+
+  await interaction.update({
+    components: [
+      new ActionRowBuilder().setComponents([tagSelect]),
+      new ActionRowBuilder().setComponents([cancelButton])
+    ],
+    flags: MessageFlags.IsComponentsV2,
+  });
+}
+
+/**
+ * Handle tag selection for Help Action - add tag to roll
+ */
+export async function handleHelpTagSelect(interaction, client) {
+  const customId = interaction.customId;
+  // Format: roll_help_tag_{rollKey}_{characterId}
+  const parts = customId.replace('roll_help_tag_', '').split('_');
+  const characterId = parseInt(parts[parts.length - 1]);
+  const rollKey = parts.slice(0, -1).join('_');
+  
+  if (!client.rollStates.has(rollKey)) {
+    await interaction.reply({
+      content: 'This roll session has expired. Please run /roll-propose again.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const rollState = client.rollStates.get(rollKey);
+  const selectedTag = interaction.values[0];
+  const guildId = requireGuildId(interaction);
+  
+  // Get the selected character to retrieve both characterId and userId
+  const allCharacters = CharacterStorage.getAllCharacters(guildId);
+  const selectedCharacter = allCharacters.find(char => char.id === characterId);
+  
+  if (!selectedCharacter) {
+    await interaction.reply({
+      content: 'Character not found.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+  
+  // Initialize helpFromCharacterIdMap if it doesn't exist
+  if (!rollState.helpFromCharacterIdMap) {
+    rollState.helpFromCharacterIdMap = new Map();
+  }
+  
+  // Add the tag to help tags and store which character (and user) it came from
+  rollState.helpTags.add(selectedTag);
+  rollState.helpFromCharacterIdMap.set(selectedTag, {
+    characterId: selectedCharacter.id,
+    userId: selectedCharacter.user_id
+  });
+  
+  client.rollStates.set(rollKey, rollState);
+
+  // Rebuild the roll components
+  const interactiveComponents = RollView.buildRollInteractives(
+    rollKey,
+    rollState.helpOptions,
+    rollState.hinderOptions,
+    rollState.helpPage || 0,
+    rollState.hinderPage || 0,
+    rollState.helpTags,
+    rollState.hinderTags,
+    rollState.buttons,
+    rollState.burnedTags || new Set(),
+    rollState.justificationNotes,
+    rollState.showJustificationButton,
+    rollState.helpFromCharacterIdMap || new Map()
+  );
+
+  const displayData = RollView.buildRollDisplays(
+    rollState.helpTags,
+    rollState.hinderTags,
+    rollState.description,
+    true,
+    rollState.burnedTags || new Set(),
+    {
+      narrationLink: rollState.narrationLink,
+      justificationNotes: rollState.justificationNotes,
+      showJustificationPlaceholder: !rollState.justificationNotes
+    }
+  );
+
+  const allComponents = combineRollComponents(displayData, interactiveComponents);
+
+  // Update the roll view directly - no ephemeral message needed
+  await interaction.update({
+    components: allComponents,
+    flags: MessageFlags.IsComponentsV2,
+  });
+}
+
+/**
+ * Handle removal of help action tags - show removal select menu
+ */
+export async function handleRemoveHelpAction(interaction, client) {
+  const customId = interaction.customId;
+  const rollKey = customId.replace('roll_remove_help_action_', '');
+  
+  if (!client.rollStates.has(rollKey)) {
+    await interaction.reply({
+      content: 'This roll session has expired. Please run /roll-propose again.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const rollState = client.rollStates.get(rollKey);
+  const guildId = requireGuildId(interaction);
+  
+  // Get all characters to look up names
+  const allCharacters = CharacterStorage.getAllCharacters(guildId);
+  
+  // Get help action tags (tags from other characters)
+  const helpActionTags = Array.from(rollState.helpTags).filter(tagValue => {
+    return rollState.helpFromCharacterIdMap && rollState.helpFromCharacterIdMap.has(tagValue);
+  });
+
+  // Build removal select menu
+  const removeOptions = helpActionTags.map(tagValue => {
+    // Find the label from helpOptions
+    let label = tagValue;
+    const option = rollState.helpOptions.find(opt => opt.data.value === tagValue);
+    if (option) {
+      label = option.data.label;
+    } else {
+      // Format the label using the same function used in collectHelpTags
+      label = RollView.formatTagValueToLabel(tagValue);
+    }
+    
+    // Get character name from helpFromCharacterIdMap
+    const helpFrom = rollState.helpFromCharacterIdMap.get(tagValue);
+    let characterName = '';
+    if (helpFrom && typeof helpFrom === 'object') {
+      const character = allCharacters.find(char => 
+        char.id === helpFrom.characterId && char.user_id === helpFrom.userId
+      );
+      characterName = character ? `From ${character.name}` : '';
+    }
+    
+    return new StringSelectMenuOptionBuilder()
+      .setLabel(label)
+      .setValue(tagValue)
+      .setDescription(`${characterName}`);
+  });
+
+  const removeSelect = new StringSelectMenuBuilder()
+    .setCustomId(`roll_remove_help_action_select_${rollKey}`)
+    .setPlaceholder('Select help action tags to remove...')
+    .setMinValues(0)
+    .setMaxValues(helpActionTags.length)
+    .addOptions(removeOptions.slice(0, 25)); // Discord limit is 25 options
+  
+  // Add cancel button
+  const cancelButton = new ButtonBuilder()
+    .setCustomId(`roll_remove_help_action_cancel_${rollKey}`)
+    .setLabel('Back to Roll Proposal')
+    .setStyle(ButtonStyle.Primary);
+
+  // Replace help rows with removal select menu
+  const allComponents = [
+    new ActionRowBuilder().setComponents([removeSelect]),
+    new ActionRowBuilder().setComponents([cancelButton]),
+  ];
+
+  await interaction.update({
+    components: allComponents,
+    flags: MessageFlags.IsComponentsV2,
+  });
+}
+
+/**
+ * Handle removal select menu for help action tags
+ */
+export async function handleRemoveHelpActionSelect(interaction, client) {
+  const customId = interaction.customId;
+  const rollKey = customId.replace('roll_remove_help_action_select_', '');
+  
+  if (!client.rollStates.has(rollKey)) {
+    await interaction.reply({
+      content: 'This roll session has expired. Please run /roll-propose again.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const rollState = client.rollStates.get(rollKey);
+  const selectedTags = interaction.values || [];
+  
+  if (selectedTags.length === 0) {
+    // No tags selected for removal, rebuild normal view
+    const interactiveComponents = RollView.buildRollInteractives(
+      rollKey,
+      rollState.helpOptions,
+      rollState.hinderOptions,
+      rollState.helpPage || 0,
+      rollState.hinderPage || 0,
+      rollState.helpTags,
+      rollState.hinderTags,
+      rollState.buttons,
+      rollState.burnedTags || new Set(),
+      rollState.justificationNotes,
+      rollState.showJustificationButton,
+      rollState.helpFromCharacterIdMap || new Map()
+    );
+    const displayData = RollView.buildRollDisplays(
+      rollState.helpTags,
+      rollState.hinderTags,
+      rollState.description,
+      true,
+      rollState.burnedTags || new Set(),
+      {
+        narrationLink: rollState.narrationLink,
+        justificationNotes: rollState.justificationNotes,
+        showJustificationPlaceholder: !rollState.justificationNotes
+      }
+    );
+    const allComponents = combineRollComponents(displayData, interactiveComponents);
+    await interaction.update({
+      components: allComponents,
+      flags: MessageFlags.IsComponentsV2,
+    });
+    return;
+  }
+
+  // Remove selected tags from both helpTags and helpFromCharacterIdMap
+  selectedTags.forEach(tagValue => {
+    rollState.helpTags.delete(tagValue);
+    if (rollState.helpFromCharacterIdMap) {
+      rollState.helpFromCharacterIdMap.delete(tagValue);
+    }
+  });
+  
+  client.rollStates.set(rollKey, rollState);
+
+  // Rebuild the roll components
+  const interactiveComponents = RollView.buildRollInteractives(
+    rollKey,
+    rollState.helpOptions,
+    rollState.hinderOptions,
+    rollState.helpPage || 0,
+    rollState.hinderPage || 0,
+    rollState.helpTags,
+    rollState.hinderTags,
+    rollState.buttons,
+    rollState.burnedTags || new Set(),
+    rollState.justificationNotes,
+    rollState.showJustificationButton,
+    rollState.helpFromCharacterIdMap || new Map()
+  );
+
+  const displayData = RollView.buildRollDisplays(
+    rollState.helpTags,
+    rollState.hinderTags,
+    rollState.description,
+    true,
+    rollState.burnedTags || new Set(),
+    {
+      narrationLink: rollState.narrationLink,
+      justificationNotes: rollState.justificationNotes,
+      showJustificationPlaceholder: !rollState.justificationNotes
+    }
+  );
+
+  const allComponents = combineRollComponents(displayData, interactiveComponents);
+
+  await interaction.update({
+    components: allComponents,
+    flags: MessageFlags.IsComponentsV2,
+  });
+}
+
+/**
+ * Handle cancel button for help action flow - return to normal roll view
+ */
+export async function handleHelpActionCancel(interaction, client) {
+  const customId = interaction.customId;
+  // Handle both help action cancel and remove help action cancel
+  let rollKey;
+  if (customId.startsWith('roll_help_action_cancel_')) {
+    rollKey = customId.replace('roll_help_action_cancel_', '');
+  } else if (customId.startsWith('roll_remove_help_action_cancel_')) {
+    rollKey = customId.replace('roll_remove_help_action_cancel_', '');
+  } else {
+    await interaction.reply({
+      content: 'Invalid cancel action.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+  
+  if (!client.rollStates.has(rollKey)) {
+    await interaction.reply({
+      content: 'This roll session has expired. Please run /roll-propose again.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const rollState = client.rollStates.get(rollKey);
+
+  // Rebuild normal roll view
+  const interactiveComponents = RollView.buildRollInteractives(
+    rollKey,
+    rollState.helpOptions,
+    rollState.hinderOptions,
+    rollState.helpPage || 0,
+    rollState.hinderPage || 0,
+    rollState.helpTags,
+    rollState.hinderTags,
+    rollState.buttons,
+    rollState.burnedTags || new Set(),
+    rollState.justificationNotes,
+    rollState.showJustificationButton,
+    rollState.helpFromCharacterIdMap || new Map()
+  );
+  const displayData = RollView.buildRollDisplays(
+    rollState.helpTags,
+    rollState.hinderTags,
+    rollState.description,
+    true,
+    rollState.burnedTags || new Set(),
+    {
+      narrationLink: rollState.narrationLink,
+      justificationNotes: rollState.justificationNotes,
+      showJustificationPlaceholder: !rollState.justificationNotes
+    }
+  );
+  const allComponents = combineRollComponents(displayData, interactiveComponents);
+
+  await interaction.update({
+    components: allComponents,
     flags: MessageFlags.IsComponentsV2,
   });
 }

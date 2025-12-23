@@ -117,7 +117,8 @@ export class RollReactionCommand extends Command {
       hinderPage: 0,
       buttons: {submit: true, cancel: true},
       isReaction: true,
-      reactionToRollId: originalRollId || null
+      reactionToRollId: originalRollId || null,
+      helpFromCharacterIdMap: new Map(),
     });
 
     const interactiveComponents = RollView.buildRollInteractives(
@@ -131,13 +132,15 @@ export class RollReactionCommand extends Command {
       {submit: true, cancel: true}, 
       initialBurnedTags, 
       "", 
-      true
+      true,
+      new Map()
     );
     
     const title = originalRollId 
       ? `Reaction Roll to Roll #${originalRollId}` 
       : 'Reaction Roll';
     
+    const allCharacters = CharacterStorage.getAllCharacters(guildId);
     const displayData = RollView.buildRollDisplays(
       initialHelpTags, 
       initialHinderTags, 
@@ -146,7 +149,9 @@ export class RollReactionCommand extends Command {
       initialBurnedTags, 
       { 
         title: title,
-        showJustificationPlaceholder: true 
+        showJustificationPlaceholder: true,
+        helpFromCharacterIdMap: new Map(),
+        allCharacters: allCharacters
       }
     );
     

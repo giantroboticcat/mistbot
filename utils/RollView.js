@@ -17,14 +17,32 @@ export class RollView {
    * @param {string} options.title - Custom title
    * @param {string} options.footer - Footer text
    * @param {string} options.descriptionText - Additional text to insert after title
+   * @param {Map} options.helpFromCharacterIdMap - Map of tagValue -> { characterId, userId } for help action tags
+   * @param {Array} options.allCharacters - Array of all characters for looking up character names
    * @returns {Object} Object with components array and IsComponentsV2 flag
    */
   static buildRollDisplays(helpTags, hinderTags, description = null, showPower = true, burnedTags = new Set(), options = {}) {
+    const { helpFromCharacterIdMap = new Map(), allCharacters = [] } = options;
+    
+    // Build a map of character identifiers to character names
+    const characterNameMap = new Map();
+    allCharacters.forEach(char => {
+      characterNameMap.set(`${char.id}:${char.user_id}`, char.name);
+    });
+    
     // Parse help tags (extract actual names)
     const helpItemNames = Array.from(helpTags).map(value => {
       // Remove prefix (theme:, tag:, backpack:, etc.)
       const parts = value.split(':');
       return parts.length > 1 ? parts.slice(1).join(':') : value;
+    });
+    
+    // Build a map of tag names to their original tagValue for looking up helpFromCharacterIdMap
+    const tagNameToValueMap = new Map();
+    Array.from(helpTags).forEach(tagValue => {
+      const parts = tagValue.split(':');
+      const tagName = parts.length > 1 ? parts.slice(1).join(':') : tagValue;
+      tagNameToValueMap.set(tagName, tagValue);
     });
 
     // Parse hinder tags (extract actual names, separate weaknesses)
@@ -65,17 +83,48 @@ export class RollView {
     // Format help items (tags, statuses) with fire emojis around burned tags
     const helpParts = [];
     if (helpCategorized.tags.length > 0 || helpCategorized.statuses.length > 0) {
-      // Format tags with fire emojis for burned ones
+      // Format tags with fire emojis for burned ones and "(From CHARACTERNAME)" for help action tags
       const formattedTags = helpCategorized.tags.map(tag => {
         const isBurned = burnedHelpTagNames.has(tag);
         const formatted = TagFormatter.formatStoryTag(tag);
-        return isBurned ? `🔥 ${formatted} 🔥` : formatted;
+        let result = isBurned ? `🔥 ${formatted} 🔥` : formatted;
+        
+        // Check if this tag is from another player
+        const tagValue = tagNameToValueMap.get(tag);
+        console.log(tagValue, helpFromCharacterIdMap);
+        if (tagValue && helpFromCharacterIdMap.has(tagValue)) {
+          const helpFrom = helpFromCharacterIdMap.get(tagValue);
+          if (helpFrom && typeof helpFrom === 'object') {
+            const charKey = `${helpFrom.characterId}:${helpFrom.userId}`;
+            const characterName = characterNameMap.get(charKey);
+            if (characterName) {
+              result += ` (From ${characterName})`;
+            }
+          }
+        }
+        
+        return result;
       });
       
-      // Format statuses (statuses can't be burned)
-      const formattedStatuses = helpCategorized.statuses.map(status => 
-        TagFormatter.formatStatus(status)
-      );
+      // Format statuses (statuses can't be burned, but can be from other players)
+      const formattedStatuses = helpCategorized.statuses.map(status => {
+        let formatted = TagFormatter.formatStatus(status);
+        
+        // Check if this status is from another player
+        const tagValue = tagNameToValueMap.get(status);
+        if (tagValue && helpFromCharacterIdMap.has(tagValue)) {
+          const helpFrom = helpFromCharacterIdMap.get(tagValue);
+          if (helpFrom && typeof helpFrom === 'object') {
+            const charKey = `${helpFrom.characterId}:${helpFrom.userId}`;
+            const characterName = characterNameMap.get(charKey);
+            if (characterName) {
+              formatted += ` (From ${characterName})`;
+            }
+          }
+        }
+        
+        return formatted;
+      });
       
       
       if (formattedTags.length > 0) {
@@ -200,7 +249,7 @@ export class RollView {
    * @param {Set<string>} burnedTags - Currently selected tags to burn
    * @returns {Array} Array of ActionRowBuilder components
    */
-  static buildRollInteractives(rollKey, helpOptions, hinderOptions, helpPage, hinderPage, selectedHelpTags = new Set(), selectedHinderTags = new Set(), buttons = {}, burnedTags = new Set(), justificationNotes = null, showJustificationButton = true) {
+  static buildRollInteractives(rollKey, helpOptions, hinderOptions, helpPage, hinderPage, selectedHelpTags = new Set(), selectedHinderTags = new Set(), buttons = {}, burnedTags = new Set(), justificationNotes = null, showJustificationButton = true, helpFromCharacterIdMap = new Map()) {
     // Show all options, but mark selected ones as default
     const helpPages = Math.ceil(helpOptions.length / 25);
     const hinderPages = Math.ceil(hinderOptions.length / 25);
@@ -236,6 +285,29 @@ export class RollView {
     // Main help dropdown on its own row (one select per row)
     helpRows.push(new ActionRowBuilder().setComponents([helpSelect]));
     
+    // Add "Help Action" and "Remove Help Action" buttons on the same row
+    const helpActionButton = new ButtonBuilder()
+      .setCustomId(`roll_help_action_${rollKey}`)
+      .setLabel('Add Other Player Tags')
+      .setStyle(ButtonStyle.Primary);
+    
+    const buttonComponents = [helpActionButton];
+    
+    // Add "Remove Help Action" button if there are help action tags
+    const helpActionTagsForButtons = Array.from(selectedHelpTags).filter(tagValue => {
+      return helpFromCharacterIdMap.has(tagValue);
+    });
+    
+    if (helpActionTagsForButtons.length > 0) {
+      const removeHelpActionButton = new ButtonBuilder()
+        .setCustomId(`roll_remove_help_action_${rollKey}`)
+        .setLabel('Remove Other Player Tags')
+        .setStyle(ButtonStyle.Danger);
+      buttonComponents.push(removeHelpActionButton);
+    }
+    
+    helpRows.push(new ActionRowBuilder().setComponents(buttonComponents));
+    
     // Help page selector on its own row if needed
     if (helpPages > 1) {
       const helpPageOptions = [];
@@ -257,9 +329,13 @@ export class RollView {
       helpRows.push(new ActionRowBuilder().setComponents([helpPageSelect]));
     }
     
-    // Burn selection dropdown - only show selected help tags that are burnable (non-status tags, non-fellowship tags)
+    // Burn selection dropdown - only show selected help tags that are burnable (non-status tags, non-fellowship tags, non-help-action tags)
     // Put on its own row (one select per row)
     const burnableTags = Array.from(selectedHelpTags).filter(tagValue => {
+      // Help action tags (tags from other characters) cannot be burned
+      if (helpFromCharacterIdMap.has(tagValue)) {
+        return false;
+      }
       // Fellowship tags cannot be burned
       if (tagValue.startsWith('fellowship:')) {
         return false;
@@ -301,6 +377,9 @@ export class RollView {
         .addOptions(burnPageOptions);
       helpRows.push(new ActionRowBuilder().setComponents([burnSelect]));
     }
+    
+    // Pass helpFromCharacterIdMap through options for use in burn filtering
+    helpRows.helpFromCharacterIdMap = helpFromCharacterIdMap;
     
     // Hinder tag select menu (current page) - show all options, mark selected ones
     const hinderStart = clampedHinderPage * 25;
@@ -397,6 +476,28 @@ export class RollView {
    * @param {Object} StoryTagStorage - StoryTagStorage class
    * @param {boolean} includeBurned - Whether to include burned tags (default: false)
    */
+  /**
+   * Format a tag value (with prefix like "tag:name") into a label with emoji
+   * @param {string} tagValue - Tag value with prefix (e.g., "tag:SomeTag", "theme:SomeTheme")
+   * @returns {string} Formatted label with emoji (e.g., "🟡 SomeTag")
+   */
+  static formatTagValueToLabel(tagValue) {
+    // Remove prefix (theme:, tag:, backpack:, etc.) and add appropriate emoji
+    const parts = tagValue.split(':');
+    const tagName = parts.length > 1 ? parts.slice(1).join(':') : tagValue;
+    const prefix = parts[0];
+    
+    // Determine icon based on prefix and whether it's a status
+    let icon = '🟡'; // Default to yellow tag icon
+    if (prefix === 'tempStatus' || prefix === 'sceneStatus') {
+      icon = '🟢'; // Green for statuses
+    } else if (Validation.validateStatus(tagName).valid) {
+      icon = '🟢'; // Green if it's a status format
+    }
+    
+    return `${icon} ${tagName}`;
+  }
+
   static collectHelpTags(character, sceneId, StoryTagStorage, includeBurned = false, guildId = null) {
     const options = [];
     const seen = new Set();

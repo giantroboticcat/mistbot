@@ -83,6 +83,7 @@ export class RollProposeCommand extends Command {
       helpTags: initialHelpTags,
       hinderTags: initialHinderTags,
       burnedTags: initialBurnedTags,
+      helpFromCharacterIdMap: new Map(),
       description: description,
       narrationLink: narrationLink || null,
       justificationNotes: null,
@@ -96,8 +97,9 @@ export class RollProposeCommand extends Command {
       reactionToRollId: null
     });
 
-    const interactiveComponents = RollView.buildRollInteractives(tempRollKey, helpOptions, hinderOptions, 0, 0, initialHelpTags, initialHinderTags, {submit: true, cancel: true}, initialBurnedTags, "", true);
-    const displayData = RollView.buildRollDisplays(initialHelpTags, initialHinderTags, description, true, initialBurnedTags, { narrationLink, showJustificationPlaceholder: true });
+    const interactiveComponents = RollView.buildRollInteractives(tempRollKey, helpOptions, hinderOptions, 0, 0, initialHelpTags, initialHinderTags, {submit: true, cancel: true}, initialBurnedTags, "", true, new Map());
+    const allCharacters = CharacterStorage.getAllCharacters(guildId);
+    const displayData = RollView.buildRollDisplays(initialHelpTags, initialHinderTags, description, true, initialBurnedTags, { narrationLink, showJustificationPlaceholder: true, helpFromCharacterIdMap: new Map(), allCharacters: allCharacters });
     const allComponents = combineRollComponents(displayData, interactiveComponents);
     await interaction.reply({
       components: allComponents,

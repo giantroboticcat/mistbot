@@ -95,7 +95,7 @@ export class RollConfirmCommand extends Command {
       const cancelButton = new ButtonBuilder()
         .setCustomId(`roll_reconfirm_cancel_${rollId}`)
         .setLabel('Cancel')
-        .setStyle(ButtonStyle.Secondary);
+        .setStyle(ButtonStyle.Primary);
       
       const buttonRow = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
       
@@ -158,6 +158,7 @@ export class RollConfirmCommand extends Command {
       helpTags: roll.helpTags,
       hinderTags: roll.hinderTags,
       burnedTags: burnedTags,
+      helpFromCharacterIdMap: roll.helpFromCharacterIdMap || new Map(),
       description: roll.description,
       narrationLink: roll.narrationLink,
       justificationNotes: roll.justificationNotes,
@@ -172,12 +173,15 @@ export class RollConfirmCommand extends Command {
     });
 
     // Build components for editing (don't show justification button in confirm view)
-    const interactiveComponents = RollView.buildRollInteractives(rollKey, filteredHelpOptions, filteredHinderOptions, 0, 0, roll.helpTags, roll.hinderTags, {confirm: true, cancel: true}, burnedTags, roll.justificationNotes, false);
+    // Use helpFromCharacterIdMap from the roll
+    const interactiveComponents = RollView.buildRollInteractives(rollKey, filteredHelpOptions, filteredHinderOptions, 0, 0, roll.helpTags, roll.hinderTags, {confirm: true, cancel: true}, burnedTags, roll.justificationNotes, false, roll.helpFromCharacterIdMap || new Map());
 
     const title = isReaction
       ? `Reviewing Reaction Roll #${rollId}${roll.reactionToRollId ? ` (to Roll #${roll.reactionToRollId})` : ''}`
       : `Reviewing Action Roll #${rollId}`;
 
+    const allCharactersForConfirm = CharacterStorage.getAllCharacters(guildId);
+    
     const displayData = RollView.buildRollDisplays(
       roll.helpTags, 
       roll.hinderTags, 
@@ -189,6 +193,8 @@ export class RollConfirmCommand extends Command {
         descriptionText: `**Player:** <@${roll.creatorId}>`,
         narrationLink: roll.narrationLink,
         justificationNotes: roll.justificationNotes,
+        helpFromCharacterIdMap: roll.helpFromCharacterIdMap || new Map(),
+        allCharacters: allCharactersForConfirm,
       }
     );
 

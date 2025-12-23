@@ -29,6 +29,25 @@ export class CharacterStorage {
   }
 
   /**
+   * Get all characters in a guild
+   * @param {string} guildId - Discord guild ID
+   * @returns {Array} Array of character objects
+   */
+  static getAllCharacters(guildId) {
+    const db = getDbForGuild(guildId);
+    const stmt = db.prepare(`
+      SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url, fellowship_id
+      FROM characters
+      ORDER BY user_id, id
+    `);
+    
+    const characters = stmt.all();
+    
+    // Load related data for each character
+    return characters.map(char => this.loadCharacterRelations(guildId, char));
+  }
+
+  /**
    * Load all related data for a character
    * @param {string} guildId - Discord guild ID
    * @param {Object} character - Base character object

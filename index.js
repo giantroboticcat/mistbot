@@ -77,6 +77,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await RollHandler.handleRollSubmit(interaction, client);
     } else if (interaction.customId.startsWith('roll_edit_justification_')) {
       await RollHandler.handleEditJustification(interaction, client);
+    } else if (interaction.customId.startsWith('roll_help_action_cancel_') || interaction.customId.startsWith('roll_remove_help_action_cancel_')) {
+      await RollHandler.handleHelpActionCancel(interaction, client);
+    } else if (interaction.customId.startsWith('roll_help_action_')) {
+      await RollHandler.handleHelpAction(interaction, client);
+    } else if (interaction.customId.startsWith('roll_remove_help_action_') && !interaction.customId.includes('_select_')) {
+      await RollHandler.handleRemoveHelpAction(interaction, client);
     } else if (interaction.customId.startsWith('roll_reconfirm_') && interaction.customId.includes('_cancel_')) {
       await RollHandler.handleRollReconfirmCancel(interaction, client);
     } else if (interaction.customId.startsWith('roll_reconfirm_')) {
@@ -125,6 +131,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await CharacterHandler.handleStatusesEditSelect(interaction, client);
     } else if (interaction.customId.startsWith('narrator_guide_select_')) {
       await NarratorGuideHandler.handleNarratorGuideSelect(interaction, client);
+    } else if (interaction.customId.startsWith('roll_help_character_')) {
+      await RollHandler.handleHelpCharacterSelect(interaction, client);
+    } else if (interaction.customId.startsWith('roll_help_tag_')) {
+      await RollHandler.handleHelpTagSelect(interaction, client);
+    } else if (interaction.customId.startsWith('roll_remove_help_action_select_')) {
+      await RollHandler.handleRemoveHelpActionSelect(interaction, client);
     } else if (interaction.customId.startsWith('roll_help_page_') || interaction.customId.startsWith('roll_hinder_page_')) {
       await RollHandler.handleRollPageSelect(interaction, client);
     } else if (interaction.customId.startsWith('roll_burn_')) {
