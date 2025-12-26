@@ -1,5 +1,6 @@
 import { getDbForGuild } from './Database.js';
 import RollStatus from '../constants/RollStatus.js';
+import { RollTagEntityConverter } from './RollTagEntityConverter.js';
 
 /**
  * Storage utility for managing roll proposals
@@ -46,10 +47,12 @@ export class RollStorage {
       
       const rollId = result.lastInsertRowid;
       
-      // Insert help tags
+      // Convert tag strings to entity IDs and insert
       const insertTag = db.prepare(`
-        INSERT INTO roll_tags (roll_id, tag, tag_type, is_burned)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO roll_tags (
+          roll_id, tag_type, is_burned, help_from_character_id, parent_id, parent_type
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
       `);
       
       if (rollData.helpTags) {
@@ -61,10 +64,30 @@ export class RollStorage {
           ? rollData.burnedTags 
           : new Set(rollData.burnedTags || []);
         
-        helpTagsArray.forEach(tag => {
-          const isBurned = burnedTagsSet.has(tag) ? 1 : 0;
-          insertTag.run(rollId, tag, 'help', isBurned);
-        });
+        const helpFromCharacterIdMap = rollData.helpFromCharacterIdMap || new Map();
+        
+        for (const tagString of helpTagsArray) {
+          const isBurned = burnedTagsSet.has(tagString) ? 1 : 0;
+          const helpFromCharId = helpFromCharacterIdMap.get(tagString) || null;
+          
+          const entityInfo = RollTagEntityConverter.parseTagString(
+            tagString, 
+            helpFromCharId || rollData.characterId, 
+            rollData.sceneId, 
+            guildId
+          );
+          
+          if (entityInfo) {
+            insertTag.run(
+              rollId,
+              'help',
+              isBurned,
+              helpFromCharId,
+              entityInfo.parent_id,
+              entityInfo.parent_type
+            );
+          }
+        }
       }
       
       // Insert hinder tags
@@ -73,9 +96,29 @@ export class RollStorage {
           ? Array.from(rollData.hinderTags) 
           : rollData.hinderTags;
         
-        hinderTagsArray.forEach(tag => {
-          insertTag.run(rollId, tag, 'hinder', 0);
-        });
+        const hinderFromCharacterIdMap = rollData.hinderFromCharacterIdMap || new Map();
+        
+        for (const tagString of hinderTagsArray) {
+          const hinderFromCharId = hinderFromCharacterIdMap.get(tagString) || null;
+          
+          const entityInfo = RollTagEntityConverter.parseTagString(
+            tagString, 
+            hinderFromCharId || rollData.characterId, 
+            rollData.sceneId, 
+            guildId
+          );
+          
+          if (entityInfo) {
+            insertTag.run(
+              rollId,
+              'hinder',
+              0,
+              hinderFromCharId,
+              entityInfo.parent_id,
+              entityInfo.parent_type
+            );
+          }
+        }
       }
       
       return rollId;
@@ -103,26 +146,43 @@ export class RollStorage {
       return null;
     }
     
-    // Load tags
+    // Load tags with entity IDs
     const tagsStmt = db.prepare(`
-      SELECT tag, tag_type, is_burned
+      SELECT 
+        tag_type, is_burned, help_from_character_id, parent_id, parent_type
       FROM roll_tags
       WHERE roll_id = ?
     `);
     
     const tags = tagsStmt.all(rollId);
     
-    roll.helpTags = new Set(
-      tags.filter(t => t.tag_type === 'help').map(t => t.tag)
-    );
+    // Convert entity IDs back to tag strings
+    const helpTags = new Set();
+    const hinderTags = new Set();
+    const burnedTags = new Set();
     
-    roll.hinderTags = new Set(
-      tags.filter(t => t.tag_type === 'hinder').map(t => t.tag)
-    );
+    for (const tag of tags) {
+      const entityInfo = {
+        parent_type: tag.parent_type,
+        parent_id: tag.parent_id
+      };
+      
+      const tagString = RollTagEntityConverter.entityToTagString(entityInfo, guildId);
+      if (tagString) {
+        if (tag.tag_type === 'help') {
+          helpTags.add(tagString);
+          if (tag.is_burned === 1) {
+            burnedTags.add(tagString);
+          }
+        } else {
+          hinderTags.add(tagString);
+        }
+      }
+    }
     
-    roll.burnedTags = new Set(
-      tags.filter(t => t.tag_type === 'help' && t.is_burned === 1).map(t => t.tag)
-    );
+    roll.helpTags = helpTags;
+    roll.hinderTags = hinderTags;
+    roll.burnedTags = burnedTags;
     
     // Map snake_case to camelCase for JavaScript conventions
     return {
@@ -198,28 +258,55 @@ export class RollStorage {
       
       // Update tags if provided
       if (updates.helpTags !== undefined || updates.hinderTags !== undefined || updates.burnedTags !== undefined) {
+        // Get roll to access character_id and scene_id
+        const rollStmt = db.prepare('SELECT character_id, scene_id FROM rolls WHERE id = ?');
+        const rollInfo = rollStmt.get(rollId);
+        
         // Delete existing tags
         db.prepare('DELETE FROM roll_tags WHERE roll_id = ?').run(rollId);
         
         // Insert new tags
         const insertTag = db.prepare(`
-          INSERT INTO roll_tags (roll_id, tag, tag_type, is_burned)
-          VALUES (?, ?, ?, ?)
+          INSERT INTO roll_tags (
+            roll_id, tag_type, is_burned, help_from_character_id, parent_id, parent_type
+          )
+          VALUES (?, ?, ?, ?, ?, ?)
         `);
         
         const burnedTagsSet = updates.burnedTags instanceof Set 
           ? updates.burnedTags 
           : new Set(updates.burnedTags || []);
         
+        const helpFromCharacterIdMap = updates.helpFromCharacterIdMap || new Map();
+        const hinderFromCharacterIdMap = updates.hinderFromCharacterIdMap || new Map();
+        
         if (updates.helpTags) {
           const helpTagsArray = updates.helpTags instanceof Set 
             ? Array.from(updates.helpTags) 
             : updates.helpTags;
           
-          helpTagsArray.forEach(tag => {
-            const isBurned = burnedTagsSet.has(tag) ? 1 : 0;
-            insertTag.run(rollId, tag, 'help', isBurned);
-          });
+          for (const tagString of helpTagsArray) {
+            const isBurned = burnedTagsSet.has(tagString) ? 1 : 0;
+            const helpFromCharId = helpFromCharacterIdMap.get(tagString) || null;
+            
+            const entityInfo = RollTagEntityConverter.parseTagString(
+              tagString, 
+              helpFromCharId || rollInfo.character_id, 
+              rollInfo.scene_id, 
+              guildId
+            );
+            
+            if (entityInfo) {
+              insertTag.run(
+                rollId,
+                'help',
+                isBurned,
+                helpFromCharId,
+                entityInfo.parent_id,
+                entityInfo.parent_type
+              );
+            }
+          }
         }
         
         if (updates.hinderTags) {
@@ -227,9 +314,27 @@ export class RollStorage {
             ? Array.from(updates.hinderTags) 
             : updates.hinderTags;
           
-          hinderTagsArray.forEach(tag => {
-            insertTag.run(rollId, tag, 'hinder', 0);
-          });
+          for (const tagString of hinderTagsArray) {
+            const hinderFromCharId = hinderFromCharacterIdMap.get(tagString) || null;
+            
+            const entityInfo = RollTagEntityConverter.parseTagString(
+              tagString, 
+              hinderFromCharId || rollInfo.character_id, 
+              rollInfo.scene_id, 
+              guildId
+            );
+            
+            if (entityInfo) {
+              insertTag.run(
+                rollId,
+                'hinder',
+                0,
+                hinderFromCharId,
+                entityInfo.parent_id,
+                entityInfo.parent_type
+              );
+            }
+          }
         }
       }
     });
