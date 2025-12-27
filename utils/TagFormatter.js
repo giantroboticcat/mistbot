@@ -7,6 +7,11 @@ export class TagFormatter {
   static BOLD_GREEN = '\x1b[1;32m';
   static ORANGE_BACKGROUND = '\x1b[0;41m';
   static RESET = '\x1b[0m';
+  
+  // Circle emojis for tag type indicators
+  static YELLOW_CIRCLE = '🟡';  // Yellow circle for tags
+  static GREEN_CIRCLE = '🟢';   // Green circle for status
+  static ORANGE_CIRCLE = '🟠';  // Orange circle for weakness
 
   /**
    * Format a single tag with bold yellow text
@@ -249,6 +254,65 @@ export class TagFormatter {
     }
     
     return `\`\`\`ansi\n${lines.join('\n')}\n\`\`\``;
+  }
+
+  /**
+   * Get a colored circle indicator based on tag type
+   * @param {string} type - Type of tag: 'tag', 'status', or 'weakness'
+   * @returns {string} Colored circle character
+   */
+  static getTypeCircle(type) {
+    switch (type) {
+      case 'tag':
+        return this.YELLOW_CIRCLE;
+      case 'status':
+        return this.GREEN_CIRCLE;
+      case 'weakness':
+        return this.ORANGE_CIRCLE;
+      default:
+        return this.YELLOW_CIRCLE; // Default to yellow for tags
+    }
+  }
+
+  /**
+   * Format a tag item with a colored circle prefix based on type
+   * @param {string} formattedText - Already formatted tag text (with ANSI codes)
+   * @param {string} type - Type of tag: 'tag', 'status', or 'weakness'
+   * @param {Object} options - Optional formatting options
+   * @param {string} options.characterName - Character name to append "(From CharacterName)" if provided
+   * @returns {string} Formatted tag with colored circle prefix
+   */
+  static formatTagWithCircle(formattedText, type, options = {}) {
+    const circle = this.getTypeCircle(type);
+    let result = formattedText;
+    
+    // Add "(From CharacterName)" if character name is provided
+    if (options.characterName) {
+      result += ` (From ${options.characterName})`;
+    }
+    
+    return `${circle} ${result}`;
+  }
+
+  /**
+   * Helper function to get character name from tag value and character maps
+   * @param {string} tagValue - The tag value to look up
+   * @param {Map} characterIdMap - Map of tagValue -> characterId
+   * @param {Array} allCharacters - Array of all characters
+   * @returns {string|null} Character name if found, null otherwise
+   */
+  static getCharacterNameFromTag(tagValue, characterIdMap, allCharacters) {
+    if (!tagValue || !characterIdMap || !characterIdMap.has(tagValue)) {
+      return null;
+    }
+    
+    const characterId = characterIdMap.get(tagValue);
+    if (!characterId || !allCharacters || allCharacters.length === 0) {
+      return null;
+    }
+    
+    const character = allCharacters.find(char => char.id === characterId);
+    return character ? character.name : null;
   }
 }
 

@@ -85,10 +85,10 @@ export class RollAmendCommand extends Command {
     
     // Exclude burned tags from roll selection (they can't be used until refreshed)
     // Collect all available tags for help dropdown (exclude burned tags)
-    const helpOptions = RollView.collectHelpTags(character, roll.sceneId, StoryTagStorage, false, guildId);
+    const helpOptions = RollView.collectTags(character, roll.sceneId, StoryTagStorage, false, guildId);
     
     // Collect all available tags + weaknesses for hinder dropdown (exclude burned tags)
-    const hinderOptions = RollView.collectHinderTags(character, roll.sceneId, StoryTagStorage, false, guildId);
+    const hinderOptions = RollView.collectTags(character, roll.sceneId, StoryTagStorage, false, guildId, false);
     
     // Pre-populate with existing tags
     const initialHelpTags = new Set(roll.helpTags || []);
@@ -115,11 +115,19 @@ export class RollAmendCommand extends Command {
       reactionToRollId: roll.reactionToRollId || null,
       originalStatus: roll.status, // Store original status to reset if needed
       helpFromCharacterIdMap: roll.helpFromCharacterIdMap || new Map(),
+      hinderFromCharacterIdMap: roll.hinderFromCharacterIdMap || new Map(),
     });
 
-    const interactiveComponents = RollView.buildRollInteractives(rollKey, helpOptions, hinderOptions, 0, 0, initialHelpTags, initialHinderTags, {submit: true, cancel: true}, initialBurnedTags, roll.justificationNotes || "", true, roll.helpFromCharacterIdMap || new Map());
-    const allCharacters = CharacterStorage.getAllCharacters(guildId);
-    const displayData = RollView.buildRollDisplays(initialHelpTags, initialHinderTags, roll.description, true, initialBurnedTags, { narrationLink: roll.narrationLink, showJustificationPlaceholder: true, helpFromCharacterIdMap: roll.helpFromCharacterIdMap || new Map(), allCharacters: allCharacters });
+    const interactiveComponents = RollView.buildRollInteractives(rollKey, helpOptions, hinderOptions, 0, 0, initialHelpTags, initialHinderTags, {submit: true, cancel: true}, initialBurnedTags, roll.justificationNotes || "", true, roll.helpFromCharacterIdMap || new Map(), roll.hinderFromCharacterIdMap || new Map());
+   const tempRollState = {
+      helpTags: initialHelpTags,
+      hinderTags: initialHinderTags,
+      description: roll.description,
+      burnedTags: initialBurnedTags,
+      characterId: roll.characterId,
+      sceneId: roll.sceneId
+    };
+    const displayData = RollView.buildRollDisplays(tempRollState, { showJustificationPlaceholder: true, guildId: guildId });
     const allComponents = combineRollComponents(displayData, interactiveComponents);
     
     // Add header message as a container component (required when using IsComponentsV2)

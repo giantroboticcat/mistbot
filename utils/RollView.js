@@ -1,6 +1,12 @@
-import { ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ButtonBuilder, ButtonStyle, MessageFlags, ContainerBuilder, TextDisplayBuilder } from 'discord.js';
+import { ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ButtonBuilder, ButtonStyle, MessageFlags, ContainerBuilder, TextDisplayBuilder, ContextMenuCommandBuilder } from 'discord.js';
 import { TagFormatter } from './TagFormatter.js';
 import { Validation } from './Validation.js';
+import { RollTagEntityConverter } from './RollTagEntityConverter.js';
+import { CharacterStorage } from './CharacterStorage.js';
+import { StoryTagStorage } from './StoryTagStorage.js';
+import { FellowshipStorage } from './FellowshipStorage.js';
+import { TagEntity } from './TagEntity.js';
+import { RollTagParentType } from '../constants/RollTagParentType.js';
 
 /**
  * Shared utilities for displaying and formatting roll information
@@ -8,151 +14,116 @@ import { Validation } from './Validation.js';
 export class RollView {
   /**
    * Format roll proposal content with selected tags using Components V2
-   * @param {Set<string>} helpTags - Set of help tag values (with prefixes)
-   * @param {Set<string>} hinderTags - Set of hinder tag values (with prefixes)
-   * @param {string|null} description - Optional description of what the roll is for
-   * @param {boolean} showPower - Whether to show the power modifier
-   * @param {Set<string>} burnedTags - Set of burned tag values (with prefixes)
-   * @param {Object} options - Additional options
+   * @param {Object} rollState - Roll state object containing all roll data
+   * @param {Set<TagEntity>} rollState.helpTags - Set of help tag values (with prefixes)
+   * @param {Set<TagEntity>} rollState.hinderTags - Set of hinder tag values (with prefixes)
+   * @param {string|null} rollState.description - Optional description of what the roll is for
+   * @param {Set<string>} rollState.burnedTags - Set of burned tag values (with prefixes)
+   * @param {number} rollState.characterId - Character ID for the roll
+   * @param {Object} options - Additional display options
    * @param {string} options.title - Custom title
    * @param {string} options.footer - Footer text
    * @param {string} options.descriptionText - Additional text to insert after title
-   * @param {Map} options.helpFromCharacterIdMap - Map of tagValue -> { characterId, userId } for help action tags
-   * @param {Array} options.allCharacters - Array of all characters for looking up character names
+   * @param {string|null} rollState.narrationLink - Narration link
+   * @param {string|null} rollState.justificationNotes - Justification notes
+   * @param {boolean} options.showJustificationPlaceholder - Whether to show justification placeholder (defaults to !justificationNotes)
+   * @param {string} options.guildId - Guild ID for database access (used to fetch allCharacters if not provided)
+   * @param {boolean} options.showPower - Whether to show the power modifier (default: true)
    * @returns {Object} Object with components array and IsComponentsV2 flag
    */
-  static buildRollDisplays(helpTags, hinderTags, description = null, showPower = true, burnedTags = new Set(), options = {}) {
-    const { helpFromCharacterIdMap = new Map(), allCharacters = [] } = options;
+  static buildRollDisplays(rollState, options = {}) {
+    const { 
+      helpTags = new Set(), 
+      hinderTags = new Set(), 
+      description = null, 
+      burnedTags = new Set(),
+      characterId = null,
+      narrationLink = null,
+      justificationNotes = null
+    } = rollState;
     
-    // Build a map of character identifiers to character names
-    const characterNameMap = new Map();
-    allCharacters.forEach(char => {
-      characterNameMap.set(`${char.id}:${char.user_id}`, char.name);
-    });
+    const { 
+      guildId = null,
+      showPower = true,
+      showJustificationPlaceholder = !justificationNotes,
+    } = options;
     
-    // Parse help tags (extract actual names)
-    const helpItemNames = Array.from(helpTags).map(value => {
-      // Remove prefix (theme:, tag:, backpack:, etc.)
-      const parts = value.split(':');
-      return parts.length > 1 ? parts.slice(1).join(':') : value;
-    });
-    
-    // Build a map of tag names to their original tagValue for looking up helpFromCharacterIdMap
-    const tagNameToValueMap = new Map();
-    Array.from(helpTags).forEach(tagValue => {
-      const parts = tagValue.split(':');
-      const tagName = parts.length > 1 ? parts.slice(1).join(':') : tagValue;
-      tagNameToValueMap.set(tagName, tagValue);
-    });
-
-    // Parse hinder tags (extract actual names, separate weaknesses)
-    const hinderItemNames = [];
-    const hinderWeaknesses = [];
-    
-    Array.from(hinderTags).forEach(value => {
-      const parts = value.split(':');
-      const name = parts.length > 1 ? parts.slice(1).join(':') : value;
-      
-      if (value.startsWith('weakness:') || value.startsWith('fellowshipWeakness:')) {
-        hinderWeaknesses.push(name);
-      } else {
-        hinderItemNames.push(name);
-      }
-    });
-
-    // Categorize help items
-    const helpCategorized = this.categorizeItems(helpItemNames);
-    
-    // Categorize hinder items
-    const hinderCategorized = this.categorizeItems(hinderItemNames);
-
     // Calculate modifier using status values and burned tags
-    const modifier = this.calculateModifier(helpTags, hinderTags, burnedTags);
+    if (!guildId) {
+      throw new Error('guildId is required in buildRollDisplays options');
+    }
+    const modifier = this.calculateModifier(helpTags, hinderTags, burnedTags, guildId);
     const modifierText = modifier >= 0 ? `+${modifier}` : `${modifier}`;
 
-    // Identify burned help tags and add fire emojis around them
-    const burnedHelpTagNames = new Set();
-    Array.from(helpTags).forEach(tagValue => {
-      if (burnedTags.has(tagValue)) {
-        const parts = tagValue.split(':');
-        const tagName = parts.length > 1 ? parts.slice(1).join(':') : tagValue;
-        burnedHelpTagNames.add(tagName);
-      }
-    });
 
     // Format help items (tags, statuses) with fire emojis around burned tags
-    const helpParts = [];
-    if (helpCategorized.tags.length > 0 || helpCategorized.statuses.length > 0) {
+    // One tag per line with colored circle prefix
+    const helpLines = [];
+    if (helpTags.size > 0) {
       // Format tags with fire emojis for burned ones and "(From CHARACTERNAME)" for help action tags
-      const formattedTags = helpCategorized.tags.map(tag => {
-        const isBurned = burnedHelpTagNames.has(tag);
-        const formatted = TagFormatter.formatStoryTag(tag);
+      for (const tagEntity of helpTags) {
+        const tagData = tagEntity.getTagData(guildId);
+        if (!tagData) continue;
+
+        const isBurned = tagEntity.isBurned(burnedTags);
+        
+        let formatted;
+        if (tagData.type === 'status') {
+          formatted = TagFormatter.formatStatus(tagData.name);
+        } else {
+          formatted = TagFormatter.formatStoryTag(tagData.name);
+        }
+        
         let result = isBurned ? `🔥 ${formatted} 🔥` : formatted;
         
-        // Check if this tag is from another player
-        const tagValue = tagNameToValueMap.get(tag);
-        console.log(tagValue, helpFromCharacterIdMap);
-        if (tagValue && helpFromCharacterIdMap.has(tagValue)) {
-          const helpFrom = helpFromCharacterIdMap.get(tagValue);
-          if (helpFrom && typeof helpFrom === 'object') {
-            const charKey = `${helpFrom.characterId}:${helpFrom.userId}`;
-            const characterName = characterNameMap.get(charKey);
-            if (characterName) {
-              result += ` (From ${characterName})`;
-            }
-          }
+        // Check if this tag is from another character
+        let characterName = null;
+        if (tagData.characterId && tagData.characterId !== characterId && guildId) {
+          const character = CharacterStorage.getCharacterById(guildId, tagData.characterId);
+          characterName = character ? character.name : null;
         }
         
-        return result;
-      });
-      
-      // Format statuses (statuses can't be burned, but can be from other players)
-      const formattedStatuses = helpCategorized.statuses.map(status => {
-        let formatted = TagFormatter.formatStatus(status);
-        
-        // Check if this status is from another player
-        const tagValue = tagNameToValueMap.get(status);
-        if (tagValue && helpFromCharacterIdMap.has(tagValue)) {
-          const helpFrom = helpFromCharacterIdMap.get(tagValue);
-          if (helpFrom && typeof helpFrom === 'object') {
-            const charKey = `${helpFrom.characterId}:${helpFrom.userId}`;
-            const characterName = characterNameMap.get(charKey);
-            if (characterName) {
-              formatted += ` (From ${characterName})`;
-            }
-          }
-        }
-        
-        return formatted;
-      });
-      
-      
-      if (formattedTags.length > 0) {
-        helpParts.push(formattedTags.join(', '));
+        // Add colored circle prefix for tags, with character name if from another character
+        helpLines.push(TagFormatter.formatTagWithCircle(result, tagData.type, { characterName }));
       }
-      if (formattedStatuses.length > 0) {
-        helpParts.push(formattedStatuses.join(', '));
-      }   
-
     }
-    const helpFormatted = helpParts.length > 0
-      ? `\`\`\`ansi\n${helpParts.join(', ')}\n\`\`\``
+    
+    const helpFormatted = helpLines.length > 0
+      ? `\`\`\`ansi\n${helpLines.join('\n')}\n\`\`\``
       : '```\nNone\n```';
     
     // Format hinder items (tags, statuses, plus weaknesses)
-    const hinderParts = [];
-    if (hinderCategorized.tags.length > 0) {
-      hinderParts.push(TagFormatter.formatStoryTags(hinderCategorized.tags));
-    }
-    if (hinderCategorized.statuses.length > 0) {
-      hinderParts.push(TagFormatter.formatStatuses(hinderCategorized.statuses));
-    }
-    if (hinderWeaknesses.length > 0) {
-      hinderParts.push(TagFormatter.formatWeaknesses(hinderWeaknesses));
+    // One tag per line with colored circle prefix
+    const hinderLines = [];
+    
+    if (hinderTags.size > 0) {
+      for (const tagEntity of hinderTags) {
+        const tagData = tagEntity.getTagData(guildId);
+        if (!tagData) continue;
+        
+        let formatted;
+        if (tagData.type === 'weakness') {
+          formatted = TagFormatter.formatWeakness(tagData.name);
+        } else if (tagData.type === 'status') {
+          formatted = TagFormatter.formatStatus(tagData.name);
+        } else {
+          formatted = TagFormatter.formatStoryTag(tagData.name);
+        }
+        
+        // Check if this tag is from another character
+        let characterName = null;
+        if (tagData.characterId && tagData.characterId !== characterId && guildId) {
+          const character = CharacterStorage.getCharacterById(guildId, tagData.characterId);
+          characterName = character ? character.name : null;
+        }
+        
+        // Add colored circle prefix for tags, with character name if from another character
+        hinderLines.push(TagFormatter.formatTagWithCircle(formatted, tagData.type, { characterName }));
+      }
     }
     
-    const hinderFormatted = hinderParts.length > 0
-      ? `\`\`\`ansi\n${hinderParts.join(', ')}\n\`\`\``
+    const hinderFormatted = hinderLines.length > 0
+      ? `\`\`\`ansi\n${hinderLines.join('\n')}\n\`\`\``
       : '```\nNone\n```';
     
     // Create a container for the roll display
@@ -173,20 +144,20 @@ export class RollView {
     }
     
     // Add narration link if provided
-    if (options.narrationLink) {
+    if (narrationLink) {
       descriptionContainer.addTextDisplayComponents(
         new TextDisplayBuilder()
-          .setContent(`**Narration:** ${options.narrationLink}`)
-    );
+          .setContent(`**Narration:** ${narrationLink}`)
+      );
     }
     
     // Add justification notes if provided (display in proposal view)
-    if (options.justificationNotes) {
+    if (justificationNotes) {
       descriptionContainer.addTextDisplayComponents(
         new TextDisplayBuilder()
-          .setContent(`**Justification Notes:**\n${options.justificationNotes}`)
+          .setContent(`**Justification Notes:**\n${justificationNotes}`)
       );
-    } else if (options.showJustificationPlaceholder) {
+    } else if (showJustificationPlaceholder) {
       // Just show the header - the button will make it obvious what to do
       descriptionContainer.addTextDisplayComponents(
         new TextDisplayBuilder()
@@ -240,8 +211,8 @@ export class RollView {
    * @param {Array} hinderOptions - All available hinder tag options
    * @param {number} helpPage - Current help page (0-indexed)
    * @param {number} hinderPage - Current hinder page (0-indexed)
-   * @param {Set<string>} selectedHelpTags - Currently selected help tags
-   * @param {Set<string>} selectedHinderTags - Currently selected hinder tags
+   * @param {Set<TagEntity>} selectedHelpTags - Currently selected help tags
+   * @param {Set<TagEntity>} selectedHinderTags - Currently selected hinder tags
    * @param {object} buttons - Array of which buttons to add to the submit rows
    * @param {boolean} buttons.submit
    * @param {boolean} buttons.confirm
@@ -249,7 +220,7 @@ export class RollView {
    * @param {Set<string>} burnedTags - Currently selected tags to burn
    * @returns {Array} Array of ActionRowBuilder components
    */
-  static buildRollInteractives(rollKey, helpOptions, hinderOptions, helpPage, hinderPage, selectedHelpTags = new Set(), selectedHinderTags = new Set(), buttons = {}, burnedTags = new Set(), justificationNotes = null, showJustificationButton = true, helpFromCharacterIdMap = new Map()) {
+  static buildRollInteractives(rollKey, helpOptions, hinderOptions, helpPage, hinderPage, selectedHelpTags = new Set(), selectedHinderTags = new Set(), buttons = {}, burnedTags = new Set(), justificationNotes = null, showJustificationButton = true, helpFromCharacterIdMap = new Map(), hinderFromCharacterIdMap = new Map()) {
     // Show all options, but mark selected ones as default
     const helpPages = Math.ceil(helpOptions.length / 25);
     const hinderPages = Math.ceil(hinderOptions.length / 25);
@@ -264,10 +235,16 @@ export class RollView {
     const submitRows = [];
     
     // Help tag select menu (current page) - show all options, mark selected ones
+    // Convert TagEntity objects to their encoded JSON strings for comparison
+    const selectedHelpTagValues = new Set();
+    for (const tag of selectedHelpTags) {
+        selectedHelpTagValues.add(this.encodeEntityValue(tag.parentType, tag.parentId, tag.characterId));
+    }
+    
     const helpStart = clampedHelpPage * 25;
     const helpEnd = Math.min(helpStart + 25, helpOptions.length);
     const helpPageOptions = helpOptions.slice(helpStart, helpEnd).map(opt => {
-      const isSelected = selectedHelpTags.has(opt.data.value);
+      const isSelected = selectedHelpTagValues.has(opt.data.value);
       return new StringSelectMenuOptionBuilder()
         .setLabel(opt.data.label)
         .setValue(opt.data.value)
@@ -292,19 +269,6 @@ export class RollView {
       .setStyle(ButtonStyle.Primary);
     
     const buttonComponents = [helpActionButton];
-    
-    // Add "Remove Help Action" button if there are help action tags
-    const helpActionTagsForButtons = Array.from(selectedHelpTags).filter(tagValue => {
-      return helpFromCharacterIdMap.has(tagValue);
-    });
-    
-    if (helpActionTagsForButtons.length > 0) {
-      const removeHelpActionButton = new ButtonBuilder()
-        .setCustomId(`roll_remove_help_action_${rollKey}`)
-        .setLabel('Remove Other Player Tags')
-        .setStyle(ButtonStyle.Danger);
-      buttonComponents.push(removeHelpActionButton);
-    }
     
     helpRows.push(new ActionRowBuilder().setComponents(buttonComponents));
     
@@ -331,37 +295,66 @@ export class RollView {
     
     // Burn selection dropdown - only show selected help tags that are burnable (non-status tags, non-fellowship tags, non-help-action tags)
     // Put on its own row (one select per row)
-    const burnableTags = Array.from(selectedHelpTags).filter(tagValue => {
-      // Help action tags (tags from other characters) cannot be burned
-      if (helpFromCharacterIdMap.has(tagValue)) {
-        return false;
+    const burnableTags = [];
+    for (const tag of selectedHelpTags) {
+      if (tag instanceof TagEntity) {
+        // Help action tags (tags from other characters) cannot be burned
+        if (helpFromCharacterIdMap.has(tag)) {
+          continue;
+        }
+        // Fellowship tags cannot be burned
+        if (tag.parentType === RollTagParentType.FELLOWSHIP_TAG) {
+          continue;
+        }
+        // Only non-status tags can be burned - need to check if it's a status
+        // For now, we'll need to convert to tag string to check, or add a method to TagEntity
+        // For simplicity, we'll encode the entity and check against options
+        const encodedValue = this.encodeEntityValue(tag.parentType, tag.parentId, tag.characterId);
+        const option = helpOptions.find(opt => opt.data.value === encodedValue);
+        if (option) {
+          const label = option.data.label;
+          // Check if it's a status by looking for green circle emoji
+          if (!label.includes('🟢')) {
+            burnableTags.push({ tag, encodedValue, label: label.replace(' 🔥', '') });
+          }
+        }
+      } else {
+        // Fallback for string values (backward compatibility)
+        if (helpFromCharacterIdMap.has(tag)) {
+          continue;
+        }
+        if (tag.startsWith('fellowship:')) {
+          continue;
+        }
+        const parts = tag.split(':');
+        const tagName = parts.length > 1 ? parts.slice(1).join(':') : tag;
+        if (!Validation.validateStatus(tagName).valid) {
+          burnableTags.push({ tag, encodedValue: tag, label: tag });
+        }
       }
-      // Fellowship tags cannot be burned
-      if (tagValue.startsWith('fellowship:')) {
-        return false;
-      }
-      const parts = tagValue.split(':');
-      const tagName = parts.length > 1 ? parts.slice(1).join(':') : tagValue;
-      // Only non-status tags can be burned
-      return !Validation.validateStatus(tagName).valid;
-    });
+    }
     
     if (burnableTags.length > 0) {
       // Find the labels for burnable tags from helpOptions
-      const burnOptions = burnableTags.map(tagValue => {
-        const option = helpOptions.find(opt => opt.data.value === tagValue);
-        const label = option ? option.data.label.replace(' 🔥', '') : tagValue; // Remove existing burn indicator
-        const isBurned = burnedTags.has(tagValue);
+      const burnOptions = burnableTags.map(({ tag, encodedValue, label }) => {
+        const option = helpOptions.find(opt => opt.data.value === encodedValue);
+        const displayLabel = option ? option.data.label.replace(' 🔥', '') : label;
+        const isBurned = burnedTags.has ? burnedTags.has(tag) : (burnedTags instanceof Set && Array.from(burnedTags).some(bt => 
+          (bt instanceof TagEntity && bt.equals(tag)) || bt === tag
+        ));
         return new StringSelectMenuOptionBuilder()
-          .setLabel(`${isBurned ? '🔥 ' : ''}${label}`)
-          .setValue(tagValue)
+          .setLabel(`${isBurned ? '🔥 ' : ''}${displayLabel}`)
+          .setValue(encodedValue)
           .setDescription('Burn this tag for +3 modifier (instead of +1)')
           .setDefault(isBurned);
       });
       
       // Add burn selection dropdown (first page only for now, will be enhanced if needed)
       const burnPageOptions = burnOptions.slice(0, 25).map(opt => {
-        const isBurned = burnedTags.has(opt.data.value);
+        const tagValue = opt.data.value;
+        const isBurned = burnedTags.has ? burnedTags.has(tagValue) : (burnedTags instanceof Set && Array.from(burnedTags).some(bt => 
+          (bt instanceof TagEntity && bt.getKey && bt.getKey() === RollView.decodeEntityValue(tagValue)?.getKey()) || bt === tagValue
+        ));
         return new StringSelectMenuOptionBuilder()
           .setLabel(opt.data.label)
           .setValue(opt.data.value)
@@ -382,10 +375,21 @@ export class RollView {
     helpRows.helpFromCharacterIdMap = helpFromCharacterIdMap;
     
     // Hinder tag select menu (current page) - show all options, mark selected ones
+    // Convert TagEntity objects to their encoded JSON strings for comparison
+    const selectedHinderTagValues = new Set();
+    for (const tag of selectedHinderTags) {
+      if (tag instanceof TagEntity) {
+        selectedHinderTagValues.add(this.encodeEntityValue(tag.parentType, tag.parentId, tag.characterId));
+      } else {
+        // Fallback for string values (backward compatibility)
+        selectedHinderTagValues.add(tag);
+      }
+    }
+    
     const hinderStart = clampedHinderPage * 25;
     const hinderEnd = Math.min(hinderStart + 25, hinderOptions.length);
     const hinderPageOptions = hinderOptions.slice(hinderStart, hinderEnd).map(opt => {
-      const isSelected = selectedHinderTags.has(opt.data.value);
+      const isSelected = selectedHinderTagValues.has(opt.data.value);
       return new StringSelectMenuOptionBuilder()
         .setLabel(opt.data.label)
         .setValue(opt.data.value)
@@ -402,6 +406,16 @@ export class RollView {
     
     // Main hinder dropdown on its own row (one select per row)
     hinderRows.push(new ActionRowBuilder().setComponents([hinderSelect]));
+    
+    // Add "Hinder Action" and "Remove Hinder Action" buttons on the same row
+    const hinderActionButton = new ButtonBuilder()
+      .setCustomId(`roll_hinder_action_${rollKey}`)
+      .setLabel('Add Other Player Tags')
+      .setStyle(ButtonStyle.Primary);
+    
+    const hinderButtonComponents = [hinderActionButton];
+    
+    hinderRows.push(new ActionRowBuilder().setComponents(hinderButtonComponents));
     
     // Hinder page selector on its own row if needed
     if (hinderPages > 1) {
@@ -498,14 +512,38 @@ export class RollView {
     return `${icon} ${tagName}`;
   }
 
-  static collectHelpTags(character, sceneId, StoryTagStorage, includeBurned = false, guildId = null) {
+  /**
+   * Encode TagEntity info as JSON string for use in Discord select menu values
+   * @param {string} parentType - RollTagParentType constant
+   * @param {number} parentId - Entity ID
+   * @param {number|null} characterId - Character ID (if applicable)
+   * @returns {string} JSON-encoded entity info
+   */
+  static encodeEntityValue(parentType, parentId, characterId = null) {
+    return JSON.stringify({ parentType, parentId, characterId });
+  }
+
+  /**
+   * Decode TagEntity from JSON string (from Discord select menu value)
+   * @param {string} encodedValue - JSON-encoded entity info
+   * @returns {TagEntity|null} TagEntity or null if invalid
+   */
+  static decodeEntityValue(encodedValue) {
+    try {
+      const { parentType, parentId, characterId } = JSON.parse(encodedValue);
+      return new TagEntity(parentType, parentId, characterId);
+    } catch (e) {
+      // Fallback: try to parse as old tag string format
+      return null;
+    }
+  }
+
+  static collectTags(character, sceneId, StoryTagStorage, includeBurned = false, guildId = null, includeWeaknesses = false) {
     const options = [];
-    const seen = new Set();
 
     // Theme names (as tags) - yellow tag icon
     character.themes.forEach(theme => {
-      const tagValue = `theme:${theme.name}`;
-      if (theme.name && !seen.has(tagValue)) {
+      if (theme.name && theme.id) {
         const isBurned = theme.isBurned || false;
         // Skip if burned and not including burned tags
         if (!includeBurned && isBurned) {
@@ -513,172 +551,149 @@ export class RollView {
         }
         const isStatus = Validation.validateStatus(theme.name).valid;
         const icon = isStatus ? '🟢' : '🟡'; // Green for status, yellow for tag
+        const entityValue = this.encodeEntityValue(RollTagParentType.CHARACTER_THEME, theme.id, character.id);
         options.push(new StringSelectMenuOptionBuilder()
           .setLabel(`${icon} ${theme.name}${isBurned ? ' 🔥' : ''}`)
-          .setValue(tagValue)
+          .setValue(entityValue)
           .setDescription(`Theme: ${theme.name}${isBurned ? ' (Burned)' : ''}`));
-        seen.add(tagValue);
       }
-    });
-
-    // Theme tags - yellow tag icon, show which theme
-    character.themes.forEach(theme => {
       theme.tags.forEach(tagObj => {
         const tag = typeof tagObj === 'string' ? tagObj : tagObj.tag;
+        const tagId = typeof tagObj === 'object' && tagObj.id ? tagObj.id : null;
         const isBurned = typeof tagObj === 'object' ? (tagObj.isBurned || false) : false;
-        const tagValue = `tag:${tag}`;
-        if (!seen.has(tagValue)) {
+        if (tagId) {
           // Skip if burned and not including burned tags
           if (!includeBurned && isBurned) {
             return;
           }
+          const entityValue = this.encodeEntityValue(RollTagParentType.CHARACTER_THEME_TAG, tagId, character.id);
           options.push(new StringSelectMenuOptionBuilder()
             .setLabel(`🟡 ${tag}${isBurned ? ' 🔥' : ''}`)
-            .setValue(tagValue)
+            .setValue(entityValue)
             .setDescription(`Theme: ${theme.name}${isBurned ? ' (Burned)' : ''}`));
-          seen.add(tagValue);
         }
       });
     });
 
     // Backpack tags - yellow tag icon (cannot be burned, just deleted)
-    character.backpack.forEach(tag => {
-      const tagValue = `backpack:${tag}`;
-      if (!seen.has(tagValue)) {
-        const isStatus = Validation.validateStatus(tag).valid;
+    character.backpack.forEach(backpackItem => {
+      const item = typeof backpackItem === 'string' ? backpackItem : backpackItem.item;
+      const itemId = typeof backpackItem === 'object' && backpackItem.id ? backpackItem.id : null;
+      if (itemId) {
+        const isStatus = Validation.validateStatus(item).valid;
         const icon = isStatus ? '🟢' : '🟡'; // Green for status, yellow for tag
+        const entityValue = this.encodeEntityValue(RollTagParentType.CHARACTER_BACKPACK, itemId, character.id);
         options.push(new StringSelectMenuOptionBuilder()
-          .setLabel(`${icon} ${tag}`)
-          .setValue(tagValue)
+          .setLabel(`${icon} ${item}`)
+          .setValue(entityValue)
           .setDescription('Backpack Item'));
-        seen.add(tagValue);
       }
     });
 
     // Character story tags - yellow tag icon (cannot be burned, just deleted)
-    character.storyTags.forEach(tag => {
-      const tagValue = `story:${tag}`;
-      if (!seen.has(tagValue)) {
+    character.storyTags.forEach(storyTag => {
+      const tag = typeof storyTag === 'string' ? storyTag : storyTag.tag;
+      const tagId = typeof storyTag === 'object' && storyTag.id ? storyTag.id : null;
+      if (tagId) {
         const isStatus = Validation.validateStatus(tag).valid;
         const icon = isStatus ? '🟢' : '🟡'; // Green for status, yellow for tag
+        const entityValue = this.encodeEntityValue(RollTagParentType.CHARACTER_STORY_TAG, tagId, character.id);
         options.push(new StringSelectMenuOptionBuilder()
           .setLabel(`${icon} ${tag}`)
-          .setValue(tagValue)
+          .setValue(entityValue)
           .setDescription('Character Story Tag'));
-        seen.add(tagValue);
       }
     });
 
     // Character temp statuses - green status icon
     character.tempStatuses.forEach(statusObj => {
-      // Extract status name and format with power level
-      let statusDisplay;
-      if (typeof statusObj === 'string') {
-        statusDisplay = statusObj;
-      } else {
-        // Find highest power level
-        let highestPower = 0;
-        for (let p = 6; p >= 1; p--) {
-          if (statusObj.powerLevels && statusObj.powerLevels[p]) {
-            highestPower = p;
-            break;
-          }
-        }
-        statusDisplay = highestPower > 0 ? `${statusObj.status}-${highestPower}` : statusObj.status;
-      }
+      if (!statusObj.id) return; // Skip if no ID
       
-      if (!seen.has(`tempStatus:${statusDisplay}`)) {
-        options.push(new StringSelectMenuOptionBuilder()
-          .setLabel(`🟢 ${statusDisplay}`)
-          .setValue(`tempStatus:${statusDisplay}`)
-          .setDescription('Character Status'));
-        seen.add(`tempStatus:${statusDisplay}`);
+      // Extract status name and format with power level
+      // Find highest power level
+      let highestPower = 0;
+      for (let p = 6; p >= 1; p--) {
+        if (statusObj.powerLevels && statusObj.powerLevels[p]) {
+          highestPower = p;
+          break;
+        }
       }
+      let statusDisplay = highestPower > 0 ? `${statusObj.status}-${highestPower}` : statusObj.status;
+      const entityValue = this.encodeEntityValue(RollTagParentType.CHARACTER_STATUS, statusObj.id, character.id);
+      options.push(new StringSelectMenuOptionBuilder()
+        .setLabel(`🟢 ${statusDisplay}`)
+        .setValue(entityValue)
+        .setDescription('Character Status'));
     });
 
     // Scene tags - yellow tag icon
-    const sceneTags = guildId ? StoryTagStorage.getTags(guildId, sceneId) : [];
-    sceneTags.forEach(tag => {
-      const tagValue = `sceneTag:${tag}`;
-      if (!seen.has(tagValue)) {
-        // Scene tags can't be burned (they're not character-owned)
+    if (guildId) {
+      const sceneTags = StoryTagStorage.getTagsWithIds(guildId, sceneId);
+      sceneTags.forEach(row => {
+        const entityValue = this.encodeEntityValue(RollTagParentType.SCENE_TAG, row.id, null);
         options.push(new StringSelectMenuOptionBuilder()
-          .setLabel(`🟡 ${tag}`)
-          .setValue(tagValue)
+          .setLabel(`🟡 ${row.tag}`)
+          .setValue(entityValue)
           .setDescription('Scene Tag'));
-        seen.add(tagValue);
-      }
-    });
+      });
 
-    // Scene statuses - green status icon
-    const sceneStatuses = guildId ? StoryTagStorage.getStatuses(guildId, sceneId) : [];
-    sceneStatuses.forEach(status => {
-      const tagValue = `sceneStatus:${status}`;
-      if (!seen.has(tagValue)) {
-        // Scene statuses can't be burned (they're not character-owned)
+      // Scene statuses - green status icon
+      const sceneStatuses = StoryTagStorage.getStatusesWithIds(guildId, sceneId);
+      sceneStatuses.forEach(row => {
+        const entityValue = this.encodeEntityValue(RollTagParentType.SCENE_TAG, row.id, null);
         options.push(new StringSelectMenuOptionBuilder()
-          .setLabel(`🟢 ${status}`)
-          .setValue(tagValue)
+          .setLabel(`🟢 ${row.tag}`)
+          .setValue(entityValue)
           .setDescription('Scene Status'));
-        seen.add(tagValue);
-      }
-    });
+      });
+    }
 
     // Fellowship tags - yellow tag icon (cannot be burned)
     if (character.fellowship && character.fellowship.tags) {
-      character.fellowship.tags.forEach(tag => {
-        const tagValue = `fellowship:${tag}`;
-        if (!seen.has(tagValue)) {
+      character.fellowship.tags.forEach(fellowshipTag => {
+        const tag = typeof fellowshipTag === 'string' ? fellowshipTag : fellowshipTag.tag;
+        const tagId = typeof fellowshipTag === 'object' && fellowshipTag.id ? fellowshipTag.id : null;
+        if (tagId) {
+          const entityValue = this.encodeEntityValue(RollTagParentType.FELLOWSHIP_TAG, tagId, null);
           options.push(new StringSelectMenuOptionBuilder()
             .setLabel(`🟡 ${tag}`)
-            .setValue(tagValue)
+            .setValue(entityValue)
             .setDescription(`Fellowship: ${character.fellowship.name}`));
-          seen.add(tagValue);
         }
       });
     }
 
-    return options;
-  }
-
-  /**
-   * Collect all tags + weaknesses available for hindering a roll
-   * Includes: everything from help tags PLUS theme weaknesses
-   * @param {Object} character - Character object
-   * @param {string} sceneId - Scene ID
-   * @param {Object} StoryTagStorage - StoryTagStorage class
-   * @param {boolean} includeBurned - Whether to include burned tags (default: false)
-   */
-  static collectHinderTags(character, sceneId, StoryTagStorage, includeBurned = false, guildId = null) {
-    const options = this.collectHelpTags(character, sceneId, StoryTagStorage, includeBurned, guildId);
-    const seen = new Set(options.map(opt => opt.data.value));
-
-    // Add theme weaknesses - orange weakness icon, show which theme
-    // Weaknesses can't be burned
-    character.themes.forEach(theme => {
-      theme.weaknesses.forEach(weaknessObj => {
-        const weakness = typeof weaknessObj === 'string' ? weaknessObj : weaknessObj.tag;
-        if (!seen.has(`weakness:${weakness}`)) {
-          options.push(new StringSelectMenuOptionBuilder()
-            .setLabel(`🟠 ${weakness}`)
-            .setValue(`weakness:${weakness}`)
-            .setDescription(`Weakness: ${theme.name}`));
-          seen.add(`weakness:${weakness}`);
-        }
+    if (includeWeaknesses) {
+      // Add theme weaknesses - orange weakness icon, show which theme
+      // Weaknesses can't be burned
+      character.themes.forEach(theme => {
+        theme.weaknesses.forEach(weaknessObj => {
+          const weakness = typeof weaknessObj === 'string' ? weaknessObj : weaknessObj.tag;
+          const weaknessId = typeof weaknessObj === 'object' && weaknessObj.id ? weaknessObj.id : null;
+          if (weaknessId) {
+            const entityValue = this.encodeEntityValue(RollTagParentType.CHARACTER_THEME_TAG, weaknessId, character.id);
+            options.push(new StringSelectMenuOptionBuilder()
+              .setLabel(`🟠 ${weakness}`)
+              .setValue(entityValue)
+              .setDescription(`Weakness: ${theme.name}`));
+          }
+        });
       });
-    });
 
-    // Fellowship weaknesses - orange weakness icon (cannot be burned)
-    if (character.fellowship && character.fellowship.weaknesses) {
-      character.fellowship.weaknesses.forEach(weakness => {
-        if (!seen.has(`fellowshipWeakness:${weakness}`)) {
-          options.push(new StringSelectMenuOptionBuilder()
-            .setLabel(`🟠 ${weakness}`)
-            .setValue(`fellowshipWeakness:${weakness}`)
-            .setDescription(`Fellowship Weakness: ${character.fellowship.name}`));
-          seen.add(`fellowshipWeakness:${weakness}`);
-        }
-      });
+      // Fellowship weaknesses - orange weakness icon (cannot be burned)
+      if (character.fellowship && character.fellowship.weaknesses) {
+        character.fellowship.weaknesses.forEach(weaknessObj => {
+          const weakness = typeof weaknessObj === 'string' ? weaknessObj : weaknessObj.tag;
+          const weaknessId = typeof weaknessObj === 'object' && weaknessObj.id ? weaknessObj.id : null;
+          if (weaknessId) {
+            const entityValue = this.encodeEntityValue(RollTagParentType.FELLOWSHIP_TAG, weaknessId, null);
+            options.push(new StringSelectMenuOptionBuilder()
+              .setLabel(`🟠 ${weakness}`)
+              .setValue(entityValue)
+              .setDescription(`Fellowship Weakness: ${character.fellowship.name}`));
+          }
+        });
+      }
     }
 
     return options;
@@ -700,35 +715,40 @@ export class RollView {
    * Calculate modifier from selected tags
    * Only the highest status value is used per side, plus all non-status tags count as ±1
    * Burned tags give +3 instead of +1
-   * @param {Set<string>} helpTags - Set of help tag values (with prefixes)
-   * @param {Set<string>} hinderTags - Set of hinder tag values (with prefixes)
-   * @param {Set<string>} burnedTags - Set of burned tag values (with prefixes)
+   * @param {Set<TagEntity>} helpTags - Set of help tag entities
+   * @param {Set<TagEntity>} hinderTags - Set of hinder tag entities
+   * @param {Set<TagEntity>} burnedTags - Set of burned tag entities
+   * @param {string} guildId - Guild ID for database access
    * @returns {number} The calculated modifier
    */
-  static calculateModifier(helpTags, hinderTags, burnedTags = new Set()) {
+  static calculateModifier(helpTags, hinderTags, burnedTags = new Set(), guildId) {
+    if (!guildId) {
+      throw new Error('guildId is required for calculateModifier');
+    }
     // Calculate help modifier
     const helpStatuses = [];
     let helpTagCount = 0;
     let burnedHelpCount = 0;
 
-    Array.from(helpTags).forEach(value => {
-      const parts = value.split(':');
-      const tagName = parts.length > 1 ? parts.slice(1).join(':') : value;
-      const isBurned = burnedTags.has(value);
+    for (const tagEntity of helpTags) {
+      const tagInfo = tagEntity.getTagInfo(guildId);
+      if (!tagInfo) continue;
+
+      const burned = tagEntity.isBurned(burnedTags);
       
-      if (Validation.validateStatus(tagName).valid) {
+      if (tagInfo.isStatus) {
         // It's a status, extract its value
         // Note: Statuses can't be burned (only tags can be burned)
-        helpStatuses.push(this.extractStatusValue(tagName));
+        helpStatuses.push(this.extractStatusValue(tagInfo.tagName));
       } else {
         // It's a non-status tag
-        if (isBurned) {
+        if (burned) {
           burnedHelpCount++;
         } else {
           helpTagCount++;
         }
       }
-    });
+    }
 
     // Use only the highest status value (or 0 if no statuses)
     const highestHelpStatus = helpStatuses.length > 0 ? Math.max(...helpStatuses) : 0;
@@ -739,24 +759,24 @@ export class RollView {
     const hinderStatuses = [];
     let hinderTagCount = 0;
 
-    Array.from(hinderTags).forEach(value => {
-      // Skip weaknesses for modifier calculation (they're just tags)
-      if (value.startsWith('weakness:') || value.startsWith('fellowshipWeakness:')) {
-        hinderTagCount++;
-        return;
-      }
+    for (const tagEntity of hinderTags) {
+      const tagInfo = tagEntity.getTagInfo(guildId);
+      if (!tagInfo) continue;
 
-      const parts = value.split(':');
-      const tagName = parts.length > 1 ? parts.slice(1).join(':') : value;
+      // Weaknesses count as regular tags
+      if (tagInfo.isWeakness) {
+        hinderTagCount++;
+        continue;
+      }
       
-      if (Validation.validateStatus(tagName).valid) {
+      if (tagInfo.isStatus) {
         // It's a status, extract its value
-        hinderStatuses.push(this.extractStatusValue(tagName));
+        hinderStatuses.push(this.extractStatusValue(tagInfo.tagName));
       } else {
         // It's a non-status tag, count it
         hinderTagCount++;
       }
-    });
+    }
 
     // Use only the highest status value (or 0 if no statuses)
     const highestHinderStatus = hinderStatuses.length > 0 ? Math.max(...hinderStatuses) : 0;

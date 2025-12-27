@@ -1,5 +1,7 @@
 import { getDbForGuild } from './Database.js';
 import RollStatus from '../constants/RollStatus.js';
+import { RollTagEntityConverter } from './RollTagEntityConverter.js';
+import { TagEntity } from './TagEntity.js';
 
 /**
  * Storage utility for managing roll proposals
@@ -46,16 +48,12 @@ export class RollStorage {
       
       const rollId = result.lastInsertRowid;
       
-      // Insert help tags
-      const insertHelpTag = db.prepare(`
-        INSERT INTO roll_tags (roll_id, tag, tag_type, is_burned, help_from_character_id, help_from_user_id)
+      // Insert TagEntity objects directly
+      const insertTag = db.prepare(`
+        INSERT INTO roll_tags (
+          roll_id, tag_type, is_burned, help_from_character_id, parent_id, parent_type
+        )
         VALUES (?, ?, ?, ?, ?, ?)
-      `);
-      
-      // Insert hinder tags (no help_from fields needed)
-      const insertHinderTag = db.prepare(`
-        INSERT INTO roll_tags (roll_id, tag, tag_type, is_burned, help_from_character_id, help_from_user_id)
-        VALUES (?, ?, ?, ?, NULL, NULL)
       `);
       
       if (rollData.helpTags) {
@@ -67,16 +65,24 @@ export class RollStorage {
           ? rollData.burnedTags 
           : new Set(rollData.burnedTags || []);
         
-        // Get helpFromCharacterId map if provided (maps tag -> { characterId, userId })
         const helpFromCharacterIdMap = rollData.helpFromCharacterIdMap || new Map();
         
-        helpTagsArray.forEach(tag => {
-          const isBurned = burnedTagsSet.has(tag) ? 1 : 0;
-          const helpFrom = helpFromCharacterIdMap.get(tag);
-          const helpFromCharacterId = helpFrom ? (typeof helpFrom === 'object' ? helpFrom.characterId : helpFrom) : null;
-          const helpFromUserId = helpFrom && typeof helpFrom === 'object' ? helpFrom.userId : null;
-          insertHelpTag.run(rollId, tag, 'help', isBurned, helpFromCharacterId, helpFromUserId);
-        });
+        for (const tagEntity of helpTagsArray) {
+          // Check if this TagEntity is burned
+          const isBurned = tagEntity.isBurned ? tagEntity.isBurned(burnedTagsSet) : false;
+          
+          // Get character ID from map (for tags from other characters) or from entity
+          const helpFromCharId = helpFromCharacterIdMap.get(tagEntity) || tagEntity.characterId || null;
+          
+          insertTag.run(
+            rollId,
+            'help',
+            isBurned ? 1 : 0,
+            helpFromCharId,
+            tagEntity.parentId,
+            tagEntity.parentType
+          );
+        }
       }
       
       // Insert hinder tags
@@ -85,9 +91,21 @@ export class RollStorage {
           ? Array.from(rollData.hinderTags) 
           : rollData.hinderTags;
         
-        hinderTagsArray.forEach(tag => {
-          insertHinderTag.run(rollId, tag, 'hinder', 0);
-        });
+        const hinderFromCharacterIdMap = rollData.hinderFromCharacterIdMap || new Map();
+        
+        for (const tagEntity of hinderTagsArray) {
+          // Get character ID from map (for tags from other characters) or from entity
+          const hinderFromCharId = hinderFromCharacterIdMap.get(tagEntity) || tagEntity.characterId || null;
+          
+          insertTag.run(
+            rollId,
+            'hinder',
+            0,
+            hinderFromCharId,
+            tagEntity.parentId,
+            tagEntity.parentType
+          );
+        }
       }
       
       return rollId;
@@ -115,56 +133,66 @@ export class RollStorage {
       return null;
     }
     
-    // Load tags
+    // Load tags with entity IDs
     const tagsStmt = db.prepare(`
-      SELECT tag, tag_type, is_burned, help_from_character_id, help_from_user_id
+      SELECT 
+        tag_type, is_burned, help_from_character_id, parent_id, parent_type
       FROM roll_tags
       WHERE roll_id = ?
     `);
     
     const tags = tagsStmt.all(rollId);
     
-    roll.helpTags = new Set(
-      tags.filter(t => t.tag_type === 'help').map(t => t.tag)
-    );
+    // Convert entity IDs back to TagEntity objects
+    const helpTags = new Set();
+    const hinderTags = new Set();
+    const burnedTags = new Set();
+    const helpFromCharacterIdMap = new Map();
     
-    roll.hinderTags = new Set(
-      tags.filter(t => t.tag_type === 'hinder').map(t => t.tag)
-    );
+    for (const tag of tags) {
+      // Get character ID from the entity
+      const characterId = RollTagEntityConverter.getCharacterIdFromEntity(
+        tag.parent_type,
+        tag.parent_id,
+        guildId
+      );
+      
+      const tagEntity = new TagEntity(tag.parent_type, tag.parent_id, characterId);
+      
+      if (tag.tag_type === 'help') {
+        helpTags.add(tagEntity);
+        if (tag.is_burned === 1) {
+          burnedTags.add(tagEntity);
+        }
+        // Build map of help tags to their source character ID (if different from entity's characterId)
+        if (tag.help_from_character_id !== null && tag.help_from_character_id !== characterId) {
+          helpFromCharacterIdMap.set(tagEntity, tag.help_from_character_id);
+        }
+      } else {
+        hinderTags.add(tagEntity);
+      }
+    }
     
-    roll.burnedTags = new Set(
-      tags.filter(t => t.tag_type === 'help' && t.is_burned === 1).map(t => t.tag)
-    );
-    
-    // Build map of help tags to their source character info (both characterId and userId)
-    roll.helpFromCharacterIdMap = new Map();
-    tags.filter(t => t.tag_type === 'help' && t.help_from_character_id !== null).forEach(t => {
-      roll.helpFromCharacterIdMap.set(t.tag, {
-        characterId: t.help_from_character_id,
-        userId: t.help_from_user_id
-      });
-    });
-    
-      // Map snake_case to camelCase for JavaScript conventions
-      return {
-        id: roll.id,
-        creatorId: roll.creator_id,
-        characterId: roll.character_id,
-        sceneId: roll.scene_id,
-        description: roll.description,
-        narrationLink: roll.narration_link,
-        justificationNotes: roll.justification_notes,
-        status: roll.status,
-        confirmedBy: roll.confirmed_by,
-        createdAt: roll.created_at,
-        updatedAt: roll.updated_at,
-        reactionToRollId: roll.reaction_to_roll_id,
-        isReaction: Boolean(roll.is_reaction),
-        helpTags: roll.helpTags,
-        hinderTags: roll.hinderTags,
-        burnedTags: roll.burnedTags,
-        helpFromCharacterIdMap: roll.helpFromCharacterIdMap || new Map(),
-      };
+    // Map snake_case to camelCase for JavaScript conventions
+    return {
+      id: roll.id,
+      creatorId: roll.creator_id,
+      characterId: roll.character_id,
+      sceneId: roll.scene_id,
+      description: roll.description,
+      narrationLink: roll.narration_link,
+      justificationNotes: roll.justification_notes,
+      status: roll.status,
+      confirmedBy: roll.confirmed_by,
+      createdAt: roll.created_at,
+      updatedAt: roll.updated_at,
+      reactionToRollId: roll.reaction_to_roll_id,
+      isReaction: Boolean(roll.is_reaction),
+      helpTags: helpTags,
+      hinderTags: hinderTags,
+      burnedTags: burnedTags,
+      helpFromCharacterIdMap: helpFromCharacterIdMap,
+    };
   }
 
   /**
@@ -230,37 +258,48 @@ export class RollStorage {
         }
         helpFromCharacterIdMap = helpFromCharacterIdMap || new Map();
         
+        // Get roll to access character_id and scene_id
+        const rollStmt = db.prepare('SELECT character_id, scene_id FROM rolls WHERE id = ?');
+        const rollInfo = rollStmt.get(rollId);
+        
         // Delete existing tags (after we've loaded the existing data)
         db.prepare('DELETE FROM roll_tags WHERE roll_id = ?').run(rollId);
         
         // Insert new tags
-        const insertHelpTag = db.prepare(`
-          INSERT INTO roll_tags (roll_id, tag, tag_type, is_burned, help_from_character_id, help_from_user_id)
+        const insertTag = db.prepare(`
+          INSERT INTO roll_tags (
+            roll_id, tag_type, is_burned, help_from_character_id, parent_id, parent_type
+          )
           VALUES (?, ?, ?, ?, ?, ?)
-        `);
-        
-        // Insert hinder tags (no help_from fields needed)
-        const insertHinderTag = db.prepare(`
-          INSERT INTO roll_tags (roll_id, tag, tag_type, is_burned, help_from_character_id, help_from_user_id)
-          VALUES (?, ?, ?, ?, NULL, NULL)
         `);
         
         const burnedTagsSet = updates.burnedTags instanceof Set 
           ? updates.burnedTags 
           : new Set(updates.burnedTags || []);
         
+        const hinderFromCharacterIdMap = updates.hinderFromCharacterIdMap || new Map();
+        
         if (updates.helpTags) {
           const helpTagsArray = updates.helpTags instanceof Set 
             ? Array.from(updates.helpTags) 
             : updates.helpTags;
           
-          helpTagsArray.forEach(tag => {
-            const isBurned = burnedTagsSet.has(tag) ? 1 : 0;
-            const helpFrom = helpFromCharacterIdMap.get(tag);
-            const helpFromCharacterId = helpFrom ? (typeof helpFrom === 'object' ? helpFrom.characterId : helpFrom) : null;
-            const helpFromUserId = helpFrom && typeof helpFrom === 'object' ? helpFrom.userId : null;
-            insertHelpTag.run(rollId, tag, 'help', isBurned, helpFromCharacterId, helpFromUserId);
-          });
+          for (const tagEntity of helpTagsArray) {
+            // Check if this TagEntity is burned
+            const isBurned = tagEntity.isBurned ? tagEntity.isBurned(burnedTagsSet) : false;
+            
+            // Get character ID from map (for tags from other characters) or from entity
+            const helpFromCharId = helpFromCharacterIdMap.get(tagEntity) || tagEntity.characterId || null;
+            
+            insertTag.run(
+              rollId,
+              'help',
+              isBurned ? 1 : 0,
+              helpFromCharId,
+              tagEntity.parentId,
+              tagEntity.parentType
+            );
+          }
         }
         
         if (updates.hinderTags) {
@@ -268,9 +307,19 @@ export class RollStorage {
             ? Array.from(updates.hinderTags) 
             : updates.hinderTags;
           
-          hinderTagsArray.forEach(tag => {
-            insertHinderTag.run(rollId, tag, 'hinder', 0);
-          });
+          for (const tagEntity of hinderTagsArray) {
+            // Get character ID from map (for tags from other characters) or from entity
+            const hinderFromCharId = hinderFromCharacterIdMap.get(tagEntity) || tagEntity.characterId || null;
+            
+            insertTag.run(
+              rollId,
+              'hinder',
+              0,
+              hinderFromCharId,
+              tagEntity.parentId,
+              tagEntity.parentType
+            );
+          }
         }
       }
     });

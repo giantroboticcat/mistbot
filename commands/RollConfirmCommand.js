@@ -67,9 +67,8 @@ export class RollConfirmCommand extends Command {
     // Allow confirming proposed or confirmed rolls (but not executed)
     if (roll.status === RollStatus.EXECUTED) {
       const rollType = roll.isReaction ? 'reaction roll' : 'action roll';
-      await interaction.reply({
+      await interaction.editReply({
         content: `${rollType.charAt(0).toUpperCase() + rollType.slice(1)} #${rollId} has already been executed and cannot be confirmed.`,
-        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -99,9 +98,9 @@ export class RollConfirmCommand extends Command {
       
       const buttonRow = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
       
-      await interaction.reply({
+      await interaction.editReply({
         components: [warningContainer, buttonRow],
-        flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+        flags: MessageFlags.IsComponentsV2,
       });
       return;
     }
@@ -109,9 +108,8 @@ export class RollConfirmCommand extends Command {
     // Get the character to rebuild options
     const character = CharacterStorage.getCharacter(guildId, roll.creatorId, roll.characterId);
     if (!character) {
-      await interaction.reply({
+      await interaction.editReply({
         content: 'Character not found for this roll proposal.',
-        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -136,12 +134,12 @@ export class RollConfirmCommand extends Command {
     }
     
     // Collect all available tags (exclude burned tags - they can't be used until refreshed)
-    const helpOptions = RollView.collectHelpTags(character, roll.sceneId, StoryTagStorage, false, guildId);
+    const helpOptions = RollView.collectTags(character, roll.sceneId, StoryTagStorage, false, guildId, false);
     const filteredHelpOptions = (roll.isReaction && roll.reactionToRollId)
       ? helpOptions.filter(opt => !excludedTags.has(opt.data.value))
       : helpOptions;
     
-    const hinderOptions = RollView.collectHinderTags(character, roll.sceneId, StoryTagStorage, false, guildId);
+    const hinderOptions = RollView.collectTags(character, roll.sceneId, StoryTagStorage, false, guildId, true);
     const filteredHinderOptions = (roll.isReaction && roll.reactionToRollId)
       ? hinderOptions.filter(opt => !excludedTags.has(opt.data.value))
       : hinderOptions;
@@ -159,6 +157,7 @@ export class RollConfirmCommand extends Command {
       hinderTags: roll.hinderTags,
       burnedTags: burnedTags,
       helpFromCharacterIdMap: roll.helpFromCharacterIdMap || new Map(),
+      hinderFromCharacterIdMap: roll.hinderFromCharacterIdMap || new Map(),
       description: roll.description,
       narrationLink: roll.narrationLink,
       justificationNotes: roll.justificationNotes,
@@ -174,27 +173,26 @@ export class RollConfirmCommand extends Command {
 
     // Build components for editing (don't show justification button in confirm view)
     // Use helpFromCharacterIdMap from the roll
-    const interactiveComponents = RollView.buildRollInteractives(rollKey, filteredHelpOptions, filteredHinderOptions, 0, 0, roll.helpTags, roll.hinderTags, {confirm: true, cancel: true}, burnedTags, roll.justificationNotes, false, roll.helpFromCharacterIdMap || new Map());
+    const interactiveComponents = RollView.buildRollInteractives(rollKey, filteredHelpOptions, filteredHinderOptions, 0, 0, roll.helpTags, roll.hinderTags, {confirm: true, cancel: true}, burnedTags, roll.justificationNotes, false, roll.helpFromCharacterIdMap || new Map(), roll.hinderFromCharacterIdMap || new Map());
 
     const title = isReaction
       ? `Reviewing Reaction Roll #${rollId}${roll.reactionToRollId ? ` (to Roll #${roll.reactionToRollId})` : ''}`
       : `Reviewing Action Roll #${rollId}`;
-
-    const allCharactersForConfirm = CharacterStorage.getAllCharacters(guildId);
     
+    const rollStateForDisplay = {
+      helpTags: roll.helpTags,
+      hinderTags: roll.hinderTags,
+      description: roll.description,
+      burnedTags: burnedTags,
+      characterId: roll.characterId,
+      sceneId: roll.sceneId
+    };
     const displayData = RollView.buildRollDisplays(
-      roll.helpTags, 
-      roll.hinderTags, 
-      roll.description, 
-      true, 
-      burnedTags,
+      rollStateForDisplay,
       {
         title: title,
         descriptionText: `**Player:** <@${roll.creatorId}>`,
-        narrationLink: roll.narrationLink,
-        justificationNotes: roll.justificationNotes,
-        helpFromCharacterIdMap: roll.helpFromCharacterIdMap || new Map(),
-        allCharacters: allCharactersForConfirm,
+        guildId: guildId,
       }
     );
 

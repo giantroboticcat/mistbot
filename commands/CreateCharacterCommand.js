@@ -27,7 +27,6 @@ export class CreateCharacterCommand extends Command {
 
   async execute(interaction) {
     const characterValue = interaction.options.getString('character', true);
-    console.log('characterValue', characterValue);
     // The value is in format "tabTitle|||gid" to identify the specific tab
     // Using ||| as delimiter since single | is common in tab names
     const lastDelimiterIndex = characterValue.lastIndexOf('|||');
@@ -53,7 +52,6 @@ export class CreateCharacterCommand extends Command {
 
     // Check if gid is blacklisted
     const guildId = requireGuildId(interaction);
-    console.log('guildId', guildId);
     if (isGidBlacklisted(guildId, gid)) {
       await interaction.reply({
         content: '❌ This character sheet is not available for selection.',
@@ -84,7 +82,6 @@ export class CreateCharacterCommand extends Command {
 
     // Construct the sheet URL with the selected tab's gid
     const sheetUrl = `https://docs.google.com/spreadsheets/d/${parsed.spreadsheetId}/edit#gid=${gid}`;
-    console.log('sheetUrl', sheetUrl);
     // Import from sheet
     await this.createFromSheet(interaction, sheetUrl);
   }

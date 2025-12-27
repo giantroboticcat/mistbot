@@ -83,13 +83,13 @@ export class RollReactionCommand extends Command {
     // Exclude burned tags from roll selection (they can't be used until refreshed)
     // Also exclude tags from original roll if roll-id was provided
     // Collect all available tags for help dropdown (exclude burned tags and original roll tags)
-    const helpOptions = RollView.collectHelpTags(character, sceneId, StoryTagStorage, false, guildId);
+    const helpOptions = RollView.collectTags(character, sceneId, StoryTagStorage, false, guildId, false);
     const filteredHelpOptions = originalRollId 
       ? helpOptions.filter(opt => !excludedTags.has(opt.data.value))
       : helpOptions;
     
     // Collect all available tags + weaknesses for hinder dropdown (exclude burned tags and original roll tags)
-    const hinderOptions = RollView.collectHinderTags(character, sceneId, StoryTagStorage, false, guildId);
+    const hinderOptions = RollView.collectTags(character, sceneId, StoryTagStorage, false, guildId, true);
     const filteredHinderOptions = originalRollId
       ? hinderOptions.filter(opt => !excludedTags.has(opt.data.value))
       : hinderOptions;
@@ -104,9 +104,12 @@ export class RollReactionCommand extends Command {
     interaction.client.rollStates.set(tempRollKey, {
       creatorId: userId,
       characterId: character.id,
+      sceneId: interaction.channelId,
       helpTags: initialHelpTags,
       hinderTags: initialHinderTags,
       burnedTags: initialBurnedTags,
+      helpFromCharacterIdMap: new Map(),
+      hinderFromCharacterIdMap: new Map(),
       description: description,
       narrationLink: null,
       justificationNotes: null,
@@ -118,7 +121,6 @@ export class RollReactionCommand extends Command {
       buttons: {submit: true, cancel: true},
       isReaction: true,
       reactionToRollId: originalRollId || null,
-      helpFromCharacterIdMap: new Map(),
     });
 
     const interactiveComponents = RollView.buildRollInteractives(
@@ -133,6 +135,7 @@ export class RollReactionCommand extends Command {
       initialBurnedTags, 
       "", 
       true,
+      new Map(),
       new Map()
     );
     
@@ -140,18 +143,20 @@ export class RollReactionCommand extends Command {
       ? `Reaction Roll to Roll #${originalRollId}` 
       : 'Reaction Roll';
     
-    const allCharacters = CharacterStorage.getAllCharacters(guildId);
+    const tempRollState = {
+      helpTags: initialHelpTags,
+      hinderTags: initialHinderTags,
+      description: description,
+      burnedTags: initialBurnedTags,
+      characterId: character.id,
+      sceneId: sceneId
+    };
     const displayData = RollView.buildRollDisplays(
-      initialHelpTags, 
-      initialHinderTags, 
-      description, 
-      true, 
-      initialBurnedTags, 
+      tempRollState,
       { 
         title: title,
         showJustificationPlaceholder: true,
-        helpFromCharacterIdMap: new Map(),
-        allCharacters: allCharacters
+        guildId: guildId
       }
     );
     

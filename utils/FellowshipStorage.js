@@ -64,19 +64,38 @@ export class FellowshipStorage {
    */
   static loadFellowshipRelations(guildId, fellowship) {
     const db = getDbForGuild(guildId);
-    // Load tags and weaknesses
+    // Load tags and weaknesses (include IDs)
     const tagsStmt = db.prepare(`
-      SELECT tag, is_weakness
+      SELECT id, tag, is_weakness
       FROM fellowship_tags
       WHERE fellowship_id = ?
     `);
     
     const allTags = tagsStmt.all(fellowship.id);
     
-    fellowship.tags = allTags.filter(t => !t.is_weakness).map(t => t.tag);
-    fellowship.weaknesses = allTags.filter(t => t.is_weakness).map(t => t.tag);
+    fellowship.tags = allTags.filter(t => !t.is_weakness).map(t => ({ id: t.id, tag: t.tag }));
+    fellowship.weaknesses = allTags.filter(t => t.is_weakness).map(t => ({ id: t.id, tag: t.tag }));
     
     return fellowship;
+  }
+
+  /**
+   * Get tag data by entity ID for roll display/calculation
+   * @param {string} guildId - Guild ID
+   * @param {number} tagId - Fellowship tag ID
+   * @returns {Object|null} { name: string, type: 'tag'|'weakness', isWeakness: boolean, characterId: null } or null
+   */
+  static getTagDataByEntity(guildId, tagId) {
+    const db = getDbForGuild(guildId);
+    const stmt = db.prepare('SELECT tag, is_weakness FROM fellowship_tags WHERE id = ?');
+    const result = stmt.get(tagId);
+    if (!result) return null;
+    return {
+      name: result.tag,
+      type: result.is_weakness === 1 ? 'weakness' : 'tag',
+      isWeakness: result.is_weakness === 1,
+      characterId: null // Fellowship tags don't belong to any character
+    };
   }
 
   /**

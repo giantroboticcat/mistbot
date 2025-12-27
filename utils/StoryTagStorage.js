@@ -42,6 +42,63 @@ export class StoryTagStorage {
   }
 
   /**
+   * Get scene tags with IDs
+   * @param {string} guildId - Guild ID
+   * @param {string} sceneId - Scene ID
+   * @returns {Array} Array of objects with { id, tag }
+   */
+  static getTagsWithIds(guildId, sceneId) {
+    this.ensureScene(guildId, sceneId);
+    
+    const db = getDbForGuild(guildId);
+    const stmt = db.prepare(`
+      SELECT id, tag
+      FROM scene_tags
+      WHERE scene_id = ? AND tag_type = 'tag'
+    `);
+    
+    return stmt.all(sceneId);
+  }
+
+  /**
+   * Get scene statuses with IDs
+   * @param {string} guildId - Guild ID
+   * @param {string} sceneId - Scene ID
+   * @returns {Array} Array of objects with { id, tag }
+   */
+  static getStatusesWithIds(guildId, sceneId) {
+    this.ensureScene(guildId, sceneId);
+    
+    const db = getDbForGuild(guildId);
+    const stmt = db.prepare(`
+      SELECT id, tag
+      FROM scene_tags
+      WHERE scene_id = ? AND tag_type = 'status'
+    `);
+    
+    return stmt.all(sceneId);
+  }
+
+  /**
+   * Get tag data by entity ID for roll display/calculation
+   * @param {string} guildId - Guild ID
+   * @param {number} tagId - Scene tag ID
+   * @returns {Object|null} { name: string, type: 'tag'|'status', isWeakness: boolean, characterId: null } or null
+   */
+  static getTagDataByEntity(guildId, tagId) {
+    const db = getDbForGuild(guildId);
+    const stmt = db.prepare('SELECT tag, tag_type FROM scene_tags WHERE id = ?');
+    const result = stmt.get(tagId);
+    if (!result) return null;
+    return {
+      name: result.tag,
+      type: result.tag_type === 'status' ? 'status' : 'tag',
+      isWeakness: false,
+      characterId: null // Scene tags don't belong to any character
+    };
+  }
+
+  /**
    * Get tags for a scene
    * @param {string} sceneId - Channel or thread ID
    * @returns {string[]} Array of tags

@@ -73,51 +73,68 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   } else if (interaction.isButton()) {
     // Handle button interactions
-    if (interaction.customId.startsWith('roll_submit_')) {
-      await RollHandler.handleRollSubmit(interaction, client);
-    } else if (interaction.customId.startsWith('roll_edit_justification_')) {
-      await RollHandler.handleEditJustification(interaction, client);
-    } else if (interaction.customId.startsWith('roll_help_action_cancel_') || interaction.customId.startsWith('roll_remove_help_action_cancel_')) {
-      await RollHandler.handleHelpActionCancel(interaction, client);
-    } else if (interaction.customId.startsWith('roll_help_action_')) {
-      await RollHandler.handleHelpAction(interaction, client);
-    } else if (interaction.customId.startsWith('roll_remove_help_action_') && !interaction.customId.includes('_select_')) {
-      await RollHandler.handleRemoveHelpAction(interaction, client);
-    } else if (interaction.customId.startsWith('roll_reconfirm_') && interaction.customId.includes('_cancel_')) {
-      await RollHandler.handleRollReconfirmCancel(interaction, client);
-    } else if (interaction.customId.startsWith('roll_reconfirm_')) {
-      await RollHandler.handleRollReconfirm(interaction, client);
-    } else if (interaction.customId.startsWith('roll_confirm_')) {
-      await RollHandler.handleRollConfirm(interaction, client);
-    } else if (interaction.customId.startsWith('roll_cancel_')) {
-      await RollHandler.handleRollCancel(interaction, client);
-    } else if (interaction.customId.startsWith('edit_character_')) {
-      await CharacterHandler.handleEditCharacterButton(interaction, client);
-    } else if (interaction.customId.startsWith('edit_backpack_')) {
-      await CharacterHandler.handleEditBackpackButton(interaction, client);
-    } else if (interaction.customId.startsWith('edit_statuses_')) {
-      await CharacterHandler.handleEditStatusesButton(interaction, client);
-    } else if (interaction.customId.startsWith('statuses_')) {
-      await CharacterHandler.handleStatusesEditor(interaction, client);
-    } else if (interaction.customId.startsWith('burn_refresh_')) {
-      await CharacterHandler.handleBurnRefreshButton(interaction, client);
-    } else if (interaction.customId.startsWith('retry_create_character_')) {
-      await CharacterHandler.handleRetryCreateCharacter(interaction, client);
-    } else if (interaction.customId.startsWith('set_sheet_url_btn_')) {
-      await CharacterHandler.handleSetSheetUrlButton(interaction, client);
-    } else if (interaction.customId.startsWith('sync_to_sheet_')) {
-      await CharacterHandler.handleSyncToSheetButton(interaction, client);
-    } else if (interaction.customId.startsWith('sync_from_sheet_')) {
-      await CharacterHandler.handleSyncFromSheetButton(interaction, client);
-    } else if (interaction.customId.startsWith('delete_character_confirm_')) {
-      await CharacterHandler.handleDeleteCharacterConfirm(interaction, client);
-    } else if (interaction.customId.startsWith('delete_character_cancel_')) {
-      await CharacterHandler.handleDeleteCharacterCancel(interaction, client);
-    } else if (interaction.customId.startsWith('delete_character_')) {
-      await CharacterHandler.handleDeleteCharacterButton(interaction, client);
-    } else {
-      // Handle tag removal button
-      await TagRemovalHandler.handleTagRemovalButton(interaction, client);
+    try {
+      if (interaction.customId.startsWith('roll_submit_')) {
+        await RollHandler.handleRollSubmit(interaction, client);
+      } else if (interaction.customId.startsWith('roll_edit_justification_')) {
+        await RollHandler.handleEditJustification(interaction, client);
+      } else if (interaction.customId.startsWith('roll_help_action_cancel_') || interaction.customId.startsWith('roll_remove_help_action_cancel_') || interaction.customId.startsWith('roll_hinder_action_cancel_') || interaction.customId.startsWith('roll_remove_hinder_action_cancel_')) {
+        await RollHandler.handleHelpActionCancel(interaction, client);
+      } else if (interaction.customId.startsWith('roll_help_action_') && !interaction.customId.includes('_cancel_')) {
+        await RollHandler.handleHelpAction(interaction, client);
+      } else if (interaction.customId.startsWith('roll_remove_help_action_') && !interaction.customId.includes('_select_')) {
+        await RollHandler.handleRemoveHelpAction(interaction, client);
+      } else if (interaction.customId.startsWith('roll_hinder_action_') && !interaction.customId.includes('_cancel_')) {
+        await RollHandler.handleHinderAction(interaction, client);
+      } else if (interaction.customId.startsWith('roll_remove_hinder_action_') && !interaction.customId.includes('_select_')) {
+        await RollHandler.handleRemoveHinderAction(interaction, client);
+      } else if (interaction.customId.startsWith('roll_reconfirm_') && interaction.customId.includes('_cancel_')) {
+        await RollHandler.handleRollReconfirmCancel(interaction, client);
+      } else if (interaction.customId.startsWith('roll_reconfirm_')) {
+        await RollHandler.handleRollReconfirm(interaction, client);
+      } else if (interaction.customId.startsWith('roll_confirm_')) {
+        await RollHandler.handleRollConfirm(interaction, client);
+      } else if (interaction.customId.startsWith('roll_cancel_')) {
+        await RollHandler.handleRollCancel(interaction, client);
+      } else if (interaction.customId.startsWith('edit_character_')) {
+        await CharacterHandler.handleEditCharacterButton(interaction, client);
+      } else if (interaction.customId.startsWith('edit_backpack_')) {
+        await CharacterHandler.handleEditBackpackButton(interaction, client);
+      } else if (interaction.customId.startsWith('edit_statuses_')) {
+        await CharacterHandler.handleEditStatusesButton(interaction, client);
+      } else if (interaction.customId.startsWith('statuses_')) {
+        await CharacterHandler.handleStatusesEditor(interaction, client);
+      } else if (interaction.customId.startsWith('burn_refresh_')) {
+        await CharacterHandler.handleBurnRefreshButton(interaction, client);
+      } else if (interaction.customId.startsWith('retry_create_character_')) {
+        await CharacterHandler.handleRetryCreateCharacter(interaction, client);
+      } else if (interaction.customId.startsWith('set_sheet_url_btn_')) {
+        await CharacterHandler.handleSetSheetUrlButton(interaction, client);
+      } else if (interaction.customId.startsWith('sync_to_sheet_')) {
+        await CharacterHandler.handleSyncToSheetButton(interaction, client);
+      } else if (interaction.customId.startsWith('sync_from_sheet_')) {
+        await CharacterHandler.handleSyncFromSheetButton(interaction, client);
+      } else if (interaction.customId.startsWith('delete_character_confirm_')) {
+        await CharacterHandler.handleDeleteCharacterConfirm(interaction, client);
+      } else if (interaction.customId.startsWith('delete_character_cancel_')) {
+        await CharacterHandler.handleDeleteCharacterCancel(interaction, client);
+      } else if (interaction.customId.startsWith('delete_character_')) {
+        await CharacterHandler.handleDeleteCharacterButton(interaction, client);
+      }
+    } catch (error) {
+      console.error('Error handling button interaction:', error);
+      console.error('Button customId:', interaction.customId);
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({
+          content: 'An error occurred while processing your button click.',
+          flags: MessageFlags.Ephemeral,
+        });
+      } else {
+        await interaction.followUp({
+          content: 'An error occurred while processing your button click.',
+          flags: MessageFlags.Ephemeral,
+        });
+      }
     }
   } else if (interaction.isStringSelectMenu()) {
     // Handle select menu interactions
@@ -137,6 +154,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await RollHandler.handleHelpTagSelect(interaction, client);
     } else if (interaction.customId.startsWith('roll_remove_help_action_select_')) {
       await RollHandler.handleRemoveHelpActionSelect(interaction, client);
+    } else if (interaction.customId.startsWith('roll_hinder_character_')) {
+      await RollHandler.handleHinderCharacterSelect(interaction, client);
+    } else if (interaction.customId.startsWith('roll_hinder_tag_')) {
+      await RollHandler.handleHinderTagSelect(interaction, client);
+    } else if (interaction.customId.startsWith('roll_remove_hinder_action_select_')) {
+      await RollHandler.handleRemoveHinderActionSelect(interaction, client);
     } else if (interaction.customId.startsWith('roll_help_page_') || interaction.customId.startsWith('roll_hinder_page_')) {
       await RollHandler.handleRollPageSelect(interaction, client);
     } else if (interaction.customId.startsWith('roll_burn_')) {

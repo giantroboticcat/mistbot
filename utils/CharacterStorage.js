@@ -1,6 +1,8 @@
 import { getDbForGuild } from './Database.js';
 import sheetsService from './GoogleSheetsService.js';
 import { FellowshipStorage } from './FellowshipStorage.js';
+import { RollTagParentType } from '../constants/RollTagParentType.js';
+import { Validation } from './Validation.js';
 
 /**
  * Storage utility for managing characters per user
@@ -64,9 +66,9 @@ export class CharacterStorage {
     `);
     const themes = themesStmt.all(character.id);
     
-    // Load tags and weaknesses for each theme
+    // Load tags and weaknesses for each theme (include IDs)
     const tagsStmt = db.prepare(`
-      SELECT tag, is_weakness, is_burned
+      SELECT id, tag, is_weakness, is_burned
       FROM character_theme_tags
       WHERE theme_id = ?
     `);
@@ -74,42 +76,52 @@ export class CharacterStorage {
     character.themes = themes.map(theme => {
       const allTags = tagsStmt.all(theme.id);
       return {
+        id: theme.id,
         name: theme.name,
         isBurned: Boolean(theme.is_burned),
         tags: allTags.filter(t => !t.is_weakness).map(t => ({ 
+          id: t.id,
           tag: t.tag, 
           isBurned: Boolean(t.is_burned) 
         })),
         weaknesses: allTags.filter(t => t.is_weakness).map(t => ({ 
+          id: t.id,
           tag: t.tag, 
           isBurned: Boolean(t.is_burned) 
         })),
       };
     });
     
-    // Load backpack
+    // Load backpack (include IDs)
     const backpackStmt = db.prepare(`
-      SELECT item
+      SELECT id, item
       FROM character_backpack
       WHERE character_id = ?
     `);
-    character.backpack = backpackStmt.all(character.id).map(row => row.item);
+    character.backpack = backpackStmt.all(character.id).map(row => ({
+      id: row.id,
+      item: row.item
+    }));
     
-    // Load story tags
+    // Load story tags (include IDs)
     const storyTagsStmt = db.prepare(`
-      SELECT tag
+      SELECT id, tag
       FROM character_story_tags
       WHERE character_id = ?
     `);
-    character.storyTags = storyTagsStmt.all(character.id).map(row => row.tag);
+    character.storyTags = storyTagsStmt.all(character.id).map(row => ({
+      id: row.id,
+      tag: row.tag
+    }));
     
-    // Load statuses with power levels
+    // Load statuses with power levels (include IDs)
     const statusesStmt = db.prepare(`
-      SELECT status, power_1, power_2, power_3, power_4, power_5, power_6
+      SELECT id, status, power_1, power_2, power_3, power_4, power_5, power_6
       FROM character_statuses
       WHERE character_id = ?
     `);
     character.tempStatuses = statusesStmt.all(character.id).map(row => ({
+      id: row.id,
       status: row.status,
       powerLevels: {
         1: Boolean(row.power_1),
@@ -129,6 +141,101 @@ export class CharacterStorage {
     }
     
     return character;
+  }
+
+  /**
+   * Get tag data by entity ID for roll display/calculation
+   * @param {string} guildId - Guild ID
+   * @param {string} parentType - RollTagParentType constant
+   * @param {number} parentId - Entity ID
+   * @returns {Object|null} { name: string, type: 'tag'|'status'|'weakness', isWeakness: boolean, characterId: number|null } or null
+   */
+  static getTagDataByEntity(guildId, parentType, parentId) {
+    const db = getDbForGuild(guildId);
+
+    switch (parentType) {
+      case RollTagParentType.CHARACTER_THEME: {
+        const stmt = db.prepare('SELECT name, character_id FROM character_themes WHERE id = ?');
+        const result = stmt.get(parentId);
+        if (!result) return null;
+        return {
+          name: result.name,
+          type: Validation.validateStatus(result.name).valid ? 'status' : 'tag',
+          isWeakness: false,
+          characterId: result.character_id
+        };
+      }
+      
+      case RollTagParentType.CHARACTER_THEME_TAG: {
+        const stmt = db.prepare(`
+          SELECT ctt.tag, ctt.is_weakness, ct.character_id 
+          FROM character_theme_tags ctt
+          JOIN character_themes ct ON ctt.theme_id = ct.id
+          WHERE ctt.id = ?
+        `);
+        const result = stmt.get(parentId);
+        if (!result) return null;
+        return {
+          name: result.tag,
+          type: result.is_weakness === 1 ? 'weakness' : 'tag',
+          isWeakness: result.is_weakness === 1,
+          characterId: result.character_id
+        };
+      }
+      
+      case RollTagParentType.CHARACTER_BACKPACK: {
+        const stmt = db.prepare('SELECT item, character_id FROM character_backpack WHERE id = ?');
+        const result = stmt.get(parentId);
+        if (!result) return null;
+        return {
+          name: result.item,
+          type: Validation.validateStatus(result.item).valid ? 'status' : 'tag',
+          isWeakness: false,
+          characterId: result.character_id
+        };
+      }
+      
+      case RollTagParentType.CHARACTER_STORY_TAG: {
+        const stmt = db.prepare('SELECT tag, character_id FROM character_story_tags WHERE id = ?');
+        const result = stmt.get(parentId);
+        if (!result) return null;
+        return {
+          name: result.tag,
+          type: Validation.validateStatus(result.tag).valid ? 'status' : 'tag',
+          isWeakness: false,
+          characterId: result.character_id
+        };
+      }
+      
+      case RollTagParentType.CHARACTER_STATUS: {
+        const stmt = db.prepare(`
+          SELECT status, power_1, power_2, power_3, power_4, power_5, power_6, character_id 
+          FROM character_statuses WHERE id = ?
+        `);
+        const result = stmt.get(parentId);
+        if (!result) return null;
+        // Find highest power level
+        let highestPower = 0;
+        for (let p = 6; p >= 1; p--) {
+          if (result[`power_${p}`] === 1) {
+            highestPower = p;
+            break;
+          }
+        }
+        const statusDisplay = highestPower > 0 
+          ? `${result.status}-${highestPower}`
+          : result.status;
+        return {
+          name: statusDisplay,
+          type: 'status',
+          isWeakness: false,
+          characterId: result.character_id
+        };
+      }
+      
+      default:
+        return null;
+    }
   }
 
   /**
@@ -222,6 +329,24 @@ export class CharacterStorage {
     `);
     
     const character = stmt.get(characterId, userId);
+    return character ? this.loadCharacterRelations(guildId, character) : null;
+  }
+
+  /**
+   * Get a character by ID only (for cases where we don't have userId)
+   * @param {string} guildId - Guild ID
+   * @param {number} characterId - Character ID
+   * @returns {Object|null} Character object or null if not found
+   */
+  static getCharacterById(guildId, characterId) {
+    const db = getDbForGuild(guildId);
+    const stmt = db.prepare(`
+      SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url, fellowship_id
+      FROM characters
+      WHERE id = ?
+    `);
+    
+    const character = stmt.get(characterId);
     return character ? this.loadCharacterRelations(guildId, character) : null;
   }
 
@@ -594,8 +719,6 @@ export class CharacterStorage {
     const whereClauses = ['google_sheet_url = ?'];
     const params = [`%${parsedUrl.href}%`];
     
-    console.log(whereClauses.join('\n        AND '));
-    console.log(params);
     const stmt = db.prepare(`
       SELECT id, user_id, name, google_sheet_url
       FROM characters

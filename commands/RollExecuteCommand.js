@@ -67,7 +67,7 @@ export class RollExecuteCommand extends Command {
     // Validate strategy before making any changes
     // Calculate base modifier to check strategy conditions
     const burnedTags = roll.burnedTags || new Set();
-    const baseModifier = RollView.calculateModifier(roll.helpTags, roll.hinderTags, burnedTags);
+    const baseModifier = RollView.calculateModifier(roll.helpTags, roll.hinderTags, burnedTags, guildId);
     
     let strategyModifier = 0;
     let strategyName = null;

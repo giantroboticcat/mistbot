@@ -65,10 +65,10 @@ export class RollProposeCommand extends Command {
     
     // Exclude burned tags from roll selection (they can't be used until refreshed)
     // Collect all available tags for help dropdown (exclude burned tags)
-    const helpOptions = RollView.collectHelpTags(character, sceneId, StoryTagStorage, false, guildId);
+    const helpOptions = RollView.collectTags(character, sceneId, StoryTagStorage, false, guildId, false);
     
     // Collect all available tags + weaknesses for hinder dropdown (exclude burned tags)
-    const hinderOptions = RollView.collectHinderTags(character, sceneId, StoryTagStorage, false, guildId);
+    const hinderOptions = RollView.collectTags(character, sceneId, StoryTagStorage, false, guildId, true);
     
     const initialHelpTags = new Set();
     const initialHinderTags = new Set();
@@ -80,10 +80,12 @@ export class RollProposeCommand extends Command {
     interaction.client.rollStates.set(tempRollKey, {
       creatorId: userId,
       characterId: character.id,
+      sceneId: sceneId,
       helpTags: initialHelpTags,
       hinderTags: initialHinderTags,
       burnedTags: initialBurnedTags,
       helpFromCharacterIdMap: new Map(),
+      hinderFromCharacterIdMap: new Map(),
       description: description,
       narrationLink: narrationLink || null,
       justificationNotes: null,
@@ -97,9 +99,16 @@ export class RollProposeCommand extends Command {
       reactionToRollId: null
     });
 
-    const interactiveComponents = RollView.buildRollInteractives(tempRollKey, helpOptions, hinderOptions, 0, 0, initialHelpTags, initialHinderTags, {submit: true, cancel: true}, initialBurnedTags, "", true, new Map());
-    const allCharacters = CharacterStorage.getAllCharacters(guildId);
-    const displayData = RollView.buildRollDisplays(initialHelpTags, initialHinderTags, description, true, initialBurnedTags, { narrationLink, showJustificationPlaceholder: true, helpFromCharacterIdMap: new Map(), allCharacters: allCharacters });
+    const interactiveComponents = RollView.buildRollInteractives(tempRollKey, helpOptions, hinderOptions, 0, 0, initialHelpTags, initialHinderTags, {submit: true, cancel: true}, initialBurnedTags, "", true, new Map(), new Map());
+    const tempRollState = {
+      helpTags: initialHelpTags,
+      hinderTags: initialHinderTags,
+      description: description,
+      burnedTags: initialBurnedTags,
+      characterId: character.id,
+      sceneId: sceneId
+    };
+    const displayData = RollView.buildRollDisplays(tempRollState, { showJustificationPlaceholder: true, guildId: guildId });
     const allComponents = combineRollComponents(displayData, interactiveComponents);
     await interaction.reply({
       components: allComponents,
