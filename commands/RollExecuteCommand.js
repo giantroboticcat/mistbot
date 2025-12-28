@@ -5,6 +5,8 @@ import RollStatus from '../constants/RollStatus.js';
 import { RollView } from '../utils/RollView.js';
 import { CharacterStorage } from '../utils/CharacterStorage.js';
 import { requireGuildId } from '../utils/GuildUtils.js';
+import { RollTagParentType } from '../constants/RollTagParentType.js';
+import { RollTagEntityConverter } from '../utils/RollTagEntityConverter.js';
 
 /**
  * Execute a confirmed roll
@@ -106,38 +108,49 @@ export class RollExecuteCommand extends Command {
     if (burnedTags.size > 0) {
       const character = CharacterStorage.getCharacter(guildId, roll.creatorId, roll.characterId);
       if (character) {
-        const backpackToRemove = [];
-        const storyTagsToRemove = [];
+        const backpackIdsToRemove = [];
+        const storyTagIdsToRemove = [];
         const tagsToBurn = [];
         
         // Separate burned tags by type
-        for (const tagValue of burnedTags) {
-          if (tagValue.startsWith('backpack:')) {
-            // Extract backpack item name (remove prefix)
-            const itemName = tagValue.replace('backpack:', '');
-            backpackToRemove.push(itemName);
-          } else if (tagValue.startsWith('story:')) {
-            // Extract story tag name (remove prefix)
-            const tagName = tagValue.replace('story:', '');
-            storyTagsToRemove.push(tagName);
+        for (const tagEntity of burnedTags) {
+          const tagData = tagEntity.getTagData(guildId);
+          if (!tagData) continue;
+          
+          if (tagEntity.parentType === RollTagParentType.CHARACTER_BACKPACK) {
+            // Backpack items get deleted (by ID)
+            backpackIdsToRemove.push(tagEntity.parentId);
+          } else if (tagEntity.parentType === RollTagParentType.CHARACTER_STORY_TAG) {
+            // Story tags get deleted (by ID)
+            storyTagIdsToRemove.push(tagEntity.parentId);
           } else {
             // Other tags (themes, theme tags) get marked as burned
-            tagsToBurn.push(tagValue);
+            // Convert TagEntity to tag string for markTagsAsBurned
+            const tagString = tagEntity.toTagString(guildId);
+            if (tagString) {
+              tagsToBurn.push(tagString);
+            }
           }
         }
         
         // Build update object
         const updates = {};
         
-        // Remove backpack items that were burned
-        if (backpackToRemove.length > 0) {
-          const updatedBackpack = (character.backpack || []).filter(item => !backpackToRemove.includes(item));
+        // Remove backpack items that were burned (by ID)
+        if (backpackIdsToRemove.length > 0) {
+          const updatedBackpack = (character.backpack || []).filter(item => {
+            const itemId = typeof item === 'object' && item.id ? item.id : null;
+            return itemId && !backpackIdsToRemove.includes(itemId);
+          });
           updates.backpack = updatedBackpack;
         }
         
-        // Remove story tags that were burned
-        if (storyTagsToRemove.length > 0) {
-          const updatedStoryTags = (character.storyTags || []).filter(tag => !storyTagsToRemove.includes(tag));
+        // Remove story tags that were burned (by ID)
+        if (storyTagIdsToRemove.length > 0) {
+          const updatedStoryTags = (character.storyTags || []).filter(tag => {
+            const tagId = typeof tag === 'object' && tag.id ? tag.id : null;
+            return tagId && !storyTagIdsToRemove.includes(tagId);
+          });
           updates.storyTags = updatedStoryTags;
         }
         
