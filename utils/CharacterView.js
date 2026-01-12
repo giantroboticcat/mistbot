@@ -41,11 +41,15 @@ export class CharacterView {
     const statusDisplay = TagFormatter.formatStatusesAsTable(character.tempStatuses);
     
     // Format backpack and story tags in yellow ANSI code blocks
-    const backpackDisplay = character.backpack.length > 0 
-      ? TagFormatter.formatTagsInCodeBlock(character.backpack)
+    // Extract item strings from backpack objects (backpack items are stored as { id, item } objects)
+    const backpackItems = character.backpack.map(item => typeof item === 'string' ? item : item.item);
+    const backpackDisplay = backpackItems.length > 0 
+      ? TagFormatter.formatTagsInCodeBlock(backpackItems)
       : 'None';
-    const storyTagsDisplay = character.storyTags.length > 0
-      ? TagFormatter.formatTagsInCodeBlock(character.storyTags)
+    // Extract tag strings from story tag objects (story tags are stored as { id, tag } objects)
+    const storyTagStrings = character.storyTags.map(tag => typeof tag === 'string' ? tag : tag.tag);
+    const storyTagsDisplay = storyTagStrings.length > 0
+      ? TagFormatter.formatTagsInCodeBlock(storyTagStrings)
       : 'None';
     
     // Build fellowship info string if provided
@@ -145,11 +149,15 @@ export class CharacterView {
     const statusDisplay = TagFormatter.formatStatusesAsTable(character.tempStatuses);
     
     // Format backpack and story tags in yellow ANSI code blocks
-    const backpackDisplay = character.backpack.length > 0 
-      ? TagFormatter.formatTagsInCodeBlock(character.backpack)
+    // Extract item strings from backpack objects (backpack items are stored as { id, item } objects)
+    const backpackItems = character.backpack.map(item => typeof item === 'string' ? item : item.item);
+    const backpackDisplay = backpackItems.length > 0 
+      ? TagFormatter.formatTagsInCodeBlock(backpackItems)
       : 'None';
-    const storyTagsDisplay = character.storyTags.length > 0
-      ? TagFormatter.formatTagsInCodeBlock(character.storyTags)
+    // Extract tag strings from story tag objects (story tags are stored as { id, tag } objects)
+    const storyTagStrings = character.storyTags.map(tag => typeof tag === 'string' ? tag : tag.tag);
+    const storyTagsDisplay = storyTagStrings.length > 0
+      ? TagFormatter.formatTagsInCodeBlock(storyTagStrings)
       : 'None';
     
     // Build fellowship info string if provided

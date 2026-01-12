@@ -56,8 +56,9 @@ export class GoogleSheetsService {
     const spreadsheetId = spreadsheetMatch[1];
     
     // Try to extract gid (sheet ID) from URL
-    // Format: #gid=123456 or &gid=123456
-    const gidMatch = url.match(/[#&]gid=(\d+)/);
+    // Format: #gid=123456, &gid=123456, or ?gid=123456
+    // Prefer #gid over ?gid (fragment over query parameter)
+    const gidMatch = url.match(/[#&?]gid=(\d+)/);
     const gid = gidMatch ? gidMatch[1] : null;
     
     return { spreadsheetId, gid };
@@ -75,9 +76,20 @@ export class GoogleSheetsService {
       });
       
       const sheet = response.data.sheets.find(s => s.properties.sheetId === parseInt(gid));
-      return sheet ? sheet.properties.title : null;
+      if (!sheet) {
+        console.warn(`Sheet with gid ${gid} not found in spreadsheet ${spreadsheetId}`);
+        return null;
+      }
+      return sheet.properties.title;
     } catch (error) {
-      console.error('Error getting sheet name:', error.message);
+      // Extract detailed error information
+      let errorMessage = error.message;
+      if (error.response?.data?.error) {
+        const apiError = error.response.data.error;
+        errorMessage = apiError.message || errorMessage;
+      }
+      console.error(`Error getting sheet name for gid ${gid}:`, errorMessage);
+      // Don't throw - return null so we can fall back to reading from first sheet
       return null;
     }
   }
@@ -145,29 +157,93 @@ export class GoogleSheetsService {
 
   /**
    * Batch read multiple cells at once (more efficient, avoids quota limits)
+   * Splits large requests into smaller batches to avoid API limits
    */
   async batchReadCells(spreadsheetId, cells, sheetName = null) {
+    if (!cells || cells.length === 0) {
+      throw new Error('No cells specified for batch read');
+    }
+
+    // Split into batches of 50 to avoid potential API issues with large requests
+    const BATCH_SIZE = 50;
+    const batches = [];
+    for (let i = 0; i < cells.length; i += BATCH_SIZE) {
+      batches.push(cells.slice(i, i + BATCH_SIZE));
+    }
+
+    const allResults = {};
+    
     try {
-      const ranges = cells.map(cell => 
-        sheetName ? `'${sheetName}'!${cell}` : cell
-      );
+      for (const batch of batches) {
+        // Escape sheet name if it contains special characters
+        // Sheet names with special characters need to be wrapped in single quotes
+        // If the sheet name contains single quotes, they need to be doubled
+        const escapedSheetName = sheetName ? sheetName.replace(/'/g, "''") : null;
+        const ranges = batch.map(cell => {
+          if (escapedSheetName) {
+            return `'${escapedSheetName}'!${cell}`;
+          }
+          return cell;
+        });
 
-      const response = await this.sheets.spreadsheets.values.batchGet({
-        spreadsheetId,
-        ranges,
-      });
+        try {
+          const response = await this.sheets.spreadsheets.values.batchGet({
+            spreadsheetId,
+            ranges,
+          });
 
-      // Map results back to cell references
-      const result = {};
-      response.data.valueRanges.forEach((range, index) => {
-        const cell = cells[index];
-        const value = range.values?.[0]?.[0];
-        result[cell] = value ? String(value).trim() : '';
-      });
+          // Map results back to cell references
+          response.data.valueRanges.forEach((range, index) => {
+            const cell = batch[index];
+            const value = range.values?.[0]?.[0];
+            allResults[cell] = value ? String(value).trim() : '';
+          });
+        } catch (batchError) {
+          // If batch request fails (e.g., due to special characters in sheet name),
+          // fall back to reading cells individually
+          console.warn('Batch request failed, falling back to individual cell reads:', batchError.message);
+          
+          for (const cell of batch) {
+            try {
+              const range = escapedSheetName ? `'${escapedSheetName}'!${cell}` : cell;
+              const cellResponse = await this.sheets.spreadsheets.values.get({
+                spreadsheetId,
+                range,
+              });
+              const value = cellResponse.data.values?.[0]?.[0];
+              allResults[cell] = value ? String(value).trim() : '';
+            } catch (cellError) {
+              // If individual cell read also fails, set to empty string
+              console.error(`Failed to read cell ${cell}:`, cellError.message);
+              allResults[cell] = '';
+            }
+          }
+        }
+      }
 
-      return result;
+      return allResults;
     } catch (error) {
-      throw new Error(`Failed to batch read cells: ${error.message}`);
+      // Extract more detailed error information
+      let errorMessage = error.message;
+      if (error.response?.data?.error) {
+        const apiError = error.response.data.error;
+        errorMessage = apiError.message || errorMessage;
+        if (apiError.status) {
+          errorMessage = `[${apiError.status}] ${errorMessage}`;
+        }
+      } else if (error.response?.data) {
+        // If response.data is a string (like HTML), try to extract useful info
+        const dataStr = String(error.response.data);
+        if (dataStr.includes('<!DOCTYPE') || dataStr.includes('<html')) {
+          errorMessage = `Bad request from Google Sheets API (received HTML response). This usually means the request format is invalid or the spreadsheet ID is incorrect.`;
+        } else {
+          errorMessage = dataStr.substring(0, 200); // Limit length
+        }
+      }
+      
+      // Include additional context in error message
+      const contextInfo = sheetName ? ` (sheet: "${sheetName}")` : ' (default sheet)';
+      throw new Error(`Failed to batch read cells${contextInfo}: ${errorMessage}`);
     }
   }
 

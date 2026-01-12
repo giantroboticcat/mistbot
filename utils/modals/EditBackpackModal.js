@@ -16,7 +16,9 @@ export class EditBackpackModal {
       .setTitle('Edit Backpack & Story Tags');
 
     // Backpack items input (pre-filled with current items)
-    const backpackValue = character.backpack.join(', ');
+    // Extract item strings from backpack objects (backpack items are stored as { id, item } objects)
+    const backpackItems = character.backpack.map(item => typeof item === 'string' ? item : item.item);
+    const backpackValue = backpackItems.join(', ');
     
     const backpackInput = new TextInputBuilder()
       .setCustomId('backpack_items')
@@ -31,7 +33,9 @@ export class EditBackpackModal {
       .setTextInputComponent(backpackInput);
 
     // Story tags input (pre-filled with current tags)
-    const storyTagsValue = character.storyTags.join(', ');
+    // Extract tag strings from story tag objects (story tags are stored as { id, tag } objects)
+    const storyTagStrings = character.storyTags.map(tag => typeof tag === 'string' ? tag : tag.tag);
+    const storyTagsValue = storyTagStrings.join(', ');
     
     const storyTagsInput = new TextInputBuilder()
       .setCustomId('story_tags')
