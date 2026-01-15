@@ -173,7 +173,7 @@ export class RollConfirmCommand extends Command {
 
     // Build components for editing (don't show justification button in confirm view)
     // Use helpFromCharacterIdMap from the roll
-    const interactiveComponents = RollView.buildRollInteractives(rollKey, filteredHelpOptions, filteredHinderOptions, 0, 0, roll.helpTags, roll.hinderTags, {confirm: true, cancel: true}, burnedTags, roll.justificationNotes, false, roll.helpFromCharacterIdMap || new Map(), roll.hinderFromCharacterIdMap || new Map());
+    const interactiveComponents = RollView.buildRollInteractives(rollKey, filteredHelpOptions, filteredHinderOptions, 0, 0, roll.helpTags, roll.hinderTags, {confirm: true, cancel: true}, burnedTags, roll.justificationNotes, false, roll.helpFromCharacterIdMap || new Map(), roll.hinderFromCharacterIdMap || new Map(), roll.mightModifier || 0);
 
     const title = isReaction
       ? `Reviewing Reaction Roll #${rollId}${roll.reactionToRollId ? ` (to Roll #${roll.reactionToRollId})` : ''}`

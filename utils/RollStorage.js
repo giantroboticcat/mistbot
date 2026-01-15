@@ -31,8 +31,8 @@ export class RollStorage {
     const transaction = db.transaction(() => {
       // Insert roll
       const insertRoll = db.prepare(`
-        INSERT INTO rolls (creator_id, character_id, scene_id, description, narration_link, justification_notes, status, reaction_to_roll_id, is_reaction)
-        VALUES (?, ?, ?, ?, ?, ?, 'proposed', ?, ?)
+        INSERT INTO rolls (creator_id, character_id, scene_id, description, narration_link, justification_notes, status, reaction_to_roll_id, is_reaction, might_modifier)
+        VALUES (?, ?, ?, ?, ?, ?, 'proposed', ?, ?, ?)
       `);
       
       const result = insertRoll.run(
@@ -43,7 +43,8 @@ export class RollStorage {
         rollData.narrationLink || null,
         rollData.justificationNotes || null,
         rollData.reactionToRollId || null,
-        rollData.isReaction ? 1 : 0
+        rollData.isReaction ? 1 : 0,
+        rollData.mightModifier !== undefined ? rollData.mightModifier : 0
       );
       
       const rollId = result.lastInsertRowid;
@@ -123,7 +124,7 @@ export class RollStorage {
   static getRoll(guildId, rollId) {
     const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
-      SELECT id, creator_id, character_id, scene_id, description, narration_link, justification_notes, status, confirmed_by, created_at, updated_at, reaction_to_roll_id, is_reaction
+      SELECT id, creator_id, character_id, scene_id, description, narration_link, justification_notes, status, confirmed_by, created_at, updated_at, reaction_to_roll_id, is_reaction, might_modifier
       FROM rolls
       WHERE id = ?
     `);
@@ -188,6 +189,7 @@ export class RollStorage {
       updatedAt: roll.updated_at,
       reactionToRollId: roll.reaction_to_roll_id,
       isReaction: Boolean(roll.is_reaction),
+      mightModifier: roll.might_modifier !== undefined && roll.might_modifier !== null ? roll.might_modifier : 0,
       helpTags: helpTags,
       hinderTags: hinderTags,
       burnedTags: burnedTags,
@@ -236,6 +238,11 @@ export class RollStorage {
       if (updates.confirmedBy !== undefined) {
         updateFields.push('confirmed_by = ?');
         updateValues.push(updates.confirmedBy);
+      }
+      
+      if (updates.mightModifier !== undefined) {
+        updateFields.push('might_modifier = ?');
+        updateValues.push(updates.mightModifier);
       }
       
       if (updateFields.length > 0) {

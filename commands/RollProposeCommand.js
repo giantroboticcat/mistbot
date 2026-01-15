@@ -96,17 +96,19 @@ export class RollProposeCommand extends Command {
       hinderPage: 0,
       buttons: {submit: true, cancel: true},
       isReaction: false,
-      reactionToRollId: null
+      reactionToRollId: null,
+      mightModifier: 0
     });
 
-    const interactiveComponents = RollView.buildRollInteractives(tempRollKey, helpOptions, hinderOptions, 0, 0, initialHelpTags, initialHinderTags, {submit: true, cancel: true}, initialBurnedTags, "", true, new Map(), new Map());
+    const interactiveComponents = RollView.buildRollInteractives(tempRollKey, helpOptions, hinderOptions, 0, 0, initialHelpTags, initialHinderTags, {submit: true, cancel: true}, initialBurnedTags, "", true, new Map(), new Map(), 0);
     const tempRollState = {
       helpTags: initialHelpTags,
       hinderTags: initialHinderTags,
       description: description,
       burnedTags: initialBurnedTags,
       characterId: character.id,
-      sceneId: sceneId
+      sceneId: sceneId,
+      mightModifier: 0
     };
     const displayData = RollView.buildRollDisplays(tempRollState, { showJustificationPlaceholder: true, guildId: guildId });
     const allComponents = combineRollComponents(displayData, interactiveComponents);

@@ -96,6 +96,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await RollHandler.handleRollConfirm(interaction, client);
       } else if (interaction.customId.startsWith('roll_cancel_')) {
         await RollHandler.handleRollCancel(interaction, client);
+      } else if (interaction.customId.startsWith('roll_might_button_')) {
+        await RollHandler.handleMightButtonClick(interaction, client);
       } else if (interaction.customId.startsWith('edit_character_')) {
         await CharacterHandler.handleEditCharacterButton(interaction, client);
       } else if (interaction.customId.startsWith('edit_backpack_')) {
@@ -160,6 +162,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await RollHandler.handleHinderTagSelect(interaction, client);
     } else if (interaction.customId.startsWith('roll_remove_hinder_action_select_')) {
       await RollHandler.handleRemoveHinderActionSelect(interaction, client);
+    } else if (interaction.customId.startsWith('roll_might_modifier_')) {
+      await RollHandler.handleMightModifierSelect(interaction, client);
     } else if (interaction.customId.startsWith('roll_help_page_') || interaction.customId.startsWith('roll_hinder_page_')) {
       await RollHandler.handleRollPageSelect(interaction, client);
     } else if (interaction.customId.startsWith('roll_burn_')) {

@@ -39,7 +39,8 @@ export class RollView {
       burnedTags = new Set(),
       characterId = null,
       narrationLink = null,
-      justificationNotes = null
+      justificationNotes = null,
+      mightModifier = 0
     } = rollState;
     
     const { 
@@ -143,6 +144,15 @@ export class RollView {
       );
     }
     
+    // Add might modifier display if not zero
+    if (mightModifier !== 0) {
+      const mightLabelText = this.formatMightModifierLabel(mightModifier);
+      descriptionContainer.addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(`### Might **${mightLabelText}**`)
+      );
+    }
+    
     // Add narration link if provided
     if (narrationLink) {
       descriptionContainer.addTextDisplayComponents(
@@ -218,9 +228,10 @@ export class RollView {
    * @param {boolean} buttons.confirm
    * @param {boolean} buttons.cancel
    * @param {Set<string>} burnedTags - Currently selected tags to burn
+   * @param {number} mightModifier - Current might modifier value (default 0)
    * @returns {Array} Array of ActionRowBuilder components
    */
-  static buildRollInteractives(rollKey, helpOptions, hinderOptions, helpPage, hinderPage, selectedHelpTags = new Set(), selectedHinderTags = new Set(), buttons = {}, burnedTags = new Set(), justificationNotes = null, showJustificationButton = true, helpFromCharacterIdMap = new Map(), hinderFromCharacterIdMap = new Map()) {
+  static buildRollInteractives(rollKey, helpOptions, hinderOptions, helpPage, hinderPage, selectedHelpTags = new Set(), selectedHinderTags = new Set(), buttons = {}, burnedTags = new Set(), justificationNotes = null, showJustificationButton = true, helpFromCharacterIdMap = new Map(), hinderFromCharacterIdMap = new Map(), mightModifier = 0) {
     // Show all options, but mark selected ones as default
     const helpPages = Math.ceil(helpOptions.length / 25);
     const hinderPages = Math.ceil(hinderOptions.length / 25);
@@ -233,6 +244,14 @@ export class RollView {
     const helpRows = [];
     const hinderRows = [];
     const submitRows = [];
+    
+    // Might modifier button - add to description rows
+    const mightModifierButton = new ButtonBuilder()
+      .setCustomId(`roll_might_button_${rollKey}`)
+      .setLabel(mightModifier !== 0 ? `Might: ${this.formatMightModifierLabel(mightModifier)}` : 'Apply Might')
+      .setStyle(ButtonStyle.Primary);
+    
+    descriptionRows.push(new ActionRowBuilder().setComponents([mightModifierButton]));
     
     // Help tag select menu (current page) - show all options, mark selected ones
     // Convert TagEntity objects to their encoded JSON strings for comparison
@@ -700,6 +719,35 @@ export class RollView {
   }
 
   /**
+   * Format might modifier label with breakpoint names
+   * +3 to +5: "Favored"
+   * +6 to +12: "Extremely Favored"
+   * -3 to -5: "Imperiled"
+   * -6 to -12: "Extremely Imperiled"
+   * Otherwise: just the number
+   * @param {number} mightModifier - The might modifier value
+   * @returns {string} Formatted label
+   */
+  static formatMightModifierLabel(mightModifier) {
+    if (mightModifier === 0) return '0';
+    
+    const modifierText = mightModifier >= 0 ? `+${mightModifier}` : `${mightModifier}`;
+    
+    // Check breakpoint ranges
+    if (mightModifier >= 6 && mightModifier <= 12) {
+      return `${modifierText} (Extremely Favored)`;
+    } else if (mightModifier >= 3 && mightModifier <= 5) {
+      return `${modifierText} (Favored)`;
+    } else if (mightModifier >= -5 && mightModifier <= -3) {
+      return `${modifierText} (Imperiled)`;
+    } else if (mightModifier >= -12 && mightModifier <= -6) {
+      return `${modifierText} (Extremely Imperiled)`;
+    }
+    
+    return modifierText;
+  }
+
+  /**
    * Extract numeric value from a status (e.g., "sleeping-3" -> 3)
    * Returns 1 if not a status or no number found
    * @param {string} tagName - The tag/status name
@@ -916,18 +964,24 @@ export class RollView {
    * @param {string|null} narratorMention - Optional narrator mention to include
    * @param {boolean} isReaction - Whether this is a reaction roll
    * @param {number|null} reactionToRollId - Original roll ID if this is a reaction
+   * @param {number} mightModifier - Might modifier (default 0)
    * @returns {Object} Object with components array and IsComponentsV2 flag
    */
-  static formatRollResult(die1, die2, baseRoll, modifier, finalResult, description, narratorMention = null, isReaction = false, reactionToRollId = null, strategyName = null, strategyModifier = 0, originalPower = null, spendingPower = null) {
+  static formatRollResult(die1, die2, baseRoll, modifier, finalResult, description, narratorMention = null, isReaction = false, reactionToRollId = null, strategyName = null, strategyModifier = 0, originalPower = null, spendingPower = null, mightModifier = 0) {
     const modifierText = modifier >= 0 ? `+${modifier}` : `${modifier}`;
     
-    // Build roll calculation text with strategy modifier if applicable
+    // Build roll calculation text with strategy modifier and might modifier if applicable
     let rollCalculation = `${die1} + ${die2} = ${baseRoll}`;
     if (strategyModifier !== 0) {
       const strategyModText = strategyModifier >= 0 ? `+${strategyModifier}` : `${strategyModifier}`;
       rollCalculation += ` ${strategyModText} (${strategyName})`;
     }
-    rollCalculation += ` ${modifierText} (Power) = **${finalResult}**`;
+    rollCalculation += ` ${modifierText} (Power)`;
+    if (mightModifier !== 0) {
+      const mightModText = mightModifier >= 0 ? `+${mightModifier}` : `${mightModifier}`;
+      rollCalculation += ` ${mightModText} (Might)`;
+    }
+    rollCalculation += ` = **${finalResult}**`;
 
     // Determine result classification
     // For reaction rolls, use different thresholds

@@ -139,7 +139,7 @@ export async function handleRollPageSelect(interaction, client) {
 
     // Rebuild components with updated page    
     let interactiveComponents = RollView.buildRollInteractives(rollKey, rollState.helpOptions, rollState.hinderOptions, rollState.helpPage, 
-      rollState.hinderPage, rollState.helpTags, rollState.hinderTags, rollState.buttons, rollState.burnedTags, rollState.justificationNotes, rollState.showJustificationButton, rollState.helpFromCharacterIdMap || new Map(), rollState.hinderFromCharacterIdMap || new Map());
+      rollState.hinderPage, rollState.helpTags, rollState.hinderTags, rollState.buttons, rollState.burnedTags, rollState.justificationNotes, rollState.showJustificationButton, rollState.helpFromCharacterIdMap || new Map(), rollState.hinderFromCharacterIdMap || new Map(), rollState.mightModifier || 0);
     
     let title;
     if (rollKey.startsWith('confirm_')) {
@@ -313,7 +313,7 @@ export async function handleRollSelect(interaction, client) {
 
     let interactiveComponents = RollView.buildRollInteractives(rollKey, rollState.helpOptions, rollState.hinderOptions, rollState.helpPage, 
       rollState.hinderPage, rollState.helpTags, rollState.hinderTags, rollState.buttons, rollState.burnedTags, 
-      rollState.justificationNotes, rollState.showJustificationButton, rollState.helpFromCharacterIdMap || new Map(), rollState.hinderFromCharacterIdMap || new Map());    
+      rollState.justificationNotes, rollState.showJustificationButton, rollState.helpFromCharacterIdMap || new Map(), rollState.hinderFromCharacterIdMap || new Map(), rollState.mightModifier || 0);    
 
     // Update the message with new tag selections
     let title;
@@ -419,7 +419,7 @@ export async function handleRollBurn(interaction, client) {
 
   // Rebuild components to reflect current selection state
   let interactiveComponents = RollView.buildRollInteractives(rollKey, rollState.helpOptions, rollState.hinderOptions, rollState.helpPage, 
-    rollState.hinderPage, rollState.helpTags, rollState.hinderTags, rollState.buttons, rollState.burnedTags, rollState.justificationNotes, rollState.showJustificationButton, rollState.helpFromCharacterIdMap || new Map(), rollState.hinderFromCharacterIdMap || new Map());
+    rollState.hinderPage, rollState.helpTags, rollState.hinderTags, rollState.buttons, rollState.burnedTags, rollState.justificationNotes, rollState.showJustificationButton, rollState.helpFromCharacterIdMap || new Map(), rollState.hinderFromCharacterIdMap || new Map(), rollState.mightModifier || 0);
   
   // Update the message with new tag selections
   let title;
@@ -541,6 +541,7 @@ export async function handleRollSubmit(interaction, client) {
       burnedTags: rollState.burnedTags || new Set(),
       helpFromCharacterIdMap: rollState.helpFromCharacterIdMap || new Map(),
       status: newStatus,
+      mightModifier: rollState.mightModifier !== undefined ? rollState.mightModifier : 0,
       // Clear confirmed_by if resetting to proposed
       confirmedBy: newStatus === RollStatus.PROPOSED ? null : undefined,
     });
@@ -559,6 +560,7 @@ export async function handleRollSubmit(interaction, client) {
       justificationNotes: rollState.justificationNotes || null,
       reactionToRollId: rollState.reactionToRollId || null,
       isReaction: rollState.isReaction || false,
+      mightModifier: rollState.mightModifier !== undefined ? rollState.mightModifier : 0,
     });
   }
 
@@ -741,7 +743,8 @@ export async function handleJustificationModal(interaction, client) {
     rollState.justificationNotes,
     rollState.showJustificationButton,
     rollState.helpFromCharacterIdMap || new Map(),
-    rollState.hinderFromCharacterIdMap || new Map()
+    rollState.hinderFromCharacterIdMap || new Map(),
+    rollState.mightModifier || 0
   );
 
   // Rebuild display with updated justification notes
@@ -816,6 +819,7 @@ export async function handleRollConfirm(interaction, client) {
     description: rollState.description,
     narrationLink: rollState.narrationLink,
     justificationNotes: rollState.justificationNotes,
+    mightModifier: rollState.mightModifier !== undefined ? rollState.mightModifier : 0,
     confirmedBy: interaction.user.id,
   });
 
@@ -967,13 +971,14 @@ export async function handleRollReconfirm(interaction, client) {
     hinderPage: 0,
     buttons: {confirm: true, cancel: true},
     isReaction: isReaction,
-    reactionToRollId: roll.reactionToRollId
+    reactionToRollId: roll.reactionToRollId,
+    mightModifier: roll.mightModifier !== undefined && roll.mightModifier !== null ? roll.mightModifier : 0
   };
   interaction.client.rollStates.set(rollKey, rollState);
 
   // Build components for editing (don't show justification button in confirm view)
   // Use helpFromCharacterIdMap from the roll if available
-  const interactiveComponents = RollView.buildRollInteractives(rollKey, filteredHelpOptions, filteredHinderOptions, 0, 0, roll.helpTags, roll.hinderTags, {confirm: true, cancel: true}, burnedTags, roll.justificationNotes, false, roll.helpFromCharacterIdMap || new Map(), roll.hinderFromCharacterIdMap || new Map());
+  const interactiveComponents = RollView.buildRollInteractives(rollKey, filteredHelpOptions, filteredHinderOptions, 0, 0, roll.helpTags, roll.hinderTags, {confirm: true, cancel: true}, burnedTags, roll.justificationNotes, false, roll.helpFromCharacterIdMap || new Map(), roll.hinderFromCharacterIdMap || new Map(), rollState.mightModifier || 0);
 
   const title = isReaction
     ? `Reviewing Reaction Roll #${rollId}${roll.reactionToRollId ? ` (to Roll #${roll.reactionToRollId})` : ''}`
@@ -1678,7 +1683,8 @@ export async function handleHinderTagSelect(interaction, client) {
     rollState.justificationNotes,
     rollState.showJustificationButton,
     rollState.helpFromCharacterIdMap || new Map(),
-    rollState.hinderFromCharacterIdMap || new Map()
+    rollState.hinderFromCharacterIdMap || new Map(),
+    rollState.mightModifier || 0
   );
 
   const displayData = RollView.buildRollDisplays(
@@ -1691,6 +1697,250 @@ export async function handleHinderTagSelect(interaction, client) {
   const allComponents = combineRollComponents(displayData, interactiveComponents);
 
   // Update the roll view directly - no ephemeral message needed
+  await interaction.update({
+    components: allComponents,
+    flags: MessageFlags.IsComponentsV2,
+  });
+}
+
+/**
+ * Handle might button click - show dropdown for might modifier selection
+ */
+export async function handleMightButtonClick(interaction, client) {
+  const customId = interaction.customId;
+  const rollKey = customId.replace('roll_might_button_', '');
+  
+  if (!client.rollStates.has(rollKey)) {
+    await interaction.reply({
+      content: 'This roll session has expired. Please run /roll-propose again.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const rollState = client.rollStates.get(rollKey);
+  const guildId = requireGuildId(interaction);
+  
+  // Check if user can edit this roll (for confirm views, check narrator permissions)
+  const rollEditorRole = getServerEnv('ROLL_EDITOR_ROLE', guildId, 'editor role');
+  let hasPermission = false;
+  if (rollKey.startsWith('confirm_')) {
+    // For confirm views, only narrators can edit
+    const rollEditorRoleId = getServerEnv('ROLL_EDITOR_ROLE_ID', guildId);
+    if (rollEditorRoleId) {
+      try {
+        hasPermission = interaction.member.roles.includes(rollEditorRoleId);
+      } catch (error) {
+        hasPermission = false;
+      }
+    }
+  } else {
+    if (rollState.rolled) {
+      await interaction.reply({
+        content: 'This roll has already been completed. Might modifier can no longer be edited.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    hasPermission = await canEditRoll(interaction, rollState);
+  }
+  
+  if (!hasPermission) {
+    await interaction.reply({
+      content: `You don't have permission to edit this roll. Only the creator or users with the "${rollEditorRole}" role can edit.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const currentMightModifier = rollState.mightModifier || 0;
+  
+  // Build might modifier dropdown options with breakpoint names in labels
+  const mightModifierOptions = [];
+  for (let i = -12; i <= 12; i++) {
+    let label = `${i >= 0 ? '+' : ''}${i}`;
+    
+    // Add breakpoint names directly to labels
+    if (i === 0) {
+      label = '0 (No modifier)';
+    } else if (i === 3) {
+      label = '+3 (Favored)';
+    } else if (i === 6) {
+      label = '+6 (Extremely Favored)';
+    } else if (i === -3) {
+      label = '-3 (Imperiled)';
+    } else if (i === -6) {
+      label = '-6 (Extremely Imperiled)';
+    }
+    
+    mightModifierOptions.push(
+      new StringSelectMenuOptionBuilder()
+        .setLabel(label)
+        .setValue(`${i}`)
+        .setDefault(i === currentMightModifier)
+    );
+  }
+  
+  const mightModifierSelect = new StringSelectMenuBuilder()
+    .setCustomId(`roll_might_modifier_${rollKey}`)
+    .setPlaceholder('Select Might modifier...')
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(mightModifierOptions);
+  
+  // Rebuild the roll view but replace the button with the dropdown
+  const interactiveComponents = RollView.buildRollInteractives(
+    rollKey,
+    rollState.helpOptions,
+    rollState.hinderOptions,
+    rollState.helpPage || 0,
+    rollState.hinderPage || 0,
+    rollState.helpTags,
+    rollState.hinderTags,
+    rollState.buttons,
+    rollState.burnedTags || new Set(),
+    rollState.justificationNotes,
+    rollState.showJustificationButton,
+    rollState.helpFromCharacterIdMap || new Map(),
+    rollState.hinderFromCharacterIdMap || new Map(),
+    rollState.mightModifier || 0
+  );
+
+  // Replace the first description row (which has the button) with the dropdown
+  interactiveComponents.descriptionRows[0] = new ActionRowBuilder().setComponents([mightModifierSelect]);
+
+  // Update the message with new might modifier
+  let title;
+  if (rollKey.startsWith('confirm_')) {
+    const rollId = rollKey.replace('confirm_', '');
+    title = `Reviewing Roll Proposal #${rollId}`;
+  } else {
+    title = 'Roll Proposal';
+  }
+
+  const displayData = RollView.buildRollDisplays(
+    rollState,
+    {
+      title: title,
+      descriptionText: `**Player:** <@${rollState.creatorId}>`,
+      guildId: guildId,
+    }
+  );
+
+  // Combine Components V2 display components with interactive components in the right order
+  const allComponents = combineRollComponents(displayData, interactiveComponents);
+
+  await interaction.update({
+    components: allComponents,
+    flags: MessageFlags.IsComponentsV2,
+  });
+}
+
+/**
+ * Handle might modifier selection
+ */
+export async function handleMightModifierSelect(interaction, client) {
+  const customId = interaction.customId;
+  const rollKey = customId.replace('roll_might_modifier_', '');
+  
+  if (!client.rollStates.has(rollKey)) {
+    await interaction.reply({
+      content: 'This roll session has expired. Please run /roll-propose again.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const rollState = client.rollStates.get(rollKey);
+  const guildId = requireGuildId(interaction);
+  
+  // Check if user can edit this roll (for confirm views, check narrator permissions)
+  const rollEditorRole = getServerEnv('ROLL_EDITOR_ROLE', guildId, 'editor role');
+  let hasPermission = false;
+  if (rollKey.startsWith('confirm_')) {
+    // For confirm views, only narrators can edit
+    const rollEditorRoleId = getServerEnv('ROLL_EDITOR_ROLE_ID', guildId);
+    if (rollEditorRoleId) {
+      try {
+        hasPermission = interaction.member.roles.includes(rollEditorRoleId);
+      } catch (error) {
+        hasPermission = false;
+      }
+    }
+  } else {
+    if (rollState.rolled) {
+      await interaction.reply({
+        content: 'This roll has already been completed. Might modifier can no longer be edited.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    hasPermission = await canEditRoll(interaction, rollState);
+  }
+  
+  if (!hasPermission) {
+    await interaction.reply({
+      content: `You don't have permission to edit this roll. Only the creator or users with the "${rollEditorRole}" role can edit.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Parse selected might modifier value
+  const mightModifierValue = parseInt(interaction.values[0], 10);
+  
+  // Validate range (-12 to +12)
+  if (isNaN(mightModifierValue) || mightModifierValue < -12 || mightModifierValue > 12) {
+    await interaction.reply({
+      content: 'Invalid might modifier value. Must be between -12 and +12.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Update might modifier in roll state
+  rollState.mightModifier = mightModifierValue;
+  client.rollStates.set(rollKey, rollState);
+
+  // Rebuild components with updated might modifier
+  const interactiveComponents = RollView.buildRollInteractives(
+    rollKey,
+    rollState.helpOptions,
+    rollState.hinderOptions,
+    rollState.helpPage || 0,
+    rollState.hinderPage || 0,
+    rollState.helpTags,
+    rollState.hinderTags,
+    rollState.buttons,
+    rollState.burnedTags || new Set(),
+    rollState.justificationNotes,
+    rollState.showJustificationButton,
+    rollState.helpFromCharacterIdMap || new Map(),
+    rollState.hinderFromCharacterIdMap || new Map(),
+    rollState.mightModifier || 0
+  );
+
+  // Update the message with new might modifier
+  let title;
+  if (rollKey.startsWith('confirm_')) {
+    const rollId = rollKey.replace('confirm_', '');
+    title = `Reviewing Roll Proposal #${rollId}`;
+  } else {
+    title = 'Roll Proposal';
+  }
+
+  const displayData = RollView.buildRollDisplays(
+    rollState,
+    {
+      title: title,
+      descriptionText: `**Player:** <@${rollState.creatorId}>`,
+      guildId: guildId,
+    }
+  );
+
+  // Combine Components V2 display components with interactive components in the right order
+  const allComponents = combineRollComponents(displayData, interactiveComponents);
+
   await interaction.update({
     components: allComponents,
     flags: MessageFlags.IsComponentsV2,

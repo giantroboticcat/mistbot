@@ -121,6 +121,7 @@ export class RollReactionCommand extends Command {
       buttons: {submit: true, cancel: true},
       isReaction: true,
       reactionToRollId: originalRollId || null,
+      mightModifier: 0
     });
 
     const interactiveComponents = RollView.buildRollInteractives(
@@ -136,7 +137,8 @@ export class RollReactionCommand extends Command {
       "", 
       true,
       new Map(),
-      new Map()
+      new Map(),
+      0
     );
     
     const title = originalRollId 
@@ -147,6 +149,7 @@ export class RollReactionCommand extends Command {
       helpTags: initialHelpTags,
       hinderTags: initialHinderTags,
       description: description,
+      mightModifier: 0,
       burnedTags: initialBurnedTags,
       characterId: character.id,
       sceneId: sceneId

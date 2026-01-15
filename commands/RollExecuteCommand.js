@@ -171,8 +171,11 @@ export class RollExecuteCommand extends Command {
     const die2 = Math.floor(Math.random() * 6) + 1;
     const baseRoll = die1 + die2;
     
-    // Apply strategy modifier to the roll result
-    const finalResult = baseRoll + baseModifier + strategyModifier;
+    // Get might modifier from roll (default to 0 if not set)
+    const mightModifier = roll.mightModifier !== undefined && roll.mightModifier !== null ? roll.mightModifier : 0;
+    
+    // Apply strategy modifier and might modifier to the roll result
+    const finalResult = baseRoll + baseModifier + strategyModifier + mightModifier;
 
     // Format narrator mention if they confirmed the roll
     const narratorMention = roll.confirmedBy ? `<@${roll.confirmedBy}>` : null;
@@ -222,7 +225,8 @@ export class RollExecuteCommand extends Command {
       strategyName,
       strategyModifier,
       originalPower,
-      spendingPower
+      spendingPower,
+      mightModifier
     );
 
     // Send as a public message

@@ -116,16 +116,18 @@ export class RollAmendCommand extends Command {
       originalStatus: roll.status, // Store original status to reset if needed
       helpFromCharacterIdMap: roll.helpFromCharacterIdMap || new Map(),
       hinderFromCharacterIdMap: roll.hinderFromCharacterIdMap || new Map(),
+      mightModifier: roll.mightModifier !== undefined && roll.mightModifier !== null ? roll.mightModifier : 0,
     });
 
-    const interactiveComponents = RollView.buildRollInteractives(rollKey, helpOptions, hinderOptions, 0, 0, initialHelpTags, initialHinderTags, {submit: true, cancel: true}, initialBurnedTags, roll.justificationNotes || "", true, roll.helpFromCharacterIdMap || new Map(), roll.hinderFromCharacterIdMap || new Map());
+    const interactiveComponents = RollView.buildRollInteractives(rollKey, helpOptions, hinderOptions, 0, 0, initialHelpTags, initialHinderTags, {submit: true, cancel: true}, initialBurnedTags, roll.justificationNotes || "", true, roll.helpFromCharacterIdMap || new Map(), roll.hinderFromCharacterIdMap || new Map(), roll.mightModifier || 0);
    const tempRollState = {
       helpTags: initialHelpTags,
       hinderTags: initialHinderTags,
       description: roll.description,
       burnedTags: initialBurnedTags,
       characterId: roll.characterId,
-      sceneId: roll.sceneId
+      sceneId: roll.sceneId,
+      mightModifier: roll.mightModifier !== undefined && roll.mightModifier !== null ? roll.mightModifier : 0
     };
     const displayData = RollView.buildRollDisplays(tempRollState, { showJustificationPlaceholder: true, guildId: guildId });
     const allComponents = combineRollComponents(displayData, interactiveComponents);
