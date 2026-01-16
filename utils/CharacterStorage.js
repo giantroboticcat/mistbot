@@ -563,10 +563,11 @@ export class CharacterStorage {
       
       themes.forEach((theme, index) => {
         const themeBurned = theme.isBurned ? 1 : 0;
+        const improvements = theme.improvements !== undefined ? theme.improvements : 0;
         const themeResult = db.prepare(`
-          INSERT INTO character_themes (character_id, name, theme_order, is_burned)
-          VALUES (?, ?, ?, ?)
-        `).run(characterId, theme.name, index, themeBurned);
+          INSERT INTO character_themes (character_id, name, theme_order, is_burned, improvements)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(characterId, theme.name, index, themeBurned, improvements);
         const themeId = themeResult.lastInsertRowid;
         
         // Insert tags
@@ -627,8 +628,8 @@ export class CharacterStorage {
         
         // Insert new themes
         const insertTheme = db.prepare(`
-          INSERT INTO character_themes (character_id, name, theme_order, is_burned)
-          VALUES (?, ?, ?, ?)
+          INSERT INTO character_themes (character_id, name, theme_order, is_burned, improvements)
+          VALUES (?, ?, ?, ?, ?)
         `);
         
         const insertTag = db.prepare(`
@@ -638,10 +639,11 @@ export class CharacterStorage {
         
         updates.themes.forEach((theme, index) => {
           const themeBurned = theme.isBurned ? 1 : 0;
+          const improvements = theme.improvements !== undefined ? theme.improvements : 0;
           const themeResult = db.prepare(`
-            INSERT INTO character_themes (character_id, name, theme_order, is_burned)
-            VALUES (?, ?, ?, ?)
-          `).run(characterId, theme.name, index, themeBurned);
+            INSERT INTO character_themes (character_id, name, theme_order, is_burned, improvements)
+            VALUES (?, ?, ?, ?, ?)
+          `).run(characterId, theme.name, index, themeBurned, improvements);
           const themeId = themeResult.lastInsertRowid;
           
           if (theme.tags) {
@@ -951,38 +953,60 @@ export class CharacterStorage {
         }
       }
 
+      // Get current character to preserve improvements if bot has >3 and sheet shows 3
+      const currentCharacter = this.getCharacter(guildId, userId, characterId);
+      const currentThemeImprovements = new Map();
+      if (currentCharacter && currentCharacter.themes) {
+        currentCharacter.themes.forEach((theme, index) => {
+          if (theme.improvements !== undefined) {
+            currentThemeImprovements.set(index, theme.improvements);
+          }
+        });
+      }
+
       // Use burned status from the sheet (sheet is source of truth)
       // The sheet data already includes burned status from readCharacterFromSheet
       // No need to preserve database burned status - sheet takes precedence
-      const themesWithBurnedStatus = sheetData.themes.map(theme => ({
-        ...theme,
-        // Theme burned status comes from sheet
-        isBurned: theme.isBurned || false,
-        // Tags burned status comes from sheet
-        tags: theme.tags ? theme.tags.map(tag => {
-          const tagText = typeof tag === 'string' ? tag : (tag.tag || tag);
-          const isBurned = typeof tag === 'object' ? (tag.isBurned || false) : false;
-          return typeof tag === 'object' ? {
-            ...tag,
-            isBurned: isBurned
-          } : {
-            tag: tagText,
-            isBurned: isBurned
-          };
-        }) : [],
-        // Weaknesses burned status comes from sheet
-        weaknesses: theme.weaknesses ? theme.weaknesses.map(weakness => {
-          const weaknessText = typeof weakness === 'string' ? weakness : (weakness.tag || weakness);
-          const isBurned = typeof weakness === 'object' ? (weakness.isBurned || false) : false;
-          return typeof weakness === 'object' ? {
-            ...weakness,
-            isBurned: isBurned
-          } : {
-            tag: weaknessText,
-            isBurned: isBurned
-          };
-        }) : []
-      }));
+      const themesWithBurnedStatus = sheetData.themes.map((theme, index) => {
+        // Handle improvements: if bot has >3 and sheet shows 3, keep bot's count
+        let improvements = theme.improvements || 0;
+        const currentImprovements = currentThemeImprovements.get(index);
+        if (currentImprovements !== undefined && currentImprovements > 3 && improvements === 3) {
+          // Bot has more than 3, sheet only shows 3 - keep bot's count
+          improvements = currentImprovements;
+        }
+        
+        return {
+          ...theme,
+          improvements: improvements,
+          // Theme burned status comes from sheet
+          isBurned: theme.isBurned || false,
+          // Tags burned status comes from sheet
+          tags: theme.tags ? theme.tags.map(tag => {
+            const tagText = typeof tag === 'string' ? tag : (tag.tag || tag);
+            const isBurned = typeof tag === 'object' ? (tag.isBurned || false) : false;
+            return typeof tag === 'object' ? {
+              ...tag,
+              isBurned: isBurned
+            } : {
+              tag: tagText,
+              isBurned: isBurned
+            };
+          }) : [],
+          // Weaknesses burned status comes from sheet
+          weaknesses: theme.weaknesses ? theme.weaknesses.map(weakness => {
+            const weaknessText = typeof weakness === 'string' ? weakness : (weakness.tag || weakness);
+            const isBurned = typeof weakness === 'object' ? (weakness.isBurned || false) : false;
+            return typeof weakness === 'object' ? {
+              ...weakness,
+              isBurned: isBurned
+            } : {
+              tag: weaknessText,
+              isBurned: isBurned
+            };
+          }) : []
+        };
+      });
 
       // Update character in database
       // Set skipAutoSync flag to prevent triggering auto-sync when syncing FROM sheet

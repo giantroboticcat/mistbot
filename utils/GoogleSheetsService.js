@@ -372,6 +372,15 @@ export class GoogleSheetsService {
         const row = weaknessCell.match(/\d+$/)[0];
         cellsToRead.push(weaknessCell, `${config.burnedCol}${row}`);
       }
+      
+      // Improvements (3 checkboxes per theme at row 28)
+      // First checkbox is one column after nameCell, then +1, +2
+      const nameCol = config.nameCell.match(/^[A-Z]+/)[0];
+      const improvementStartCol = this.incrementColumn(nameCol, 1);
+      for (let i = 0; i < 3; i++) {
+        const improvementCol = this.incrementColumn(improvementStartCol, i);
+        cellsToRead.push(`${improvementCol}28`);
+      }
     }
 
     // Backpack items (14 max)
@@ -452,6 +461,19 @@ export class GoogleSheetsService {
           });
         }
       }
+
+      // Parse improvements (3 checkboxes at row 28)
+      // Count how many checkboxes are checked (max 3)
+      const nameCol = config.nameCell.match(/^[A-Z]+/)[0];
+      const improvementStartCol = this.incrementColumn(nameCol, 1);
+      let improvementsFromSheet = 0;
+      for (let i = 0; i < 3; i++) {
+        const improvementCol = this.incrementColumn(improvementStartCol, i);
+        if (this.isTruthy(cellValues[`${improvementCol}28`])) {
+          improvementsFromSheet++;
+        }
+      }
+      theme.improvements = improvementsFromSheet;
 
       character.themes.push(theme);
     }
@@ -579,6 +601,18 @@ export class GoogleSheetsService {
           batchUpdates.push({ cell: burnedCell, value: '' });
         }
       }
+
+      // Improvements (3 checkboxes at row 28, cap at 3)
+      const nameCol = config.nameCell.match(/^[A-Z]+/)[0];
+      const improvementStartCol = this.incrementColumn(nameCol, 1);
+      const improvements = Math.min(theme.improvements || 0, 3); // Cap at 3
+      for (let i = 0; i < 3; i++) {
+        const improvementCol = this.incrementColumn(improvementStartCol, i);
+        batchUpdates.push({ 
+          cell: `${improvementCol}28`, 
+          value: i < improvements ? 'TRUE' : '' 
+        });
+      }
     }
 
     // Backpack items
@@ -625,6 +659,33 @@ export class GoogleSheetsService {
     await this.batchWriteCells(spreadsheetId, batchUpdates, sheetName);
 
     return true;
+  }
+
+  /**
+   * Increment a column letter by a given amount
+   * @param {string} col - Column letter (e.g., 'A', 'BF', 'Z')
+   * @param {number} amount - Amount to increment (default: 1)
+   * @returns {string} Incremented column letter
+   */
+  incrementColumn(col, amount = 1) {
+    // Convert column letter to number (A=1, B=2, ..., Z=26, AA=27, AB=28, etc.)
+    let colNum = 0;
+    for (let i = 0; i < col.length; i++) {
+      colNum = colNum * 26 + (col.charCodeAt(i) - 64);
+    }
+    
+    // Add the amount
+    colNum += amount;
+    
+    // Convert back to column letter
+    let result = '';
+    while (colNum > 0) {
+      const remainder = (colNum - 1) % 26;
+      result = String.fromCharCode(65 + remainder) + result;
+      colNum = Math.floor((colNum - 1) / 26);
+    }
+    
+    return result;
   }
 
   /**
