@@ -18,7 +18,7 @@ export class CharacterStorage {
   static getUserCharacters(guildId, userId) {
     const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
-      SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url, fellowship_id
+      SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url, fellowship_id, auto_sync
       FROM characters
       WHERE user_id = ?
       ORDER BY id
@@ -38,7 +38,7 @@ export class CharacterStorage {
   static getAllCharacters(guildId) {
     const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
-      SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url, fellowship_id
+      SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url, fellowship_id, auto_sync
       FROM characters
       ORDER BY user_id, id
     `);
@@ -323,7 +323,7 @@ export class CharacterStorage {
   static getCharacter(guildId, userId, characterId) {
     const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
-      SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url, fellowship_id
+      SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url, fellowship_id, auto_sync
       FROM characters
       WHERE id = ? AND user_id = ?
     `);
@@ -341,7 +341,7 @@ export class CharacterStorage {
   static getCharacterById(guildId, characterId) {
     const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
-      SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url, fellowship_id
+      SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url, fellowship_id, auto_sync
       FROM characters
       WHERE id = ?
     `);
@@ -355,7 +355,7 @@ export class CharacterStorage {
    * @param {string} userId - Discord user ID
    * @param {number} characterId - Character ID
    * @param {number|null} fellowshipId - Fellowship ID to assign, or null to remove
-   * @returns {boolean} True if updated, false if not found
+   * @returns {Object|null} Updated character or null if not found
    */
   static setFellowship(guildId, userId, characterId, fellowshipId) {
     const db = getDbForGuild(guildId);
@@ -366,7 +366,19 @@ export class CharacterStorage {
     `);
     
     const result = stmt.run(fellowshipId, characterId, userId);
-    return result.changes > 0;
+    if (result.changes === 0) {
+      return null;
+    }
+    
+    // Get updated character
+    const updatedCharacter = this.getCharacter(guildId, userId, characterId);
+    
+    // Auto-sync if enabled (store promise so handlers can await it if needed)
+    if (updatedCharacter && updatedCharacter.auto_sync === 1) {
+      updatedCharacter._autoSyncPromise = this.autoSyncToSheet(guildId, userId, characterId, updatedCharacter);
+    }
+    
+    return updatedCharacter;
   }
 
   /**
@@ -410,7 +422,16 @@ export class CharacterStorage {
     });
     
     transaction();
-    return this.getCharacter(guildId, userId, characterId);
+    
+    // Get updated character
+    const updatedCharacter = this.getCharacter(guildId, userId, characterId);
+    
+    // Auto-sync if enabled (store promise so handlers can await it if needed)
+    if (updatedCharacter && updatedCharacter.auto_sync === 1) {
+      updatedCharacter._autoSyncPromise = this.autoSyncToSheet(guildId, userId, characterId, updatedCharacter);
+    }
+    
+    return updatedCharacter;
   }
 
   /**
@@ -453,7 +474,16 @@ export class CharacterStorage {
     });
     
     transaction();
-    return this.getCharacter(guildId, userId, characterId);
+    
+    // Get updated character
+    const updatedCharacter = this.getCharacter(guildId, userId, characterId);
+    
+    // Auto-sync if enabled (store promise so handlers can await it if needed)
+    if (updatedCharacter && updatedCharacter.auto_sync === 1) {
+      updatedCharacter._autoSyncPromise = this.autoSyncToSheet(guildId, userId, characterId, updatedCharacter);
+    }
+    
+    return updatedCharacter;
   }
 
   /**
@@ -643,10 +673,54 @@ export class CharacterStorage {
           );
         });
       }
+      
+      // Update auto_sync if provided
+      if (updates.autoSync !== undefined) {
+        db.prepare(`
+          UPDATE characters
+          SET auto_sync = ?, updated_at = strftime('%s', 'now')
+          WHERE id = ?
+        `).run(updates.autoSync ? 1 : 0, characterId);
+      }
     });
     
     transaction();
-    return this.getCharacter(guildId, userId, characterId);
+    
+    // Get updated character
+    const updatedCharacter = this.getCharacter(guildId, userId, characterId);
+    
+    // Check if auto-sync is enabled and sync if needed (but not if we're just toggling autoSync)
+    // Only sync if autoSync wasn't in the updates (to avoid syncing when enabling/disabling)
+    if (updatedCharacter && updatedCharacter.auto_sync === 1 && updates.autoSync === undefined) {
+      // Auto-sync is enabled and we made changes (not just toggling autoSync)
+      // Store sync promise on character object so handlers can await it if needed
+      updatedCharacter._autoSyncPromise = this.autoSyncToSheet(guildId, userId, characterId, updatedCharacter);
+    }
+    
+    return updatedCharacter;
+  }
+
+  /**
+   * Get auto-sync note for confirmation messages (if auto-sync occurred)
+   * @param {Object} character - Character object (may have _autoSyncPromise)
+   * @returns {Promise<string|null>} Sync note or null if no auto-sync
+   */
+  static async getAutoSyncNote(character) {
+    if (!character || character.auto_sync !== 1) {
+      return null;
+    }
+
+    // Wait for auto-sync to complete if it's running
+    if (character._autoSyncPromise) {
+      const syncResult = await character._autoSyncPromise;
+      if (syncResult && syncResult.success) {
+        return `\n\n📤 Auto-synced to Google Sheet.`;
+      } else if (syncResult && !syncResult.success) {
+        return `\n\n⚠️ Auto-sync failed: ${syncResult.message}`;
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -727,6 +801,40 @@ export class CharacterStorage {
     `);
     
     return stmt.get(...params) || null;
+  }
+
+  /**
+   * Auto-sync character data to Google Sheet (internal helper, never throws)
+   * @param {string} guildId - Guild ID
+   * @param {string} userId - Discord user ID
+   * @param {number} characterId - Character ID
+   * @param {Object} character - Character object to sync
+   * @returns {Promise<Object|null>} Result with success status and message, or null if sync not needed
+   */
+  static async autoSyncToSheet(guildId, userId, characterId, character) {
+    // Check if auto-sync is enabled
+    if (!character || character.auto_sync !== 1) {
+      return null;
+    }
+
+    // Check if sheet URL is set
+    if (!character.google_sheet_url) {
+      return null;
+    }
+
+    // Check if sheets service is ready
+    if (!sheetsService.isReady()) {
+      return null;
+    }
+
+    try {
+      // Write to sheet
+      await sheetsService.writeCharacterToSheet(character.google_sheet_url, character);
+      return { success: true, message: 'Auto-synced to Google Sheet' };
+    } catch (error) {
+      console.error('Error auto-syncing to sheet:', error);
+      return { success: false, message: `Auto-sync failed: ${error.message}` };
+    }
   }
 
   /**

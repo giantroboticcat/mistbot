@@ -214,22 +214,29 @@ export class CharacterView {
     .setLabel('🔗 Set Sheet URL')
     .setStyle(ButtonStyle.Primary);
 
+    const autoSyncEnabled = character.auto_sync === 1;
+
     const syncToButton = new ButtonBuilder()
     .setCustomId(`sync_to_sheet_${character.id}`)
     .setLabel('📤 Sync to Sheet')
     .setStyle(ButtonStyle.Success)
-    .setDisabled(!character.google_sheet_url);
+    .setDisabled(autoSyncEnabled);
 
     const syncFromButton = new ButtonBuilder()
     .setCustomId(`sync_from_sheet_${character.id}`)
     .setLabel('📥 Sync from Sheet')
     .setStyle(ButtonStyle.Success)
-    .setDisabled(!character.google_sheet_url);
+    .setDisabled(autoSyncEnabled);
 
-    rows.push(new ActionRowBuilder().setComponents([setSheetButton, syncToButton, syncFromButton]));
-    
+      // Row 3: Auto-sync button
+    const autoSyncButton = new ButtonBuilder()
+    .setCustomId(`toggle_auto_sync_${character.id}`)
+    .setLabel(autoSyncEnabled ? '🔄 Auto-sync: ON' : '🔄 Auto-sync: OFF')
+    .setStyle(autoSyncEnabled ? ButtonStyle.Success : ButtonStyle.Danger);
 
-    // Row 3: Delete button
+    rows.push(new ActionRowBuilder().setComponents([setSheetButton, syncToButton, syncFromButton, autoSyncButton]));
+
+    // Row 4: Delete button
     const deleteButton = new ButtonBuilder()
     .setCustomId(`delete_character_${character.id}`)
     .setLabel('🗑️ Delete Character')

@@ -1,4 +1,4 @@
-import { MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, LabelBuilder } from 'discord.js';
+import { MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, LabelBuilder, ContainerBuilder, TextDisplayBuilder } from 'discord.js';
 import { CharacterStorage } from '../utils/CharacterStorage.js';
 import { getDbForGuild } from '../utils/Database.js';
 import { CreateCharacterCommand } from '../commands/CreateCharacterCommand.js';
@@ -1013,6 +1013,7 @@ export async function handleSyncFromSheetButton(interaction, client) {
  * Handle modal submit for setting sheet URL
  */
 export async function handleSetSheetUrlModal(interaction) {
+  const guildId = requireGuildId(interaction);
   const characterId = parseInt(interaction.customId.split('_').pop());
   const userId = interaction.user.id;
   const sheetUrl = interaction.fields.getTextInputValue('sheet_url');
@@ -1051,6 +1052,167 @@ export async function handleSetSheetUrlModal(interaction) {
       flags: MessageFlags.Ephemeral,
     });
   }
+}
+
+/**
+ * Handle toggle auto-sync button click
+ */
+export async function handleToggleAutoSync(interaction, client) {
+  const guildId = requireGuildId(interaction);
+  const customId = interaction.customId;
+  const characterId = parseInt(customId.replace('toggle_auto_sync_', ''));
+  const userId = interaction.user.id;
+
+  const character = CharacterStorage.getCharacter(guildId, userId, characterId);
+  if (!character) {
+    await interaction.reply({
+      content: 'Character not found.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const autoSyncEnabled = character.auto_sync === 1;
+
+  // If disabling, just turn it off
+  if (autoSyncEnabled) {
+    CharacterStorage.updateCharacter(guildId, userId, characterId, {
+      autoSync: false
+    });
+
+    // Refresh the character view
+    const displayData = await CharacterView.buildCharacterDisplays(character, interaction);
+    const allComponents = CharacterView.combineCharacterComponents(displayData, CharacterView.buildCharacterButtons(character));
+
+    await interaction.update({
+      components: allComponents,
+      flags: MessageFlags.IsComponentsV2,
+    });
+    return;
+  }
+
+  // If enabling, show warning first
+  const warningMessage = `⚠️ **Warning: Are You Sure You Wish to Enable Auto-sync**\n\n` +
+    `When you enable auto-sync, your Google Sheet will automatically be updated whenever character data changes in the bot (such as when tags are burned, or tags/statuses are added/removed).\n\n` +
+    `**Important:** Make sure your Google Sheet is up to date with your latest changes. Any changes in the bot that haven't been synced to the sheet will be lost when auto-sync is enabled.\n\n` +
+    `The character will be synced FROM the sheet immediately when you confirm, replacing any unsynced changes in the bot.`;
+
+  const warningContainer = new ContainerBuilder();
+  warningContainer.addTextDisplayComponents(
+    new TextDisplayBuilder()
+      .setContent(warningMessage)
+  );
+
+  const confirmButton = new ButtonBuilder()
+    .setCustomId(`confirm_enable_auto_sync_${characterId}`)
+    .setLabel('Enable Auto-sync')
+    .setStyle(ButtonStyle.Success);
+
+  const cancelButton = new ButtonBuilder()
+    .setCustomId(`cancel_enable_auto_sync_${characterId}`)
+    .setLabel('Cancel')
+    .setStyle(ButtonStyle.Secondary);
+
+  await interaction.update({
+    components: [warningContainer, new ActionRowBuilder().setComponents([confirmButton, cancelButton])],
+    flags: MessageFlags.IsComponentsV2,
+  });
+}
+
+/**
+ * Handle confirm enable auto-sync
+ */
+export async function handleConfirmEnableAutoSync(interaction, client) {
+  const guildId = requireGuildId(interaction);
+  const customId = interaction.customId;
+  const characterId = parseInt(customId.replace('confirm_enable_auto_sync_', ''));
+  const userId = interaction.user.id;
+
+  const character = CharacterStorage.getCharacter(guildId, userId, characterId);
+  if (!character) {
+    await interaction.reply({
+      content: 'Character not found.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // First, sync FROM the sheet to ensure sheet is the source of truth
+  const syncResult = await CharacterStorage.syncFromSheet(guildId, userId, characterId);
+
+  if (!syncResult.success) {
+    const errorContainer = new ContainerBuilder();
+    errorContainer.addTextDisplayComponents(
+      new TextDisplayBuilder()
+        .setContent(`❌ Failed to enable auto-sync: ${syncResult.message}`)
+    );
+    await interaction.update({
+      components: [errorContainer],
+      flags: MessageFlags.IsComponentsV2,
+    });
+    return;
+  }
+
+  // Get the synced character
+  const syncedCharacter = CharacterStorage.getCharacter(guildId, userId, characterId);
+
+  // Enable auto-sync
+  CharacterStorage.updateCharacter(guildId, userId, characterId, {
+    autoSync: true
+  });
+
+  // Get updated character with auto_sync enabled
+  const updatedCharacter = CharacterStorage.getCharacter(guildId, userId, characterId);
+
+  // Refresh the character view
+  const displayData = await CharacterView.buildCharacterDisplays(updatedCharacter, interaction);
+  
+  // Create success message container
+  const successMessage = `✅ Auto-sync enabled!\n\n${syncResult.message}\n\nYour character data will now automatically sync to Google Sheets whenever changes are made in the bot.`;
+  const successContainer = new ContainerBuilder();
+  successContainer.addTextDisplayComponents(
+    new TextDisplayBuilder()
+      .setContent(successMessage)
+  );
+
+  // Combine success message with character displays - add success container first
+  const allComponents = [
+    successContainer,
+    ...CharacterView.combineCharacterComponents(displayData, CharacterView.buildCharacterButtons(updatedCharacter))
+  ];
+
+  await interaction.update({
+    components: allComponents,
+    flags: MessageFlags.IsComponentsV2,
+  });
+}
+
+/**
+ * Handle cancel enable auto-sync
+ */
+export async function handleCancelEnableAutoSync(interaction, client) {
+  const guildId = requireGuildId(interaction);
+  const customId = interaction.customId;
+  const characterId = parseInt(customId.replace('cancel_enable_auto_sync_', ''));
+  const userId = interaction.user.id;
+
+  const character = CharacterStorage.getCharacter(guildId, userId, characterId);
+  if (!character) {
+    await interaction.reply({
+      content: 'Character not found.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Restore the character view
+  const displayData = await CharacterView.buildCharacterDisplays(character, interaction);
+  const allComponents = CharacterView.combineCharacterComponents(displayData, CharacterView.buildCharacterButtons(character));
+
+  await interaction.update({
+    components: allComponents,
+    flags: MessageFlags.IsComponentsV2,
+  });
 }
 
 

@@ -116,6 +116,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await CharacterHandler.handleSyncToSheetButton(interaction, client);
       } else if (interaction.customId.startsWith('sync_from_sheet_')) {
         await CharacterHandler.handleSyncFromSheetButton(interaction, client);
+      } else if (interaction.customId.startsWith('toggle_auto_sync_')) {
+        await CharacterHandler.handleToggleAutoSync(interaction, client);
+      } else if (interaction.customId.startsWith('confirm_enable_auto_sync_')) {
+        await CharacterHandler.handleConfirmEnableAutoSync(interaction, client);
+      } else if (interaction.customId.startsWith('cancel_enable_auto_sync_')) {
+        await CharacterHandler.handleCancelEnableAutoSync(interaction, client);
       } else if (interaction.customId.startsWith('delete_character_confirm_')) {
         await CharacterHandler.handleDeleteCharacterConfirm(interaction, client);
       } else if (interaction.customId.startsWith('delete_character_cancel_')) {

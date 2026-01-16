@@ -575,13 +575,15 @@ export class GoogleSheetsService {
 
     // Backpack items
     for (let i = 0; i < 14; i++) {
-      const item = character.backpack?.[i] || '';
+      const itemObj = character.backpack?.[i];
+      const item = typeof itemObj === 'string' ? itemObj : (itemObj?.item || '');
       batchUpdates.push({ cell: `AP${4 + i}`, value: item });
     }
 
     // Story tags
     for (let i = 0; i < 17; i++) {
-      const tag = character.storyTags?.[i] || '';
+      const tagObj = character.storyTags?.[i];
+      const tag = typeof tagObj === 'string' ? tagObj : (tagObj?.tag || tagObj || '');
       batchUpdates.push({ cell: `AP${20 + i}`, value: tag });
     }
 

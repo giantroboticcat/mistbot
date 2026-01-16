@@ -152,7 +152,7 @@ export class FellowshipStorage {
     });
     
     const fellowshipId = transaction();
-    return this.getFellowship(fellowshipId);
+    return this.getFellowship(guildId, fellowshipId);
   }
 
   /**
@@ -173,10 +173,11 @@ export class FellowshipStorage {
 
   /**
    * Sync fellowship data FROM Google Sheet
+   * @param {string} guildId - Guild ID
    * @param {string} sheetUrl - Google Sheets URL
    * @returns {Promise<Object>} Result with success status and message
    */
-  static async syncFromSheet(sheetUrl) {
+  static async syncFromSheet(guildId, sheetUrl) {
     try {
       // Check if sheets service is ready
       if (!sheetsService.isReady()) {
@@ -188,6 +189,7 @@ export class FellowshipStorage {
 
       // Upsert fellowship
       const fellowship = this.upsertFellowship(
+        guildId,
         fellowshipData.name,
         fellowshipData.tags,
         fellowshipData.weaknesses
