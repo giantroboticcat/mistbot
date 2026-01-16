@@ -477,8 +477,12 @@ export class GoogleSheetsService {
     // Parse statuses (13 max) with power levels
     character.tempStatuses = [];
     for (let i = 24; i <= 36; i++) {
-      const statusName = cellValues[`C${i}`];
+      let statusName = cellValues[`C${i}`];
       if (!statusName) continue;
+
+      // Parse out "-#" suffix if present (e.g., "Status-1" -> "Status")
+      // Match "-" followed by one or more digits at the end of the string
+      statusName = statusName.replace(/-\d+$/, '');
 
       const powerLevels = {};
       for (let p = 1; p <= 6; p++) {
