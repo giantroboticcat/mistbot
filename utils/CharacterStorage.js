@@ -59,7 +59,7 @@ export class CharacterStorage {
     const db = getDbForGuild(guildId);
     // Load themes
     const themesStmt = db.prepare(`
-      SELECT id, name, theme_order, is_burned
+      SELECT id, name, theme_order, is_burned, improvements
       FROM character_themes
       WHERE character_id = ?
       ORDER BY theme_order
@@ -79,6 +79,7 @@ export class CharacterStorage {
         id: theme.id,
         name: theme.name,
         isBurned: Boolean(theme.is_burned),
+        improvements: theme.improvements || 0,
         tags: allTags.filter(t => !t.is_weakness).map(t => ({ 
           id: t.id,
           tag: t.tag, 
@@ -1009,5 +1010,104 @@ export class CharacterStorage {
       console.error('Error syncing from sheet:', error);
       return { success: false, message: `Failed to sync: ${error.message}` };
     }
+  }
+
+  /**
+   * Increment improvements for themes based on weakness tags used in a roll
+   * @param {string} guildId - Guild ID
+   * @param {Set<TagEntity>} hinderTags - Set of hinder tags (may include weaknesses)
+   * @returns {Object} { improvedThemes: Array<{characterId: number, themeId: number, themeName: string, improvements: number}>, readyToDevelop: Array<{characterId: number, themeId: number, themeName: string, improvements: number}> }
+   */
+  static incrementThemeImprovements(guildId, hinderTags) {
+    const db = getDbForGuild(guildId);
+    const improvedThemes = [];
+    const readyToDevelop = [];
+    
+    // Track improvements per character and theme
+    // Each weakness tag used in the roll gives one improvement to its theme
+    // Map structure: characterId -> themeId -> count
+    const characterThemeImprovements = new Map();
+    
+    // Find all weakness tags in hinderTags and get their theme_ids and character_ids
+    for (const tagEntity of hinderTags) {
+      // Check if this is a weakness tag
+      if (tagEntity.parentType === RollTagParentType.CHARACTER_THEME_TAG) {
+        // Get the theme_id and character_id for this weakness tag
+        // The database query is the source of truth for character_id
+        const stmt = db.prepare(`
+          SELECT ctt.theme_id, ctt.tag, ctt.is_weakness, ct.character_id
+          FROM character_theme_tags ctt
+          JOIN character_themes ct ON ctt.theme_id = ct.id
+          WHERE ctt.id = ?
+        `);
+        const tagData = stmt.get(tagEntity.parentId);
+        
+        if (tagData && tagData.is_weakness === 1) {
+          // This is a weakness, use character_id from database (source of truth)
+          const characterId = tagData.character_id;
+          
+          if (!characterId) {
+            continue; // Skip if we can't determine the character
+          }
+          
+          const themeId = tagData.theme_id;
+          
+          // Initialize maps if needed
+          if (!characterThemeImprovements.has(characterId)) {
+            characterThemeImprovements.set(characterId, new Map());
+          }
+          const themeMap = characterThemeImprovements.get(characterId);
+          
+          if (!themeMap.has(themeId)) {
+            themeMap.set(themeId, 0);
+          }
+          themeMap.set(themeId, themeMap.get(themeId) + 1);
+        }
+      }
+    }
+    
+    // Update database and collect results
+    for (const [characterId, themeMap] of characterThemeImprovements.entries()) {
+      for (const [themeId, increment] of themeMap.entries()) {
+        // Get current improvements and theme name
+        const themeStmt = db.prepare(`
+          SELECT name, improvements
+          FROM character_themes
+          WHERE id = ? AND character_id = ?
+        `);
+        const theme = themeStmt.get(themeId, characterId);
+        
+        if (theme) {
+          const newImprovements = (theme.improvements || 0) + increment;
+          
+          // Update improvements
+          const updateStmt = db.prepare(`
+            UPDATE character_themes
+            SET improvements = ?
+            WHERE id = ?
+          `);
+          updateStmt.run(newImprovements, themeId);
+          
+          improvedThemes.push({
+            characterId: characterId,
+            themeId: themeId,
+            themeName: theme.name,
+            improvements: newImprovements
+          });
+          
+          // Check if ready to develop (>= 3)
+          if (newImprovements >= 3) {
+            readyToDevelop.push({
+              characterId: characterId,
+              themeId: themeId,
+              themeName: theme.name,
+              improvements: newImprovements
+            });
+          }
+        }
+      }
+    }
+    
+    return { improvedThemes, readyToDevelop };
   }
 }

@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder } from 'discord.js';
 import { Command } from './Command.js';
 import { RollStorage } from '../utils/RollStorage.js';
 import RollStatus from '../constants/RollStatus.js';
@@ -103,6 +103,30 @@ export class RollExecuteCommand extends Command {
 
     // Mark as executed
     RollStorage.updateRoll(guildId, rollId, { status: RollStatus.EXECUTED });
+
+    // Track theme improvements from weakness tags in hinderTags
+    const hinderTags = roll.hinderTags || new Set();
+    let improvementNotification = null;
+    if (hinderTags.size > 0) {
+      const improvementResult = CharacterStorage.incrementThemeImprovements(
+        guildId,
+        hinderTags
+      );
+      
+      // Build notification if any themes are ready to develop
+      // Group by character to show which player can develop
+      if (improvementResult.readyToDevelop.length > 0) {
+        // For now, notify the roll creator about all improvements
+        // In the future, we could send separate notifications to each player
+        const themeInfo = improvementResult.readyToDevelop.map(t => {
+          // Get character name if available
+          const character = CharacterStorage.getCharacterById(guildId, t.characterId);
+          const characterName = character ? character.name : `Character #${t.characterId}`;
+          return `\n${characterName}'s **${t.themeName}** (${t.improvements} improvements)`;
+        }).join(', ');
+        improvementNotification = `\n\n✨ **Theme Development Available!** ✨\nThe following theme(s) can now be developed: ${themeInfo}`;
+      }
+    }
 
     // Process burned tags - delete backpack/storyTags, mark others as burned
     if (burnedTags.size > 0) {
@@ -228,6 +252,16 @@ export class RollExecuteCommand extends Command {
       spendingPower,
       mightModifier
     );
+
+    // Add improvement notification if available
+    if (improvementNotification && resultData.components && resultData.components.length > 0) {
+      const notificationContainer = new ContainerBuilder();
+      notificationContainer.addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(improvementNotification)
+      );
+      resultData.components.push(notificationContainer);
+    }
 
     // Send as a public message
     await interaction.reply(resultData);

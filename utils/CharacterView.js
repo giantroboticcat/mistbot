@@ -33,7 +33,9 @@ export class CharacterView {
         
         // Wrap burned theme names with fire emojis on both sides
         const themeName = theme.isBurned ? `🔥${theme.name}🔥` : theme.name;
-        themeParts.push(`**${themeName}:**\n${formatted}`);
+        // Add improvement count if > 0
+        const improvementsText = theme.improvements > 0 ? ` (${theme.improvements} improvements)` : '';
+        themeParts.push(`**${themeName}:** ${improvementsText}\n${formatted}`);
       }
     });
 
@@ -141,7 +143,9 @@ export class CharacterView {
         
         // Wrap burned theme names with fire emojis on both sides
         const themeName = theme.isBurned ? `🔥${theme.name}🔥` : theme.name;
-        themeParts.push(`**${themeName}:**\n${formatted}`);
+        // Add improvement count if > 0
+        const improvementsText = theme.improvements > 0 ? ` (${theme.improvements} improvements)` : '';
+        themeParts.push(`**${themeName}:**${improvementsText}\n${formatted}`);
       }
     });
 
