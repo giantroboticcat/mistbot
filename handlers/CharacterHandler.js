@@ -9,7 +9,6 @@ import { Validation } from '../utils/Validation.js';
 import { requireGuildId } from '../utils/GuildUtils.js';
 import { WebhookSubscriptionStorage } from '../utils/WebhookSubscriptionStorage.js';
 import sheetsService from '../utils/GoogleSheetsService.js';
-import { AppsScriptGenerator } from '../utils/AppsScriptGenerator.js';
 
 /**
  * Handle modal submissions (character creation/editing)
@@ -1080,7 +1079,7 @@ export async function handleToggleAutoSync(interaction, client) {
   // If disabling, just turn it off and optionally remove webhook subscription
   if (autoSyncEnabled) {
     CharacterStorage.updateCharacter(guildId, userId, characterId, {
-      autoSync: false
+      autoSync: 0
     });
 
     // Delete webhook subscription if it exists (for backward compatibility with Drive API subscriptions)
@@ -1108,7 +1107,9 @@ export async function handleToggleAutoSync(interaction, client) {
 
   // If enabling, show warning first
   const warningMessage = `⚠️ **Warning: Are You Sure You Wish to Enable Auto-sync**\n\n` +
-    `When you enable auto-sync, your Google Sheet will automatically be updated whenever character data changes in the bot (such as when tags are burned, or tags/statuses are added/removed).\n\n` +
+    `When you enable auto-sync, your character data will automatically sync in both directions:\n` +
+    `• **Bot → Sheet**: Changes in the bot (tags burned, tags/statuses added/removed) will automatically update your Google Sheet\n` +
+    `• **Sheet → Bot**: Changes in your Google Sheet will automatically update the bot\n\n` +
     `**Important:** Make sure your Google Sheet is up to date with your latest changes. Any changes in the bot that haven't been synced to the sheet will be lost when auto-sync is enabled.\n\n` +
     `The character will be synced FROM the sheet immediately when you confirm, replacing any unsynced changes in the bot.`;
 
@@ -1173,41 +1174,19 @@ export async function handleConfirmEnableAutoSync(interaction, client) {
 
   // Enable auto-sync
   CharacterStorage.updateCharacter(guildId, userId, characterId, {
-    autoSync: true
+    autoSync: 1
   });
 
   // Get updated character with auto_sync enabled
   const updatedCharacter = CharacterStorage.getCharacter(guildId, userId, characterId);
 
-  // Generate Apps Script setup instructions if webhooks are configured and character has a sheet URL
-  let webhookMessage = '';
-  if (process.env.WEBHOOK_URL && updatedCharacter.google_sheet_url) {
-    try {
-      // Parse spreadsheet ID and sheet name from sheet URL
-      const parsed = sheetsService.parseSpreadsheetUrl(updatedCharacter.google_sheet_url);
-      if (parsed && parsed.spreadsheetId) {
-        const webhookUrl = process.env.WEBHOOK_URL;
-        
-        // Generate Apps Script code with setup instructions
-        const instructions = AppsScriptGenerator.generateSetupInstructions({
-          webhookUrl,
-          guildId,
-          sheetName: parsed.sheetName || null
-        });
-        
-        webhookMessage = `\n\n🔔 **Automatic Webhook Setup Required**\n\n${instructions}\n\nOnce you've set up the Apps Script, changes to your Google Sheet will automatically sync to the bot!`;
-      }
-    } catch (error) {
-      console.error('Failed to generate Apps Script instructions:', error);
-      webhookMessage = `\n\n⚠️ Auto-sync enabled, but webhook setup instructions could not be generated: ${error.message || 'Unknown error'}. You can still manually sync using the sync buttons.`;
-    }
-  }
-
   // Refresh the character view
   const displayData = await CharacterView.buildCharacterDisplays(updatedCharacter, interaction);
   
   // Create success message container
-  const successMessage = `✅ Auto-sync enabled!\n\n${syncResult.message}${webhookMessage}\n\nYour character data will now automatically sync to Google Sheets whenever changes are made in the bot.`;
+  const successMessage = `✅ Auto-sync enabled!\n\n${syncResult.message}\n\nYour character data will now automatically sync in both directions:\n` +
+    `• **Bot → Sheet**: Changes in the bot will automatically update your Google Sheet\n` +
+    `• **Sheet → Bot**: Changes in your Google Sheet will automatically update the bot`;
   const successContainer = new ContainerBuilder();
   successContainer.addTextDisplayComponents(
     new TextDisplayBuilder()

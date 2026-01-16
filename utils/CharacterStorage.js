@@ -304,7 +304,7 @@ export class CharacterStorage {
   static getActiveCharacter(guildId, userId) {
     const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
-      SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url, fellowship_id
+      SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url, fellowship_id, auto_sync
       FROM characters
       WHERE user_id = ? AND is_active = 1
       LIMIT 1
@@ -689,10 +689,11 @@ export class CharacterStorage {
     // Get updated character
     const updatedCharacter = this.getCharacter(guildId, userId, characterId);
     
-    // Check if auto-sync is enabled and sync if needed (but not if we're just toggling autoSync)
+    // Check if auto-sync is enabled and sync if needed (but not if we're just toggling autoSync or syncing from sheet)
     // Only sync if autoSync wasn't in the updates (to avoid syncing when enabling/disabling)
-    if (updatedCharacter && updatedCharacter.auto_sync === 1 && updates.autoSync === undefined) {
-      // Auto-sync is enabled and we made changes (not just toggling autoSync)
+    // and skipAutoSync flag is not set (to avoid syncing when syncing FROM sheet)
+    if (updatedCharacter && updatedCharacter.auto_sync === 1 && updates.autoSync === undefined && !updates.skipAutoSync) {
+      // Auto-sync is enabled and we made changes (not just toggling autoSync or syncing from sheet)
       // Store sync promise on character object so handlers can await it if needed
       updatedCharacter._autoSyncPromise = this.autoSyncToSheet(guildId, userId, characterId, updatedCharacter);
     }
@@ -943,12 +944,14 @@ export class CharacterStorage {
       }));
 
       // Update character in database
+      // Set skipAutoSync flag to prevent triggering auto-sync when syncing FROM sheet
       const updates = {
         name: sheetData.name,
         themes: themesWithBurnedStatus,
         backpack: sheetData.backpack,
         storyTags: sheetData.storyTags,
         tempStatuses: sheetData.tempStatuses,
+        skipAutoSync: true, // Prevent auto-sync when syncing from sheet
       };
 
       const updatedCharacter = this.updateCharacter(guildId, userId, characterId, updates);

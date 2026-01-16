@@ -31,12 +31,12 @@ export class WebhookHandler {
   static async handleNotification(notification, guildId) {
     try {
       // Check if this is an Apps Script webhook (has type in body)
-      if (notification.body && notification.body.type === 'sheet_edit') {
+      // if (notification.body && notification.body.type === 'sheet_edit') {
         return await this.handleAppsScriptWebhook(notification.body, guildId);
-      }
+      // }
       
       // Otherwise, treat as Google Drive API webhook
-      return await this.handleDriveApiWebhook(notification, guildId);
+      // return await this.handleDriveApiWebhook(notification, guildId);
     } catch (error) {
       console.error('Error handling webhook notification:', error);
       return { success: false, message: error.message };
@@ -76,6 +76,11 @@ export class WebhookHandler {
         if (!character) {
           console.log(`No character found matching spreadsheet ${spreadsheet_id} tab ${sheet_id} (${sheet_name || 'unknown'})`);
           return { success: true, message: `No character found for tab ${sheet_id} in spreadsheet ${spreadsheet_id}` };
+        }
+
+        if (character.auto_sync === 0) {
+          console.log(`Character ${character.name} (ID: ${character.id}) has auto-sync disabled - skipping sync`);
+          return { success: true, message: `Character ${character.name} has auto-sync disabled - skipping sync` };
         }
         
         console.log(`Found character ${character.name} (ID: ${character.id}) for tab ${sheet_id} in spreadsheet ${spreadsheet_id}`);

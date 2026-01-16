@@ -214,7 +214,11 @@ export class CharacterView {
     .setLabel('🔗 Set Sheet URL')
     .setStyle(ButtonStyle.Primary);
 
-    const autoSyncEnabled = character.auto_sync === 1;
+    // Check auto_sync - handle null/undefined (defaults to false)
+    // SQLite stores as INTEGER (0 or 1), but may return null if not set
+    // Convert to number and check if it equals 1
+    const autoSyncValue = character.auto_sync != null ? Number(character.auto_sync) : 0;
+    const autoSyncEnabled = autoSyncValue === 1;
 
     const syncToButton = new ButtonBuilder()
     .setCustomId(`sync_to_sheet_${character.id}`)
