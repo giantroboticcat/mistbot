@@ -351,6 +351,46 @@ export class CharacterStorage {
   }
 
   /**
+   * Get character by spreadsheet ID and sheet ID (gid) - optimized for webhook lookups
+   * @param {string} guildId - Guild ID
+   * @param {string} spreadsheetId - Google Spreadsheet ID
+   * @param {string} sheetId - Sheet ID (gid)
+   * @returns {Object|null} Character object with minimal fields (id, user_id, name, google_sheet_url, auto_sync) or null
+   */
+  static getCharacterBySpreadsheetAndGid(guildId, spreadsheetId, sheetId) {
+    const db = getDbForGuild(guildId);
+    // Query for characters where google_sheet_url contains both the spreadsheet_id and gid=sheetId
+    // The gid can appear as #gid=, ?gid=, or &gid= in the URL
+    // We use LIKE patterns to find potential matches, then verify exact match by parsing
+    const stmt = db.prepare(`
+      SELECT id, user_id, name, google_sheet_url, auto_sync
+      FROM characters
+      WHERE google_sheet_url IS NOT NULL
+        AND google_sheet_url LIKE ?
+        AND google_sheet_url LIKE ?
+      LIMIT 10
+    `);
+    
+    // Match spreadsheet ID in URL: /spreadsheets/d/{spreadsheetId}
+    const spreadsheetPattern = `%/spreadsheets/d/${spreadsheetId}%`;
+    // Match gid in various formats: #gid=sheetId, ?gid=sheetId, &gid=sheetId
+    // Note: We verify exact match after query to avoid partial matches (e.g., gid=12 matching gid=123)
+    const gidPattern1 = `%gid=${sheetId}%`;
+    
+    const candidates = stmt.all(spreadsheetPattern, gidPattern1);
+    
+    // Verify exact match by parsing the URL (handles edge cases like gid=123 matching gid=12)
+    for (const candidate of candidates) {
+      const parsed = sheetsService.parseSpreadsheetUrl(candidate.google_sheet_url);
+      if (parsed && parsed.spreadsheetId === spreadsheetId && parsed.gid === sheetId) {
+        return candidate;
+      }
+    }
+    
+    return null;
+  }
+
+  /**
    * Set fellowship for a character
    * @param {string} userId - Discord user ID
    * @param {number} characterId - Character ID

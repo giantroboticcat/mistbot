@@ -1,15 +1,18 @@
 import express from 'express';
+import https from 'https';
 import { WebhookHandler } from './WebhookHandler.js';
 import { WebhookSubscriptionStorage } from './WebhookSubscriptionStorage.js';
 
 /**
- * Webhook server for receiving Google Drive API push notifications
+ * Webhook server for receiving Google Apps Script webhook notifications
+ * Runs directly on port 443 with HTTPS/SSL
  */
 export class WebhookServer {
-  constructor(port = 3000, webhookPath = '/webhook/sheets') {
+  constructor(port = 443, webhookPath = '/webhook/sheets', sslOptions = null) {
     this.app = express();
     this.port = port;
     this.webhookPath = webhookPath;
+    this.sslOptions = sslOptions;
     this.server = null;
 
     this.setupMiddleware();
@@ -20,14 +23,27 @@ export class WebhookServer {
    * Setup Express middleware
    */
   setupMiddleware() {
-    // Parse URL-encoded bodies
-    this.app.use(express.urlencoded({ extended: true }));
-
-    // For webhook endpoint, use text parser to get raw body, then we'll parse JSON if needed
-    this.app.use(this.webhookPath, express.text({ type: '*/*' }));
-
-    // Parse JSON bodies for other routes
-    this.app.use(express.json());
+    console.log(`Setting up middleware for webhook server`);
+    
+    // Parse URL-encoded bodies (fallback for malformed requests)
+    this.app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+    
+    // Parse JSON bodies (Apps Script should send JSON)
+    // Increase limit to handle larger payloads if needed
+    this.app.use(express.json({ limit: '1mb' }));
+    
+    // Log request details AFTER parsing (so body is available)
+    this.app.use((req, res, next) => {
+      if (req.path.includes('/webhook/sheets')) {
+        console.log(`Request method: ${req.method}`);
+        console.log(`Content-Type: ${req.get('Content-Type')}`);
+        console.log(`Content-Length: ${req.get('Content-Length')}`);
+        console.log(`Request body:`, req.body);
+      }
+      next();
+    });
+    
+    console.log(`Middleware setup complete`);
   }
 
   /**
@@ -41,6 +57,13 @@ export class WebhookServer {
 
     // Webhook endpoint with guild ID in path: /webhook/sheets/:guildId
     this.app.post(`${this.webhookPath}/:guildId`, async (req, res) => {
+      console.log(`Received webhook request for guild ${req.params.guildId}`);
+      console.log(`Content-Type: ${req.get('Content-Type')}`);
+      console.log(`Content-Length: ${req.get('Content-Length')}`);
+      console.log(`Request body type: ${typeof req.body}`);
+      console.log(`Request body:`, req.body);
+      console.log(`Raw body:`, req.rawBody || 'not captured');
+      
       try {
         const guildId = req.params.guildId;
 
@@ -49,35 +72,30 @@ export class WebhookServer {
           return;
         }
 
-        // Build notification object - supports both Drive API (headers) and Apps Script (JSON body)
-        // Try to parse body as JSON (Apps Script), fall back to raw string (Drive API)
-        let parsedBody = null;
-        if (req.body && typeof req.body === 'string') {
+        // Try to parse body - check if it's already parsed or needs parsing
+        let webhookData = req.body;
+        
+        // If body is empty/undefined but we have raw body, try to parse it
+        if ((!webhookData || Object.keys(webhookData).length === 0) && req.rawBody) {
           try {
-            parsedBody = JSON.parse(req.body);
-          } catch (error) {
-            // Not JSON, treat as raw string (Drive API sends empty body)
-            parsedBody = req.body;
+            webhookData = JSON.parse(req.rawBody);
+            console.log(`Parsed body from raw:`, webhookData);
+          } catch (parseError) {
+            console.error('Failed to parse raw body:', parseError);
+            console.error('Raw body content:', req.rawBody);
           }
-        } else {
-          parsedBody = req.body;
         }
 
-        const notification = {
-          headers: {
-            'x-goog-resource-state': req.get('X-Goog-Resource-State'),
-            'x-goog-channel-id': req.get('X-Goog-Channel-Id'),
-            'x-goog-resource-id': req.get('X-Goog-Resource-Id'),
-            'x-goog-resource-uri': req.get('X-Goog-Resource-Uri'),
-            'x-goog-channel-token': req.get('X-Goog-Channel-Token'),
-            'x-goog-message-number': req.get('X-Goog-Message-Number'),
-            'x-goog-changed': req.get('X-Goog-Changed'), // Indicates what changed (content, properties, etc.)
-          },
-          body: parsedBody,
-        };
+        if (!webhookData || typeof webhookData !== 'object' || Array.isArray(webhookData)) {
+          console.warn('Invalid webhook payload - expected JSON object');
+          console.warn(`Received body type: ${typeof req.body}, value:`, req.body);
+          console.warn(`Raw body:`, req.rawBody || 'not available');
+          res.status(400).send('Invalid payload');
+          return;
+        }
 
-        // Handle the notification
-        const result = await WebhookHandler.handleNotification(notification, guildId);
+        // Handle the notification (pass body directly since Apps Script sends JSON)
+        const result = await WebhookHandler.handleNotification({ body: webhookData }, guildId);
 
         if (result.success) {
           res.status(200).send('OK');
@@ -127,19 +145,34 @@ export class WebhookServer {
   }
 
   /**
-   * Start the webhook server
+   * Start the webhook server with HTTPS
    * @returns {Promise<void>}
    */
   async start() {
+    if (!this.sslOptions) {
+      throw new Error('SSL options required for HTTPS server. Set SSL_CERT_PATH and SSL_KEY_PATH environment variables.');
+    }
+
     return new Promise((resolve, reject) => {
-      this.server = this.app.listen(this.port, () => {
-        console.log(`✅ Webhook server listening on port ${this.port}`);
-        console.log(`   Webhook endpoint: http://localhost:${this.port}${this.webhookPath}`);
+      // Start HTTPS server
+      this.server = https.createServer(this.sslOptions, this.app);
+      this.server.listen(this.port, () => {
+        console.log(`✅ Webhook server listening on port ${this.port} (HTTPS)`);
+        console.log(`   Webhook endpoint: https://localhost:${this.port}${this.webhookPath}`);
         resolve();
       });
 
       this.server.on('error', (error) => {
-        console.error('❌ Webhook server error:', error);
+        if (error.code === 'EACCES') {
+          console.error(`❌ Permission denied: Port ${this.port} requires root privileges`);
+          console.error('   Run: sudo setcap cap_net_bind_service=+ep $(which node)');
+          console.error('   Then restart the bot: pm2 restart mistbot');
+        } else if (error.code === 'EADDRINUSE') {
+          console.error(`❌ Port ${this.port} is already in use`);
+          console.error(`   Kill the process using: sudo lsof -ti:${this.port} | xargs sudo kill`);
+        } else {
+          console.error('❌ Webhook server error:', error);
+        }
         reject(error);
       });
     });

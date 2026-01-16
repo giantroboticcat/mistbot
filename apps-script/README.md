@@ -44,7 +44,7 @@ The bot automatically identifies which character to sync based on the tab ID (gi
 
 ## Files
 
-- `WebhookTrigger.gs`: The Apps Script template (also generated dynamically by the bot)
+- `WebhookTrigger.gs`: The Apps Script template - copy this file and update the configuration values
 - `README.md`: This file
 
 ## Troubleshooting

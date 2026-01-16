@@ -53,25 +53,17 @@ export class WebhookHandler {
     try {
       const { resource_type, spreadsheet_id, sheet_id, sheet_name } = webhookData;
       
+      console.log(`Received Apps Script webhook data: ${JSON.stringify(webhookData)}`);
       if (!resource_type || !spreadsheet_id || !sheet_id) {
-        return { success: false, message: 'Missing required webhook data (spreadsheet_id, sheet_id)' };
+        return { success: false, message: 'Missing required webhook data (resource_type,spreadsheet_id, sheet_id)' };
       }
-      
+      console.log(`Received Apps Script webhook for ${sheet_name || 'sheet'} (sheet_id: ${sheet_id})`);
+
       // Look up character by matching spreadsheet_id and sheet_id (gid) to character's google_sheet_url
       let character = null;
       if (resource_type === 'character') {
-        const allCharacters = CharacterStorage.getAllCharacters(guildId);
-        
-        // Find character whose google_sheet_url matches the spreadsheet_id and gid
-        for (const char of allCharacters) {
-          if (!char.google_sheet_url) continue;
-          
-          const parsed = sheetsService.parseSpreadsheetUrl(char.google_sheet_url);
-          if (parsed && parsed.spreadsheetId === spreadsheet_id && parsed.gid === sheet_id.toString()) {
-            character = char;
-            break;
-          }
-        }
+        // Optimized: Query database directly by spreadsheet_id and gid instead of loading all characters
+        character = CharacterStorage.getCharacterBySpreadsheetAndGid(guildId, spreadsheet_id, sheet_id.toString());
         
         if (!character) {
           console.log(`No character found matching spreadsheet ${spreadsheet_id} tab ${sheet_id} (${sheet_name || 'unknown'})`);
@@ -79,11 +71,11 @@ export class WebhookHandler {
         }
 
         if (character.auto_sync === 0) {
-          console.log(`Character ${character.name} (ID: ${character.id}) has auto-sync disabled - skipping sync`);
-          return { success: true, message: `Character ${character.name} has auto-sync disabled - skipping sync` };
+          console.log(`Character ${character.name || character.id} (ID: ${character.id}) has auto-sync disabled - skipping sync`);
+          return { success: true, message: `Character ${character.name || character.id} has auto-sync disabled - skipping sync` };
         }
         
-        console.log(`Found character ${character.name} (ID: ${character.id}) for tab ${sheet_id} in spreadsheet ${spreadsheet_id}`);
+        console.log(`Found character ${character.name || character.id} (ID: ${character.id}) for tab ${sheet_id} in spreadsheet ${spreadsheet_id}`);
       } else {
         return { success: false, message: `Unsupported resource type: ${resource_type}` };
       }
@@ -101,7 +93,7 @@ export class WebhookHandler {
         webhook_url: 'appsscript'
       };
       
-      console.log(`Received Apps Script webhook for ${sheet_name || 'sheet'} (character: ${character.name})`);
+      console.log(`Received Apps Script webhook for ${sheet_name || 'sheet'} (character: ${character.name || character.id})`);
       
       // Schedule sync with debouncing
       return await this.scheduleChangeNotification(subscription);

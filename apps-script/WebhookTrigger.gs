@@ -1,5 +1,5 @@
 // CONFIGURATION 
-const WEBHOOK_URL = 'https://mistbot.duckdns.org/webhook/sheets';
+const WEBHOOK_URL = 'https://mistbot.myaddr.tools/webhook/sheets';
 const GUILD_ID = '950980284319428608';
 
 /**
@@ -9,16 +9,17 @@ function setup() {
   // Delete any existing triggers
   const triggers = ScriptApp.getProjectTriggers();
   triggers.forEach(trigger => {
-    if (trigger.getHandlerFunction() === 'onEdit') {
+    // Delete any triggers that call our handler function
+    if (trigger.getHandlerFunction() === 'handleSheetEdit') {
       ScriptApp.deleteTrigger(trigger);
     }
-  });
+  });  
   
   // Get the active spreadsheet
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   
-  // Create new trigger - must use .forSpreadsheet() before .onEdit()
-  ScriptApp.newTrigger('onEdit')
+  // Create new installable trigger
+  ScriptApp.newTrigger('handleSheetEdit')
     .forSpreadsheet(spreadsheet)
     .onEdit()
     .create();
@@ -29,8 +30,11 @@ function setup() {
 
 /**
  * Triggered when any cell in the spreadsheet is edited
+ * Note: Using 'handleSheetEdit' instead of 'onEdit' to avoid simple trigger conflicts
  */
-function onEdit(e) {
+function handleSheetEdit(e) {
+  Logger.log('Hande sheet edit.');
+
   try {
     const sheet = e.source.getActiveSheet();
     const sheetName = sheet.getName();
@@ -40,6 +44,7 @@ function onEdit(e) {
     const spreadsheet = e.source;
     const spreadsheetId = spreadsheet.getId();
     
+    Logger.log('spreadsheetID %s, sheetId %s, sheetName %s', spreadsheetId, sheetId, sheetName)
     sendWebhook(spreadsheetId, sheetId, sheetName);
     
   } catch (error) {
@@ -63,15 +68,17 @@ function sendWebhook(spreadsheetId, sheetId, sheetName) {
     };
     
     const payload = JSON.stringify(webhookData);
-    
     const options = {
       method: 'post',
       contentType: 'application/json',
       payload: payload,
-      muteHttpExceptions: true
+      muteHttpExceptions: true,
+      validateHttpsCertificates: false
     };
     
     const fullUrl = WEBHOOK_URL + '/' + GUILD_ID;
+    console.log('Fetching url %s', fullUrl);
+    console.log(webhookData);
     const response = UrlFetchApp.fetch(fullUrl, options);
     const responseCode = response.getResponseCode();
     const responseText = response.getContentText();
@@ -99,4 +106,3 @@ function testWebhook() {
   
   sendWebhook(spreadsheetId, sheetId, sheetName);
 }
-

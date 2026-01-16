@@ -1,4 +1,5 @@
 import { Client, GatewayIntentBits, Events, MessageFlags } from 'discord.js';
+import fs from 'fs';
 import { commands } from './commands/index.js';
 import * as TagRemovalHandler from './handlers/TagRemovalHandler.js';
 import * as CharacterHandler from './handlers/CharacterHandler.js';
@@ -12,16 +13,68 @@ import { WebhookServer } from './utils/WebhookServer.js';
 // Load environment variables (base .env and all guild-specific .env.{guildId} files)
 initializeEnvs();
 
-// Initialize webhook server (optional - only if WEBHOOK_PORT and WEBHOOK_URL are set)
+// Initialize webhook server (optional - only if WEBHOOK_URL is set)
+// Runs directly on port 443 with HTTPS/SSL (no nginx needed)
 let webhookServer = null;
-if (process.env.WEBHOOK_PORT && process.env.WEBHOOK_URL) {
-  const webhookPort = parseInt(process.env.WEBHOOK_PORT, 10) || 3000;
-  webhookServer = new WebhookServer(webhookPort, '/webhook/sheets');
+if (process.env.WEBHOOK_URL) {
+  // Extract domain from WEBHOOK_URL for SSL certificate paths
+  const webhookUrl = process.env.WEBHOOK_URL;
+  let domain = null;
+  try {
+    const url = new URL(webhookUrl);
+    domain = url.hostname;
+  } catch (error) {
+    console.error('❌ Invalid WEBHOOK_URL format:', webhookUrl);
+    process.exit(1);
+  }
   
-  // Start webhook server
-  webhookServer.start().catch(error => {
-    console.error('❌ Failed to start webhook server:', error);
-  });
+  // Load SSL certificates for HTTPS (required for production)
+  const sslCertPath = process.env.SSL_CERT_PATH || `/etc/letsencrypt/live/${domain}/fullchain.pem`;
+  const sslKeyPath = process.env.SSL_KEY_PATH || `/etc/letsencrypt/live/${domain}/privkey.pem`;
+  
+  let sslOptions = null;
+  try {    
+    // Try to read the files
+    try {
+      sslOptions = {
+        cert: fs.readFileSync(sslCertPath, 'utf8'),
+        key: fs.readFileSync(sslKeyPath, 'utf8'),
+      };
+      console.log(`✅ Loaded SSL certificates from ${sslCertPath}`);
+    } catch (readError) {
+      if (readError.code === 'EACCES') {
+        throw new Error(`Permission denied reading certificate files. Try: sudo chmod 644 ${sslCertPath} && sudo chmod 600 ${sslKeyPath}`);
+      } else {
+        throw new Error(`Failed to read certificate files: ${readError.message}`);
+      }
+    }
+  } catch (error) {
+    console.warn('⚠️  Webhook server disabled - SSL certificates not accessible');
+    console.warn(`   Certificate path: ${sslCertPath}`);
+    console.warn(`   Key path: ${sslKeyPath}`);
+    console.warn(`   Error: ${error.message}`);
+    console.warn('   To enable webhook server:');
+    console.warn('   1. Verify certificates exist: sudo ls -la /etc/letsencrypt/live/' + domain + '/');
+    console.warn('   2. Fix permissions if needed: sudo chmod 644 /etc/letsencrypt/live/' + domain + '/fullchain.pem');
+    console.warn('                               sudo chmod 600 /etc/letsencrypt/live/' + domain + '/privkey.pem');
+    console.warn('   3. Or get SSL certificate: sudo certbot certonly --standalone -d ' + domain);
+    console.warn('   4. Then restart the bot: pm2 restart mistbot');
+    // Don't exit - allow bot to run without webhook server
+    webhookServer = null;
+  }
+  
+  if (sslOptions) {
+    // Use port 443 for HTTPS (production)
+    const webhookPort = process.env.WEBHOOK_PORT ? parseInt(process.env.WEBHOOK_PORT, 10) : 443;
+    webhookServer = new WebhookServer(webhookPort, '/webhook/sheets', sslOptions);
+    
+    // Start webhook server
+    webhookServer.start().catch(error => {
+      console.error('❌ Failed to start webhook server:', error);
+      console.error('   Bot will continue without webhook server');
+      // Don't exit - allow bot to run without webhook server
+    });
+  }
 }
 
 // Create a new client instance
