@@ -25,23 +25,25 @@ export class ListSceneStatusCommand extends Command {
     const tags = StoryTagStorage.getTags(guildId, sceneId);
     const statuses = StoryTagStorage.getStatuses(guildId, sceneId);
     const limits = StoryTagStorage.getLimits(guildId, sceneId);
+    const blockeds = StoryTagStorage.getBlockeds(guildId, sceneId);
     const ephemeral = interaction.options.getBoolean('ephemeral') ?? false;
 
-    if (tags.length === 0 && statuses.length === 0 && limits.length === 0) {
+    if (tags.length === 0 && statuses.length === 0 && limits.length === 0 && blockeds.length === 0) {
       await interaction.reply({
-        content: 'No tags, statuses, or limits are set for this scene.',
+        content: 'No tags, statuses, limits, or blocked tags are set for this scene.',
         flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
-    const totalCount = tags.length + statuses.length + limits.length;
+    const totalCount = tags.length + statuses.length + limits.length + blockeds.length;
     const counts = [];
     if (tags.length > 0) counts.push(`${tags.length} tag${tags.length !== 1 ? 's' : ''}`);
     if (statuses.length > 0) counts.push(`${statuses.length} status${statuses.length !== 1 ? 'es' : ''}`);
     if (limits.length > 0) counts.push(`${limits.length} limit${limits.length !== 1 ? 's' : ''}`);
+    if (blockeds.length > 0) counts.push(`${blockeds.length} blocked${blockeds.length !== 1 ? 's' : ''}`);
     
-    const formatted = TagFormatter.formatSceneStatusInCodeBlock(tags, statuses, limits);
+    const formatted = TagFormatter.formatSceneStatusInCodeBlock(tags, statuses, limits, blockeds);
     const content = `**Scene Status (${totalCount} total: ${counts.join(', ')})**\n${formatted}`;
 
     await interaction.reply({

@@ -33,6 +33,7 @@ export async function handleTagRemovalSelect(interaction, client) {
     const selectedTags = [];
     const selectedStatuses = [];
     const selectedLimits = [];
+    const selectedBlockeds = [];
 
     selectedItems.forEach(item => {
       const type = itemTypeMap.get(item);
@@ -42,17 +43,19 @@ export async function handleTagRemovalSelect(interaction, client) {
         selectedStatuses.push(item);
       } else if (type === 'limit') {
         selectedLimits.push(item);
+      } else if (type === 'blocked') {
+        selectedBlockeds.push(item);
       }
     });
 
     // Build display of selected items in a single code block
-    const totalSelected = selectedTags.length + selectedStatuses.length + selectedLimits.length;
+    const totalSelected = selectedTags.length + selectedStatuses.length + selectedLimits.length + selectedBlockeds.length;
     const selectedText = totalSelected > 0
-      ? `\n\n**Selected items:**\n${TagFormatter.formatSceneStatusInCodeBlock(selectedTags, selectedStatuses, selectedLimits)}`
+      ? `\n\n**Selected items:**\n${TagFormatter.formatSceneStatusInCodeBlock(selectedTags, selectedStatuses, selectedLimits, selectedBlockeds)}`
       : '\n\n*No items selected*';
 
     const content = '**Select items to remove:**\n' +
-      'Use the dropdown below to select multiple tags, statuses, or limits. Then click "Confirm Removal" to remove them.' +
+      'Use the dropdown below to select multiple tags, statuses, limits, or blocked tags. Then click "Confirm Removal" to remove them.' +
       selectedText;
 
     await interaction.update({
@@ -99,6 +102,7 @@ export async function handleTagRemovalButton(interaction, client) {
     const tagsToRemove = [];
     const statusesToRemove = [];
     const limitsToRemove = [];
+    const blockedsToRemove = [];
 
     selectedItems.forEach(item => {
       const type = itemTypeMap.get(item);
@@ -108,6 +112,8 @@ export async function handleTagRemovalButton(interaction, client) {
         statusesToRemove.push(item);
       } else if (type === 'limit') {
         limitsToRemove.push(item);
+      } else if (type === 'blocked') {
+        blockedsToRemove.push(item);
       }
     });
 
@@ -136,8 +142,15 @@ export async function handleTagRemovalButton(interaction, client) {
       remainingCounts.limits = updatedLimits.length;
     }
 
+    if (blockedsToRemove.length > 0) {
+      const existingBlockeds = StoryTagStorage.getBlockeds(guildId, sceneId);
+      const updatedBlockeds = StoryTagStorage.removeBlockeds(guildId, sceneId, blockedsToRemove);
+      removedCounts.blockeds = existingBlockeds.length - updatedBlockeds.length;
+      remainingCounts.blockeds = updatedBlockeds.length;
+    }
+
     // Build response content
-    const totalRemoved = (removedCounts.tags || 0) + (removedCounts.statuses || 0) + (removedCounts.limits || 0);
+    const totalRemoved = (removedCounts.tags || 0) + (removedCounts.statuses || 0) + (removedCounts.limits || 0) + (removedCounts.blockeds || 0);
     const removedParts = [];
     const remainingParts = [];
 
@@ -165,6 +178,14 @@ export async function handleTagRemovalButton(interaction, client) {
       }
     }
 
+    if (blockedsToRemove.length > 0) {
+      removedParts.push(`**Blocked Tags Removed:**\n${TagFormatter.formatBlockedsInCodeBlock(blockedsToRemove)}`);
+      if (remainingCounts.blockeds !== undefined) {
+        const remainingBlockeds = StoryTagStorage.getBlockeds(guildId, sceneId);
+        remainingParts.push(`**Remaining Blocked Tags (${remainingCounts.blockeds}):**\n${TagFormatter.formatBlockedsInCodeBlock(remainingBlockeds)}`);
+      }
+    }
+
     // Clean up selection and type mapping
     client.tagRemovalSelections.delete(selectionKey);
     client.tagRemovalItemTypes?.delete(selectionKey);
@@ -179,15 +200,17 @@ export async function handleTagRemovalButton(interaction, client) {
     const updatedTags = StoryTagStorage.getTags(guildId, sceneId);
     const updatedStatuses = StoryTagStorage.getStatuses(guildId, sceneId);
     const updatedLimits = StoryTagStorage.getLimits(guildId, sceneId);
+    const updatedBlockeds = StoryTagStorage.getBlockeds(guildId, sceneId);
 
     // Post public message with updated scene status
-    const totalCount = updatedTags.length + updatedStatuses.length + updatedLimits.length;
+    const totalCount = updatedTags.length + updatedStatuses.length + updatedLimits.length + updatedBlockeds.length;
     const counts = [];
     if (updatedTags.length > 0) counts.push(`${updatedTags.length} tag${updatedTags.length !== 1 ? 's' : ''}`);
     if (updatedStatuses.length > 0) counts.push(`${updatedStatuses.length} status${updatedStatuses.length !== 1 ? 'es' : ''}`);
     if (updatedLimits.length > 0) counts.push(`${updatedLimits.length} limit${updatedLimits.length !== 1 ? 's' : ''}`);
+    if (updatedBlockeds.length > 0) counts.push(`${updatedBlockeds.length} blocked${updatedBlockeds.length !== 1 ? 's' : ''}`);
     
-    const formatted = TagFormatter.formatSceneStatusInCodeBlock(updatedTags, updatedStatuses, updatedLimits);
+    const formatted = TagFormatter.formatSceneStatusInCodeBlock(updatedTags, updatedStatuses, updatedLimits, updatedBlockeds);
     const publicContent = `**Scene Status (${totalCount} total${counts.length > 0 ? ': ' + counts.join(', ') : ''})**\n${formatted}`;
 
     await interaction.followUp({

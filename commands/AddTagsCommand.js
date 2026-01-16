@@ -46,11 +46,16 @@ export class AddTagsCommand extends Command {
     const tags = [];
     const statuses = [];
     const limits = [];
+    const blockeds = [];
 
     for (const item of items) {
       // Check if it's a limit (ends with (number))
       if (Validation.validateLimit(item).valid) {
         limits.push(item);
+      }
+      // Check if it's a blocked tag (ends with -X)
+      else if (Validation.validateBlocked(item).valid) {
+        blockeds.push(item);
       }
       // Check if it's a status (ends with -number)
       else if (Validation.validateStatus(item).valid) {
@@ -62,9 +67,10 @@ export class AddTagsCommand extends Command {
       }
     }
 
-    // Validate statuses and limits (tags have no validation)
+    // Validate statuses, limits, and blocked tags (tags have no validation)
     const statusValidation = Validation.validateStatuses(statuses);
     const limitValidation = Validation.validateLimits(limits);
+    const blockedValidation = Validation.validateBlockeds(blockeds);
 
     // Collect all validation errors
     const validationErrors = [];
@@ -73,6 +79,9 @@ export class AddTagsCommand extends Command {
     }
     if (!limitValidation.valid && limitValidation.errors) {
       validationErrors.push(...limitValidation.errors);
+    }
+    if (!blockedValidation.valid && blockedValidation.errors) {
+      validationErrors.push(...blockedValidation.errors);
     }
 
     if (validationErrors.length > 0) {
@@ -87,11 +96,13 @@ export class AddTagsCommand extends Command {
     const existingTags = StoryTagStorage.getTags(guildId, sceneId);
     const existingStatuses = StoryTagStorage.getStatuses(guildId, sceneId);
     const existingLimits = StoryTagStorage.getLimits(guildId, sceneId);
+    const existingBlockeds = StoryTagStorage.getBlockeds(guildId, sceneId);
 
     // Filter out duplicates (case-insensitive comparison)
     const duplicateTags = [];
     const duplicateStatuses = [];
     const duplicateLimits = [];
+    const duplicateBlockeds = [];
     
     const newTags = tags.filter(tag => {
       const isDuplicate = existingTags.some(existing => existing.toLowerCase() === tag.toLowerCase());
@@ -120,9 +131,18 @@ export class AddTagsCommand extends Command {
       return true;
     });
 
+    const newBlockeds = blockeds.filter(blocked => {
+      const isDuplicate = existingBlockeds.some(existing => existing.toLowerCase() === blocked.toLowerCase());
+      if (isDuplicate) {
+        duplicateBlockeds.push(blocked);
+        return false;
+      }
+      return true;
+    });
+
     // Check if all items are duplicates
-    const totalDuplicates = duplicateTags.length + duplicateStatuses.length + duplicateLimits.length;
-    const totalNew = newTags.length + newStatuses.length + newLimits.length;
+    const totalDuplicates = duplicateTags.length + duplicateStatuses.length + duplicateLimits.length + duplicateBlockeds.length;
+    const totalNew = newTags.length + newStatuses.length + newLimits.length + newBlockeds.length;
 
     if (totalNew === 0) {
       const duplicateMessages = [];
@@ -135,6 +155,9 @@ export class AddTagsCommand extends Command {
       if (duplicateLimits.length > 0) {
         duplicateMessages.push(`**Limits:** ${duplicateLimits.join(', ')}`);
       }
+      if (duplicateBlockeds.length > 0) {
+        duplicateMessages.push(`**Blocked:** ${duplicateBlockeds.join(', ')}`);
+      }
       
       await interaction.reply({
         content: `❌ All items already exist in this scene:\n${duplicateMessages.join('\n')}`,
@@ -145,7 +168,7 @@ export class AddTagsCommand extends Command {
 
     // Add only non-duplicate items to storage
     const addedCounts = {};
-    const allItems = { tags: [], statuses: [], limits: [] };
+    const allItems = { tags: [], statuses: [], limits: [], blockeds: [] };
 
     if (newTags.length > 0) {
       const updatedTags = StoryTagStorage.addTags(guildId, sceneId, newTags);
@@ -171,6 +194,14 @@ export class AddTagsCommand extends Command {
       allItems.limits = existingLimits;
     }
 
+    if (newBlockeds.length > 0) {
+      const updatedBlockeds = StoryTagStorage.addBlockeds(guildId, sceneId, newBlockeds);
+      addedCounts.blockeds = newBlockeds.length;
+      allItems.blockeds = updatedBlockeds;
+    } else {
+      allItems.blockeds = existingBlockeds;
+    }
+
     // Build response with added items and duplicate warnings
     const addedSummary = [];
     if (addedCounts.tags > 0) {
@@ -181,6 +212,9 @@ export class AddTagsCommand extends Command {
     }
     if (addedCounts.limits > 0) {
       addedSummary.push(`${addedCounts.limits} limit${addedCounts.limits !== 1 ? 's' : ''}`);
+    }
+    if (addedCounts.blockeds > 0) {
+      addedSummary.push(`${addedCounts.blockeds} blocked${addedCounts.blockeds !== 1 ? 's' : ''}`);
     }
 
     const duplicateWarnings = [];
@@ -193,14 +227,18 @@ export class AddTagsCommand extends Command {
     if (duplicateLimits.length > 0) {
       duplicateWarnings.push(`⚠️ **Limits already exist:** ${duplicateLimits.join(', ')}`);
     }
+    if (duplicateBlockeds.length > 0) {
+      duplicateWarnings.push(`⚠️ **Blocked tags already exist:** ${duplicateBlockeds.join(', ')}`);
+    }
 
-    const totalCount = allItems.tags.length + allItems.statuses.length + allItems.limits.length;
+    const totalCount = allItems.tags.length + allItems.statuses.length + allItems.limits.length + allItems.blockeds.length;
     const counts = [];
     if (allItems.tags.length > 0) counts.push(`${allItems.tags.length} tag${allItems.tags.length !== 1 ? 's' : ''}`);
     if (allItems.statuses.length > 0) counts.push(`${allItems.statuses.length} status${allItems.statuses.length !== 1 ? 'es' : ''}`);
     if (allItems.limits.length > 0) counts.push(`${allItems.limits.length} limit${allItems.limits.length !== 1 ? 's' : ''}`);
+    if (allItems.blockeds.length > 0) counts.push(`${allItems.blockeds.length} blocked${allItems.blockeds.length !== 1 ? 's' : ''}`);
 
-    const formatted = TagFormatter.formatSceneStatusInCodeBlock(allItems.tags, allItems.statuses, allItems.limits);
+    const formatted = TagFormatter.formatSceneStatusInCodeBlock(allItems.tags, allItems.statuses, allItems.limits, allItems.blockeds);
     let content = `**Added ${addedSummary.join(', ')}**`;
     if (duplicateWarnings.length > 0) {
       content += `\n\n${duplicateWarnings.join('\n')}`;

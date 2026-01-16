@@ -85,6 +85,7 @@ export class RollTagEntityConverter {
     
     if (tagString.startsWith('sceneTag:')) {
       const tagName = tagString.replace('sceneTag:', '');
+      // Blocked tags are excluded from rolls - only allow tag_type = 'tag'
       const stmt = db.prepare(`
         SELECT id FROM scene_tags 
         WHERE scene_id = ? AND tag = ? AND tag_type = 'tag'
@@ -95,6 +96,7 @@ export class RollTagEntityConverter {
     
     if (tagString.startsWith('sceneStatus:')) {
       const statusName = tagString.replace('sceneStatus:', '');
+      // Blocked tags are excluded from rolls - only allow tag_type = 'status'
       const stmt = db.prepare(`
         SELECT id FROM scene_tags 
         WHERE scene_id = ? AND tag = ? AND tag_type = 'status'
@@ -192,6 +194,12 @@ export class RollTagEntityConverter {
         const stmt = db.prepare('SELECT tag, tag_type FROM scene_tags WHERE id = ?');
         const result = stmt.get(entityInfo.parent_id);
         if (!result) return null;
+        
+        // Blocked tags should not be available to rolls
+        if (result.tag_type === 'blocked') {
+          return null;
+        }
+        
         return result.tag_type === 'status'
           ? `sceneStatus:${result.tag}`
           : `sceneTag:${result.tag}`;

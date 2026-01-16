@@ -122,6 +122,57 @@ export class Validation {
   }
 
   /**
+   * Validate a blocked tag format
+   * Blocked tags should end in "-X" (capital X)
+   * @param {string} blocked - The blocked tag to validate
+   * @returns {{ valid: boolean, error?: string }}
+   */
+  static validateBlocked(blocked) {
+    if (!blocked || typeof blocked !== 'string') {
+      return { valid: false, error: 'Blocked tag cannot be empty' };
+    }
+
+    const trimmed = blocked.trim();
+    
+    // Must end with "-X" (capital X)
+    if (!trimmed.endsWith('-X')) {
+      return { 
+        valid: false, 
+        error: 'Blocked tag must end with "-X" (e.g., "harm-X", "concerned-X")' 
+      };
+    }
+
+    // Check that it's not just "-X" (needs at least one character before it)
+    if (trimmed.length <= 2) {
+      return { 
+        valid: false, 
+        error: 'Blocked tag must have text before "-X" (e.g., "harm-X")' 
+      };
+    }
+
+    return { valid: true };
+  }
+
+  /**
+   * Validate multiple blocked tags
+   * @param {string[]} blockeds - Array of blocked tags to validate
+   * @returns {{ valid: boolean, errors?: string[] }}
+   */
+  static validateBlockeds(blockeds) {
+    const errors = [];
+    for (const blocked of blockeds) {
+      const result = this.validateBlocked(blocked);
+      if (!result.valid) {
+        errors.push(`"${blocked}": ${result.error}`);
+      }
+    }
+    return {
+      valid: errors.length === 0,
+      errors: errors.length > 0 ? errors : undefined,
+    };
+  }
+
+  /**
    * Validate a Discord message link
    * Discord message links have the format:
    * - https://discord.com/channels/{guild_id}/{channel_id}/{message_id} (server messages)

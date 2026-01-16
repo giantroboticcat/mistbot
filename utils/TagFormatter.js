@@ -5,6 +5,7 @@ export class TagFormatter {
   static BOLD_YELLOW = '\x1b[1;33m';
   static BOLD_RED = '\x1b[1;31m';
   static BOLD_GREEN = '\x1b[1;32m';
+  static BOLD_BLUE = '\x1b[1;34m';  // Blue for blocked tags
   static ORANGE_BACKGROUND = '\x1b[0;41m';
   static RESET = '\x1b[0m';
   
@@ -13,6 +14,7 @@ export class TagFormatter {
   static GREEN_CIRCLE = '🟢';   // Green circle for status
   static RED_CIRCLE = '🔴';     // Red circle for limits
   static ORANGE_CIRCLE = '🟠';  // Orange circle for weakness
+  static OPEN_BOOK = '📖';      // Open book emoji for blocked tags
 
   /**
    * Format a single tag with bold yellow text
@@ -108,14 +110,49 @@ export class TagFormatter {
   }
 
   /**
-   * Format tags, statuses, and limits in a single ANSI code block
+   * Format a single blocked tag with blue text
+   * Removes the "-X" suffix for display
+   * @param {string} blocked - The blocked tag to format (e.g., "Test Truth-X")
+   * @returns {string} Formatted blocked tag without "-X" suffix (e.g., "Test Truth")
+   */
+  static formatBlocked(blocked) {
+    // Remove "-X" suffix for display
+    const displayName = blocked.endsWith('-X') ? blocked.slice(0, -2) : blocked;
+    return `${this.BOLD_BLUE}${displayName}${this.RESET}`;
+  }
+
+  /**
+   * Format an array of blocked tags with orange ANSI codes, joined by commas
+   * @param {string[]} blockeds - Array of blocked tags to format
+   * @returns {string} Formatted blocked tags joined by commas
+   */
+  static formatBlockeds(blockeds) {
+    return blockeds.map(blocked => this.formatBlocked(blocked)).join(', ');
+  }
+
+  /**
+   * Format blocked tags in an ANSI code block for Discord
+   * @param {string[]} blockeds - Array of blocked tags to format
+   * @returns {string} Formatted blocked tags in ansi code block
+   */
+  static formatBlockedsInCodeBlock(blockeds) {
+    if (blockeds.length === 0) {
+      return 'None';
+    }
+    const formatted = this.formatBlockeds(blockeds);
+    return `\`\`\`ansi\n${formatted}\n\`\`\``;
+  }
+
+  /**
+   * Format tags, statuses, limits, and blocked tags in a single ANSI code block
    * Each item is on its own line with emoji prefix for mobile visibility
    * @param {string[]} tags - Array of tags (yellow)
    * @param {string[]} statuses - Array of statuses (green)
    * @param {string[]} limits - Array of limits (red)
+   * @param {string[]} blockeds - Array of blocked tags (orange)
    * @returns {string} Formatted items in a single ansi code block, one per line
    */
-  static formatSceneStatusInCodeBlock(tags, statuses, limits) {
+  static formatSceneStatusInCodeBlock(tags, statuses, limits, blockeds = []) {
     const lines = [];
     
     // Add tags with yellow circle (one per line)
@@ -134,6 +171,12 @@ export class TagFormatter {
     limits.forEach(limit => {
       const formattedLimit = this.formatLimit(limit);
       lines.push(`${this.RED_CIRCLE} ${formattedLimit}`);
+    });
+    
+    // Add blocked tags with open book emoji (one per line)
+    blockeds.forEach(blocked => {
+      const formattedBlocked = this.formatBlocked(blocked);
+      lines.push(`${this.OPEN_BOOK} ${formattedBlocked}`);
     });
     
     if (lines.length === 0) {

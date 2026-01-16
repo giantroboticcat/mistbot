@@ -20,12 +20,13 @@ export class RemoveTagsCommand extends Command {
     const existingTags = StoryTagStorage.getTags(guildId, sceneId);
     const existingStatuses = StoryTagStorage.getStatuses(guildId, sceneId);
     const existingLimits = StoryTagStorage.getLimits(guildId, sceneId);
+    const existingBlockeds = StoryTagStorage.getBlockeds(guildId, sceneId);
 
-    const totalItems = existingTags.length + existingStatuses.length + existingLimits.length;
+    const totalItems = existingTags.length + existingStatuses.length + existingLimits.length + existingBlockeds.length;
 
     if (totalItems === 0) {
       await interaction.reply({
-        content: 'No tags, statuses, or limits are set for this scene.',
+        content: 'No tags, statuses, limits, or blocked tags are set for this scene.',
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -49,6 +50,7 @@ export class RemoveTagsCommand extends Command {
     existingTags.forEach(tag => itemTypeMap.set(tag, 'tag'));
     existingStatuses.forEach(status => itemTypeMap.set(status, 'status'));
     existingLimits.forEach(limit => itemTypeMap.set(limit, 'limit'));
+    existingBlockeds.forEach(blocked => itemTypeMap.set(blocked, 'blocked'));
     interaction.client.tagRemovalItemTypes.set(selectionKey, itemTypeMap);
 
     // Create multiselect dropdown options for all items
@@ -85,6 +87,18 @@ export class RemoveTagsCommand extends Command {
       );
     });
 
+    // Add blocked tags with open book emoji prefix in label only
+    // Remove "-X" suffix for display
+    existingBlockeds.forEach(blocked => {
+      const displayName = blocked.endsWith('-X') ? blocked.slice(0, -2) : blocked;
+      const label = displayName.length > 100 ? displayName.substring(0, 97) + '...' : displayName;
+      options.push(
+        new StringSelectMenuOptionBuilder()
+          .setLabel(`📖 ${label}`)
+          .setValue(blocked)
+      );
+    });
+
     // Discord limits select menus to 25 options
     const optionsToShow = options.slice(0, 25);
 
@@ -112,7 +126,7 @@ export class RemoveTagsCommand extends Command {
       );
 
     const content = '**Select items to remove:**\n' +
-      'Use the dropdown below to select multiple tags, statuses, or limits. Then click "Confirm Removal" to remove them.' +
+      'Use the dropdown below to select multiple tags, statuses, limits, or blocked tags. Then click "Confirm Removal" to remove them.' +
       (totalItems > 25 ? `\n\n*Showing first 25 of ${totalItems} items*` : '');
 
     await interaction.reply({

@@ -20,7 +20,7 @@ export class StoryTagStorage {
   /**
    * Get scene data
    * @param {string} sceneId - Channel or thread ID
-   * @returns {Object} { tags: [], statuses: [], limits: [] }
+   * @returns {Object} { tags: [], statuses: [], limits: [], blockeds: [] }
    */
   static getScene(guildId, sceneId) {
     this.ensureScene(guildId, sceneId);
@@ -38,6 +38,7 @@ export class StoryTagStorage {
       tags: allTags.filter(t => t.tag_type === 'tag').map(t => t.tag),
       statuses: allTags.filter(t => t.tag_type === 'status').map(t => t.tag),
       limits: allTags.filter(t => t.tag_type === 'limit').map(t => t.tag),
+      blockeds: allTags.filter(t => t.tag_type === 'blocked').map(t => t.tag),
     };
   }
 
@@ -81,6 +82,7 @@ export class StoryTagStorage {
 
   /**
    * Get tag data by entity ID for roll display/calculation
+   * Blocked tags are excluded from rolls
    * @param {string} guildId - Guild ID
    * @param {number} tagId - Scene tag ID
    * @returns {Object|null} { name: string, type: 'tag'|'status', isWeakness: boolean, characterId: null } or null
@@ -90,6 +92,12 @@ export class StoryTagStorage {
     const stmt = db.prepare('SELECT tag, tag_type FROM scene_tags WHERE id = ?');
     const result = stmt.get(tagId);
     if (!result) return null;
+    
+    // Blocked tags should not be available to rolls
+    if (result.tag_type === 'blocked') {
+      return null;
+    }
+    
     return {
       name: result.tag,
       type: result.tag_type === 'status' ? 'status' : 'tag',
@@ -126,6 +134,16 @@ export class StoryTagStorage {
   static getLimits(guildId, sceneId) {
     const scene = this.getScene(guildId, sceneId);
     return scene.limits;
+  }
+
+  /**
+   * Get blocked tags for a scene
+   * @param {string} sceneId - Channel or thread ID
+   * @returns {string[]} Array of blocked tags
+   */
+  static getBlockeds(guildId, sceneId) {
+    const scene = this.getScene(guildId, sceneId);
+    return scene.blockeds;
   }
 
   /**
@@ -318,6 +336,70 @@ export class StoryTagStorage {
     
     transaction();
     return this.getLimits(guildId, sceneId);
+  }
+
+  /**
+   * Add blocked tags to a scene
+   * @param {string} sceneId - Channel or thread ID
+   * @param {string[]} blockeds - Blocked tags to add
+   * @returns {string[]} Updated array of blocked tags
+   */
+  static addBlockeds(guildId, sceneId, blockeds) {
+    const db = getDbForGuild(guildId);
+    this.ensureScene(guildId, sceneId);
+    
+    const insertStmt = db.prepare(`
+      INSERT INTO scene_tags (scene_id, tag, tag_type)
+      VALUES (?, ?, 'blocked')
+    `);
+    
+    const updateStmt = db.prepare(`
+      UPDATE scenes
+      SET updated_at = strftime('%s', 'now')
+      WHERE id = ?
+    `);
+    
+    const transaction = db.transaction(() => {
+      blockeds.forEach(blocked => {
+        insertStmt.run(sceneId, blocked);
+      });
+      updateStmt.run(sceneId);
+    });
+    
+    transaction();
+    return this.getBlockeds(guildId, sceneId);
+  }
+
+  /**
+   * Remove blocked tags from a scene
+   * @param {string} sceneId - Channel or thread ID
+   * @param {string[]} blockeds - Blocked tags to remove
+   * @returns {string[]} Updated array of blocked tags
+   */
+  static removeBlockeds(guildId, sceneId, blockeds) {
+    const db = getDbForGuild(guildId);
+    if (blockeds.length === 0) return this.getBlockeds(guildId, sceneId);
+    
+    const deleteStmt = db.prepare(`
+      DELETE FROM scene_tags
+      WHERE scene_id = ? AND tag = ? AND tag_type = 'blocked'
+    `);
+    
+    const updateStmt = db.prepare(`
+      UPDATE scenes
+      SET updated_at = strftime('%s', 'now')
+      WHERE id = ?
+    `);
+    
+    const transaction = db.transaction(() => {
+      blockeds.forEach(blocked => {
+        deleteStmt.run(sceneId, blocked);
+      });
+      updateStmt.run(sceneId);
+    });
+    
+    transaction();
+    return this.getBlockeds(guildId, sceneId);
   }
 
   /**
