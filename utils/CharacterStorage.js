@@ -909,45 +909,35 @@ export class CharacterStorage {
         }
       }
 
-      // Preserve existing burned status when syncing themes
-      // Build maps of existing burned status by name/tag
-      const existingBurnedThemes = new Map();
-      const existingBurnedTags = new Map();
-      character.themes.forEach(theme => {
-        if (theme.isBurned) {
-          existingBurnedThemes.set(theme.name, true);
-        }
-        theme.tags.forEach(tagObj => {
-          const tag = typeof tagObj === 'string' ? tagObj : tagObj.tag;
-          const isBurned = typeof tagObj === 'object' ? (tagObj.isBurned || false) : false;
-          if (isBurned) {
-            existingBurnedTags.set(tag, true);
-          }
-        });
-      });
-
-      // Apply existing burned status to synced themes
+      // Use burned status from the sheet (sheet is source of truth)
+      // The sheet data already includes burned status from readCharacterFromSheet
+      // No need to preserve database burned status - sheet takes precedence
       const themesWithBurnedStatus = sheetData.themes.map(theme => ({
         ...theme,
-        isBurned: existingBurnedThemes.has(theme.name) || false,
+        // Theme burned status comes from sheet
+        isBurned: theme.isBurned || false,
+        // Tags burned status comes from sheet
         tags: theme.tags ? theme.tags.map(tag => {
           const tagText = typeof tag === 'string' ? tag : (tag.tag || tag);
+          const isBurned = typeof tag === 'object' ? (tag.isBurned || false) : false;
           return typeof tag === 'object' ? {
             ...tag,
-            isBurned: existingBurnedTags.has(tagText) || false
+            isBurned: isBurned
           } : {
             tag: tagText,
-            isBurned: existingBurnedTags.has(tagText) || false
+            isBurned: isBurned
           };
         }) : [],
+        // Weaknesses burned status comes from sheet
         weaknesses: theme.weaknesses ? theme.weaknesses.map(weakness => {
           const weaknessText = typeof weakness === 'string' ? weakness : (weakness.tag || weakness);
+          const isBurned = typeof weakness === 'object' ? (weakness.isBurned || false) : false;
           return typeof weakness === 'object' ? {
             ...weakness,
-            isBurned: existingBurnedTags.has(weaknessText) || false
+            isBurned: isBurned
           } : {
             tag: weaknessText,
-            isBurned: existingBurnedTags.has(weaknessText) || false
+            isBurned: isBurned
           };
         }) : []
       }));

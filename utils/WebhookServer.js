@@ -20,14 +20,14 @@ export class WebhookServer {
    * Setup Express middleware
    */
   setupMiddleware() {
-    // Parse JSON bodies
-    this.app.use(express.json());
-
     // Parse URL-encoded bodies
     this.app.use(express.urlencoded({ extended: true }));
 
-    // Raw body parser for Google Drive notifications (they send raw POST)
-    this.app.use(this.webhookPath, express.raw({ type: 'application/json' }));
+    // For webhook endpoint, use text parser to get raw body, then we'll parse JSON if needed
+    this.app.use(this.webhookPath, express.text({ type: '*/*' }));
+
+    // Parse JSON bodies for other routes
+    this.app.use(express.json());
   }
 
   /**
@@ -49,7 +49,20 @@ export class WebhookServer {
           return;
         }
 
-        // Google Drive API sends notifications with specific headers
+        // Build notification object - supports both Drive API (headers) and Apps Script (JSON body)
+        // Try to parse body as JSON (Apps Script), fall back to raw string (Drive API)
+        let parsedBody = null;
+        if (req.body && typeof req.body === 'string') {
+          try {
+            parsedBody = JSON.parse(req.body);
+          } catch (error) {
+            // Not JSON, treat as raw string (Drive API sends empty body)
+            parsedBody = req.body;
+          }
+        } else {
+          parsedBody = req.body;
+        }
+
         const notification = {
           headers: {
             'x-goog-resource-state': req.get('X-Goog-Resource-State'),
@@ -58,8 +71,9 @@ export class WebhookServer {
             'x-goog-resource-uri': req.get('X-Goog-Resource-Uri'),
             'x-goog-channel-token': req.get('X-Goog-Channel-Token'),
             'x-goog-message-number': req.get('X-Goog-Message-Number'),
+            'x-goog-changed': req.get('X-Goog-Changed'), // Indicates what changed (content, properties, etc.)
           },
-          body: req.body ? (typeof req.body === 'string' ? JSON.parse(req.body) : req.body) : null,
+          body: parsedBody,
         };
 
         // Handle the notification
@@ -78,6 +92,7 @@ export class WebhookServer {
         res.status(200).send('OK');
       }
     });
+  }
 
   /**
    * Find guild ID by channel ID (searches subscriptions)

@@ -32,7 +32,7 @@ export class GoogleSheetsService {
         credentials,
         scopes: [
           'https://www.googleapis.com/auth/spreadsheets',
-          'https://www.googleapis.com/auth/drive.file',
+          'https://www.googleapis.com/auth/drive.readonly', // Needed for Drive API webhooks on shared files
         ],
       });
 
@@ -717,20 +717,34 @@ export class GoogleSheetsService {
     // Generate a unique channel ID (UUID format)
     const channelId = this.generateChannelId();
     
-    // Get file metadata to get the resource ID
-    const file = await this.drive.files.get({
-      fileId: spreadsheetId,
-      fields: 'id',
-    });
-
-    const resourceId = file.data.id;
+    console.log(`Subscribing to file changes for spreadsheet ${spreadsheetId} with webhook URL ${webhookUrl}`);
+    
+    // First, try to verify the file exists and we have access
+    let resourceId = spreadsheetId;
+    try {
+      const file = await this.drive.files.get({
+        fileId: spreadsheetId,
+        fields: 'id,name',
+      });
+      resourceId = file.data.id;
+      console.log(`✓ File accessible: ${file.data.name || spreadsheetId} (ID: ${resourceId})`);
+    } catch (error) {
+      // If we can't get the file, we might still be able to watch it
+      // But log the error for debugging
+      if (error.code === 404) {
+        throw new Error(`File not found: ${spreadsheetId}. Make sure:\n1. The spreadsheet ID is correct\n2. The service account email has view access to the Google Sheet\n3. The Drive API scope includes 'drive.readonly'`);
+      }
+      console.warn(`Could not verify file access, proceeding anyway: ${error.message}`);
+      // Continue with the original spreadsheet ID
+    }
 
     // Create a watch channel (subscription expires in 7 days max, we'll use 6 days to be safe)
     const expirationMs = Date.now() + (6 * 24 * 60 * 60 * 1000);
     const expiration = Math.floor(expirationMs / 1000);
 
     try {
-      const response = this.drive.files.watch({
+      console.log(`Creating Drive API subscription for file ${spreadsheetId} with webhook URL ${webhookUrl} and channel ID ${channelId}`);
+      const response = await this.drive.files.watch({
         fileId: spreadsheetId,
         requestBody: {
           id: channelId,
@@ -739,6 +753,8 @@ export class GoogleSheetsService {
           expiration: expirationMs,
         },
       });
+
+      console.log(`✓ Drive API subscription created: ${response}`);
 
       return {
         channelId: response.data.id || channelId,

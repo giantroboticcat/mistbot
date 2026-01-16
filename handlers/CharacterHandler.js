@@ -7,6 +7,9 @@ import { CharacterView } from '../utils/CharacterView.js';
 import { StatusesEditorView } from '../utils/StatusesEditorView.js';
 import { Validation } from '../utils/Validation.js';
 import { requireGuildId } from '../utils/GuildUtils.js';
+import { WebhookSubscriptionStorage } from '../utils/WebhookSubscriptionStorage.js';
+import sheetsService from '../utils/GoogleSheetsService.js';
+import { AppsScriptGenerator } from '../utils/AppsScriptGenerator.js';
 
 /**
  * Handle modal submissions (character creation/editing)
@@ -1074,15 +1077,27 @@ export async function handleToggleAutoSync(interaction, client) {
 
   const autoSyncEnabled = character.auto_sync === 1;
 
-  // If disabling, just turn it off
+  // If disabling, just turn it off and optionally remove webhook subscription
   if (autoSyncEnabled) {
     CharacterStorage.updateCharacter(guildId, userId, characterId, {
       autoSync: false
     });
 
+    // Delete webhook subscription if it exists (for backward compatibility with Drive API subscriptions)
+    // Note: Apps Script webhooks are managed by the user in their Google Sheet, so we don't need to delete those
+    if (character.google_sheet_url) {
+      try {
+        await WebhookSubscriptionStorage.deleteSubscription(guildId, 'character', characterId);
+      } catch (error) {
+        // Don't fail if subscription deletion fails - it might not exist or be an Apps Script webhook
+        console.warn('Failed to delete webhook subscription when disabling auto-sync:', error?.message || error);
+      }
+    }
+
     // Refresh the character view
-    const displayData = await CharacterView.buildCharacterDisplays(character, interaction);
-    const allComponents = CharacterView.combineCharacterComponents(displayData, CharacterView.buildCharacterButtons(character));
+    const updatedCharacter = CharacterStorage.getCharacter(guildId, userId, characterId);
+    const displayData = await CharacterView.buildCharacterDisplays(updatedCharacter, interaction);
+    const allComponents = CharacterView.combineCharacterComponents(displayData, CharacterView.buildCharacterButtons(updatedCharacter));
 
     await interaction.update({
       components: allComponents,
@@ -1164,11 +1179,35 @@ export async function handleConfirmEnableAutoSync(interaction, client) {
   // Get updated character with auto_sync enabled
   const updatedCharacter = CharacterStorage.getCharacter(guildId, userId, characterId);
 
+  // Generate Apps Script setup instructions if webhooks are configured and character has a sheet URL
+  let webhookMessage = '';
+  if (process.env.WEBHOOK_URL && updatedCharacter.google_sheet_url) {
+    try {
+      // Parse spreadsheet ID and sheet name from sheet URL
+      const parsed = sheetsService.parseSpreadsheetUrl(updatedCharacter.google_sheet_url);
+      if (parsed && parsed.spreadsheetId) {
+        const webhookUrl = process.env.WEBHOOK_URL;
+        
+        // Generate Apps Script code with setup instructions
+        const instructions = AppsScriptGenerator.generateSetupInstructions({
+          webhookUrl,
+          guildId,
+          sheetName: parsed.sheetName || null
+        });
+        
+        webhookMessage = `\n\n🔔 **Automatic Webhook Setup Required**\n\n${instructions}\n\nOnce you've set up the Apps Script, changes to your Google Sheet will automatically sync to the bot!`;
+      }
+    } catch (error) {
+      console.error('Failed to generate Apps Script instructions:', error);
+      webhookMessage = `\n\n⚠️ Auto-sync enabled, but webhook setup instructions could not be generated: ${error.message || 'Unknown error'}. You can still manually sync using the sync buttons.`;
+    }
+  }
+
   // Refresh the character view
   const displayData = await CharacterView.buildCharacterDisplays(updatedCharacter, interaction);
   
   // Create success message container
-  const successMessage = `✅ Auto-sync enabled!\n\n${syncResult.message}\n\nYour character data will now automatically sync to Google Sheets whenever changes are made in the bot.`;
+  const successMessage = `✅ Auto-sync enabled!\n\n${syncResult.message}${webhookMessage}\n\nYour character data will now automatically sync to Google Sheets whenever changes are made in the bot.`;
   const successContainer = new ContainerBuilder();
   successContainer.addTextDisplayComponents(
     new TextDisplayBuilder()

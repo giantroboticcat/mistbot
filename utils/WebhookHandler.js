@@ -1,19 +1,118 @@
 import { WebhookSubscriptionStorage } from './WebhookSubscriptionStorage.js';
-import * as CharacterStorage from './CharacterStorage.js';
+import { CharacterStorage } from './CharacterStorage.js';
 import * as FellowshipStorage from './FellowshipStorage.js';
 import sheetsService from './GoogleSheetsService.js';
 
 /**
- * Handler for Google Drive API push notifications (webhooks)
+ * Handler for webhook notifications from Google Drive API and Google Apps Script
  */
 export class WebhookHandler {
+  // Map to track pending sync timers: key = subscription key, value = timeout ID
+  static pendingSyncs = new Map();
+  
+  // Debounce delay in milliseconds (5 seconds)
+  static DEBOUNCE_DELAY_MS = 5000;
+  
+  /**
+   * Generate a unique key for a subscription to track debouncing
+   * @param {Object} subscription - The subscription object
+   * @returns {string} Unique key
+   */
+  static getSubscriptionKey(subscription) {
+    return `${subscription.guild_id}:${subscription.resource_type}:${subscription.resource_id}`;
+  }
+  
+  /**
+   * Handle incoming webhook notification (from Google Drive API or Apps Script)
+   * @param {Object} notification - The notification payload (headers + body)
+   * @param {string} guildId - Guild ID (extracted from notification or required)
+   * @returns {Promise<Object>} Result with status and message
+   */
+  static async handleNotification(notification, guildId) {
+    try {
+      // Check if this is an Apps Script webhook (has type in body)
+      if (notification.body && notification.body.type === 'sheet_edit') {
+        return await this.handleAppsScriptWebhook(notification.body, guildId);
+      }
+      
+      // Otherwise, treat as Google Drive API webhook
+      return await this.handleDriveApiWebhook(notification, guildId);
+    } catch (error) {
+      console.error('Error handling webhook notification:', error);
+      return { success: false, message: error.message };
+    }
+  }
+  
+  /**
+   * Handle incoming webhook from Google Apps Script
+   * @param {Object} webhookData - The webhook payload from Apps Script
+   * @param {string} guildId - Guild ID
+   * @returns {Promise<Object>} Result with status and message
+   */
+  static async handleAppsScriptWebhook(webhookData, guildId) {
+    try {
+      const { resource_type, spreadsheet_id, sheet_id, sheet_name } = webhookData;
+      
+      if (!resource_type || !spreadsheet_id || !sheet_id) {
+        return { success: false, message: 'Missing required webhook data (spreadsheet_id, sheet_id)' };
+      }
+      
+      // Look up character by matching spreadsheet_id and sheet_id (gid) to character's google_sheet_url
+      let character = null;
+      if (resource_type === 'character') {
+        const allCharacters = CharacterStorage.getAllCharacters(guildId);
+        
+        // Find character whose google_sheet_url matches the spreadsheet_id and gid
+        for (const char of allCharacters) {
+          if (!char.google_sheet_url) continue;
+          
+          const parsed = sheetsService.parseSpreadsheetUrl(char.google_sheet_url);
+          if (parsed && parsed.spreadsheetId === spreadsheet_id && parsed.gid === sheet_id.toString()) {
+            character = char;
+            break;
+          }
+        }
+        
+        if (!character) {
+          console.log(`No character found matching spreadsheet ${spreadsheet_id} tab ${sheet_id} (${sheet_name || 'unknown'})`);
+          return { success: true, message: `No character found for tab ${sheet_id} in spreadsheet ${spreadsheet_id}` };
+        }
+        
+        console.log(`Found character ${character.name} (ID: ${character.id}) for tab ${sheet_id} in spreadsheet ${spreadsheet_id}`);
+      } else {
+        return { success: false, message: `Unsupported resource type: ${resource_type}` };
+      }
+      
+      // Create a minimal subscription record for tracking/debouncing
+      const syntheticChannelId = `appsscript_${spreadsheet_id}_${sheet_id}`;
+      const subscription = {
+        guild_id: guildId,
+        resource_type: 'character',
+        resource_id: character.id,
+        spreadsheet_id,
+        channel_id: syntheticChannelId,
+        resource_id_drive: spreadsheet_id,
+        expiration: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60), // 7 days (Apps Script doesn't expire)
+        webhook_url: 'appsscript'
+      };
+      
+      console.log(`Received Apps Script webhook for ${sheet_name || 'sheet'} (character: ${character.name})`);
+      
+      // Schedule sync with debouncing
+      return await this.scheduleChangeNotification(subscription);
+    } catch (error) {
+      console.error('Error handling Apps Script webhook:', error);
+      return { success: false, message: error.message };
+    }
+  }
+  
   /**
    * Handle incoming webhook notification from Google Drive API
    * @param {Object} notification - The notification payload
    * @param {string} guildId - Guild ID (extracted from notification or required)
    * @returns {Promise<Object>} Result with status and message
    */
-  static async handleNotification(notification, guildId) {
+  static async handleDriveApiWebhook(notification, guildId) {
     try {
       // Google Drive API sends different notification types
       // For initial sync, it sends a notification with header 'X-Goog-Resource-State': 'sync'
@@ -31,8 +130,16 @@ export class WebhookHandler {
       const subscription = this.findSubscriptionByChannelId(guildId, channelId, resourceId);
       
       if (!subscription) {
-        console.warn(`No subscription found for channel ${channelId}`);
-        return { success: false, message: 'Subscription not found' };
+        console.warn(`No subscription found for channel ${channelId} - attempting to stop orphaned subscription`);
+        // Try to stop this orphaned subscription via Drive API
+        try {
+          await sheetsService.unsubscribeFromFileChanges(channelId, resourceId);
+          console.log(`✓ Stopped orphaned subscription for channel ${channelId}`);
+        } catch (error) {
+          // Subscription might already be expired/stopped, that's okay
+          console.log(`⚠️  Could not stop orphaned subscription (may already be expired): ${error.message}`);
+        }
+        return { success: true, message: 'Orphaned subscription stopped' };
       }
 
       // If it's just a sync notification (initial subscription confirmation), ignore it
@@ -40,14 +147,30 @@ export class WebhookHandler {
         return { success: true, message: 'Initial sync notification received' };
       }
 
-      // Handle actual change notification
-      if (resourceState === 'update' || resourceState === 'change') {
-        return await this.handleChangeNotification(subscription);
+      // Only process 'update' events (ignore 'add', 'remove', 'trash', 'untrash', etc.)
+      if (resourceState === 'update') {
+        // Check if content actually changed (not just metadata/permissions)
+        const changed = notification.headers?.['x-goog-changed'];
+        if (changed) {
+          const changedList = changed.toLowerCase().split(',').map(c => c.trim());
+          // Only sync if content changed, not just metadata/permissions
+          if (changedList.includes('content')) {
+            return await this.scheduleChangeNotification(subscription);
+          } else {
+            console.log(`Ignoring update event - no content change (changed: ${changed})`);
+            return { success: true, message: `Update event ignored - no content change (${changed})` };
+          }
+        } else {
+          // If X-Goog-Changed header is not present, assume content changed (backward compatibility)
+          return await this.scheduleChangeNotification(subscription);
+        }
       }
 
-      return { success: true, message: `Unknown resource state: ${resourceState}` };
+      // Ignore other event types (add, remove, trash, untrash, etc.)
+      console.log(`Ignoring ${resourceState} event - not a content edit`);
+      return { success: true, message: `Event type '${resourceState}' ignored - only processing content edits` };
     } catch (error) {
-      console.error('Error handling webhook notification:', error);
+      console.error('Error handling Drive API webhook:', error);
       return { success: false, message: error.message };
     }
   }
@@ -84,6 +207,39 @@ export class WebhookHandler {
   }
 
   /**
+   * Schedule a change notification with debouncing
+   * This prevents rapid-fire syncs when multiple edits happen quickly
+   * @param {Object} subscription - The subscription record
+   * @returns {Promise<Object>} Result with status and message (returns immediately)
+   */
+  static async scheduleChangeNotification(subscription) {
+    const key = this.getSubscriptionKey(subscription);
+    
+    // Clear any existing timer for this subscription
+    if (this.pendingSyncs.has(key)) {
+      clearTimeout(this.pendingSyncs.get(key));
+      console.log(`Debouncing webhook for ${subscription.resource_type} ${subscription.resource_id} - resetting timer`);
+    }
+    
+    // Schedule a new sync after the debounce delay
+    const timeoutId = setTimeout(async () => {
+      this.pendingSyncs.delete(key);
+      console.log(`Processing debounced webhook for ${subscription.resource_type} ${subscription.resource_id}`);
+      try {
+        await this.handleChangeNotification(subscription);
+      } catch (error) {
+        console.error(`Error in debounced sync for ${subscription.resource_type} ${subscription.resource_id}:`, error);
+      }
+    }, this.DEBOUNCE_DELAY_MS);
+    
+    this.pendingSyncs.set(key, timeoutId);
+    console.log(`Scheduled webhook sync for ${subscription.resource_type} ${subscription.resource_id} in ${this.DEBOUNCE_DELAY_MS}ms`);
+    
+    // Return immediately to acknowledge the webhook (don't wait for sync)
+    return { success: true, message: 'Webhook received, sync scheduled' };
+  }
+
+  /**
    * Handle a change notification - sync data from sheet
    * @param {Object} subscription - The subscription record
    * @returns {Promise<Object>} Result with status and message
@@ -92,22 +248,32 @@ export class WebhookHandler {
     const { guild_id, resource_type, resource_id, spreadsheet_id } = subscription;
 
     try {
-      // Build sheet URL from spreadsheet ID
-      // We need to reconstruct the sheet URL - we'll need the gid if it was in the original URL
-      // For now, we'll use the spreadsheet ID only and let the service handle it
-      const sheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheet_id}`;
-
       if (resource_type === 'character') {
         // Find character by ID
-        const characters = CharacterStorage.getCharacters(guild_id);
-        const character = characters.find(c => c.id === resource_id);
+        const character = CharacterStorage.getCharacterById(guild_id, resource_id);
 
         if (!character) {
           return { success: false, message: 'Character not found' };
         }
 
-        // Sync from sheet
+        // Check if character has a sheet URL set
+        if (!character.google_sheet_url) {
+          console.warn(`Character ${character.name} (ID: ${resource_id}) has no sheet URL set - skipping sync`);
+          return { success: false, message: 'Character has no sheet URL configured' };
+        }
+
+        // Verify the subscription matches the character's sheet
+        const parsed = sheetsService.parseSpreadsheetUrl(character.google_sheet_url);
+        if (!parsed || parsed.spreadsheetId !== spreadsheet_id) {
+          console.warn(`Subscription spreadsheet ${spreadsheet_id} doesn't match character's sheet ${parsed?.spreadsheetId || 'unknown'}`);
+          return { success: false, message: 'Subscription spreadsheet mismatch' };
+        }
+
+        // Use the character's stored sheet URL (which includes gid if present)
+        // This ensures we sync from the correct tab
+        console.log(`Syncing character ${character.name} from sheet ${character.google_sheet_url}`);
         const result = await CharacterStorage.syncFromSheet(guild_id, character.user_id, resource_id);
+        console.log(`Sync result: ${result}`);
         return result;
       } else if (resource_type === 'fellowship') {
         // Sync fellowship from sheet
