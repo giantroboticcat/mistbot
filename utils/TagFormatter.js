@@ -11,6 +11,7 @@ export class TagFormatter {
   // Circle emojis for tag type indicators
   static YELLOW_CIRCLE = '🟡';  // Yellow circle for tags
   static GREEN_CIRCLE = '🟢';   // Green circle for status
+  static RED_CIRCLE = '🔴';     // Red circle for limits
   static ORANGE_CIRCLE = '🟠';  // Orange circle for weakness
 
   /**
@@ -108,31 +109,38 @@ export class TagFormatter {
 
   /**
    * Format tags, statuses, and limits in a single ANSI code block
+   * Each item is on its own line with emoji prefix for mobile visibility
    * @param {string[]} tags - Array of tags (yellow)
    * @param {string[]} statuses - Array of statuses (green)
    * @param {string[]} limits - Array of limits (red)
-   * @returns {string} Formatted items in a single ansi code block
+   * @returns {string} Formatted items in a single ansi code block, one per line
    */
   static formatSceneStatusInCodeBlock(tags, statuses, limits) {
-    const parts = [];
+    const lines = [];
     
-    if (tags.length > 0) {
-      parts.push(this.formatStoryTags(tags));
-    }
+    // Add tags with yellow circle (one per line)
+    tags.forEach(tag => {
+      const formattedTag = this.formatStoryTag(tag);
+      lines.push(`${this.YELLOW_CIRCLE} ${formattedTag}`);
+    });
     
-    if (statuses.length > 0) {
-      parts.push(this.formatStatuses(statuses));
-    }
+    // Add statuses with green circle (one per line)
+    statuses.forEach(status => {
+      const formattedStatus = this.formatStatus(status);
+      lines.push(`${this.GREEN_CIRCLE} ${formattedStatus}`);
+    });
     
-    if (limits.length > 0) {
-      parts.push(this.formatLimits(limits));
-    }
+    // Add limits with red circle (one per line)
+    limits.forEach(limit => {
+      const formattedLimit = this.formatLimit(limit);
+      lines.push(`${this.RED_CIRCLE} ${formattedLimit}`);
+    });
     
-    if (parts.length === 0) {
+    if (lines.length === 0) {
       return 'None';
     }
     
-    const formatted = parts.join(', ');
+    const formatted = lines.join('\n');
     return `\`\`\`ansi\n${formatted}\n\`\`\``;
   }
 

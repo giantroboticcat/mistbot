@@ -7,9 +7,22 @@ import * as FellowshipHandler from './handlers/FellowshipHandler.js';
 import * as RollHandler from './handlers/RollHandler.js';
 import * as NarratorGuideHandler from './handlers/NarratorGuideHandler.js';
 import { initializeEnvs } from './utils/ServerConfig.js';
+import { WebhookServer } from './utils/WebhookServer.js';
 
 // Load environment variables (base .env and all guild-specific .env.{guildId} files)
 initializeEnvs();
+
+// Initialize webhook server (optional - only if WEBHOOK_PORT and WEBHOOK_URL are set)
+let webhookServer = null;
+if (process.env.WEBHOOK_PORT && process.env.WEBHOOK_URL) {
+  const webhookPort = parseInt(process.env.WEBHOOK_PORT, 10) || 3000;
+  webhookServer = new WebhookServer(webhookPort, '/webhook/sheets');
+  
+  // Start webhook server
+  webhookServer.start().catch(error => {
+    console.error('❌ Failed to start webhook server:', error);
+  });
+}
 
 // Create a new client instance
 const client = new Client({
@@ -128,6 +141,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await CharacterHandler.handleDeleteCharacterCancel(interaction, client);
       } else if (interaction.customId.startsWith('delete_character_')) {
         await CharacterHandler.handleDeleteCharacterButton(interaction, client);
+      } else if (interaction.customId.startsWith('confirm_remove_tags_') || interaction.customId.startsWith('cancel_remove_tags_')) {
+        await TagRemovalHandler.handleTagRemovalButton(interaction, client);
       }
     } catch (error) {
       console.error('Error handling button interaction:', error);

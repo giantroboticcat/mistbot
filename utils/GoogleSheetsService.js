@@ -30,10 +30,14 @@ export class GoogleSheetsService {
       
       this.auth = new google.auth.GoogleAuth({
         credentials,
-        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+        scopes: [
+          'https://www.googleapis.com/auth/spreadsheets',
+          'https://www.googleapis.com/auth/drive.file',
+        ],
       });
 
       this.sheets = google.sheets({ version: 'v4', auth: this.auth });
+      this.drive = google.drive({ version: 'v3', auth: this.auth });
     } catch (error) {
       console.error('❌ Error initializing Google Sheets:', error.message);
     }
@@ -696,6 +700,91 @@ export class GoogleSheetsService {
     }
 
     return fellowship;
+  }
+
+  /**
+   * Subscribe to changes for a Google Drive file (spreadsheet)
+   * Uses Google Drive API push notifications
+   * @param {string} spreadsheetId - The spreadsheet ID
+   * @param {string} webhookUrl - The URL to receive notifications
+   * @returns {Promise<Object>} { channelId, resourceId, expiration }
+   */
+  async subscribeToFileChanges(spreadsheetId, webhookUrl) {
+    if (!this.isReady() || !this.drive) {
+      throw new Error('Google Drive service not initialized');
+    }
+
+    // Generate a unique channel ID (UUID format)
+    const channelId = this.generateChannelId();
+    
+    // Get file metadata to get the resource ID
+    const file = await this.drive.files.get({
+      fileId: spreadsheetId,
+      fields: 'id',
+    });
+
+    const resourceId = file.data.id;
+
+    // Create a watch channel (subscription expires in 7 days max, we'll use 6 days to be safe)
+    const expirationMs = Date.now() + (6 * 24 * 60 * 60 * 1000);
+    const expiration = Math.floor(expirationMs / 1000);
+
+    try {
+      const response = this.drive.files.watch({
+        fileId: spreadsheetId,
+        requestBody: {
+          id: channelId,
+          type: 'web_hook',
+          address: webhookUrl,
+          expiration: expirationMs,
+        },
+      });
+
+      return {
+        channelId: response.data.id || channelId,
+        resourceId: response.data.resourceId || resourceId,
+        expiration: Math.floor(response.data.expiration / 1000) || expiration,
+      };
+    } catch (error) {
+      throw new Error(`Failed to create Drive API subscription: ${error.message}`);
+    }
+  }
+
+  /**
+   * Stop a Drive API subscription
+   * @param {string} channelId - The channel ID
+   * @param {string} resourceId - The resource ID
+   */
+  async unsubscribeFromFileChanges(channelId, resourceId) {
+    if (!this.isReady() || !this.drive) {
+      throw new Error('Google Drive service not initialized');
+    }
+
+    try {
+      await this.drive.channels.stop({
+        requestBody: {
+          id: channelId,
+          resourceId: resourceId,
+        },
+      });
+    } catch (error) {
+      // Don't throw if subscription already expired or doesn't exist
+      if (!error.message.includes('not found') && !error.message.includes('404')) {
+        console.warn(`Failed to stop Drive API subscription ${channelId}:`, error.message);
+      }
+    }
+  }
+
+  /**
+   * Generate a unique channel ID for Drive API subscriptions
+   * Format: UUID-like string
+   */
+  generateChannelId() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
   }
 }
 
