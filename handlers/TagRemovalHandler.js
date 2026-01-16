@@ -179,10 +179,10 @@ export async function handleTagRemovalButton(interaction, client) {
     }
 
     if (blockedsToRemove.length > 0) {
-      removedParts.push(`**Blocked Tags Removed:**\n${TagFormatter.formatBlockedsInCodeBlock(blockedsToRemove)}`);
+      removedParts.push(`**Truths Removed:**\n${TagFormatter.formatBlockedsInCodeBlock(blockedsToRemove)}`);
       if (remainingCounts.blockeds !== undefined) {
         const remainingBlockeds = StoryTagStorage.getBlockeds(guildId, sceneId);
-        remainingParts.push(`**Remaining Blocked Tags (${remainingCounts.blockeds}):**\n${TagFormatter.formatBlockedsInCodeBlock(remainingBlockeds)}`);
+        remainingParts.push(`**Remaining Truths (${remainingCounts.blockeds}):**\n${TagFormatter.formatBlockedsInCodeBlock(remainingBlockeds)}`);
       }
     }
 
@@ -208,7 +208,7 @@ export async function handleTagRemovalButton(interaction, client) {
     if (updatedTags.length > 0) counts.push(`${updatedTags.length} tag${updatedTags.length !== 1 ? 's' : ''}`);
     if (updatedStatuses.length > 0) counts.push(`${updatedStatuses.length} status${updatedStatuses.length !== 1 ? 'es' : ''}`);
     if (updatedLimits.length > 0) counts.push(`${updatedLimits.length} limit${updatedLimits.length !== 1 ? 's' : ''}`);
-    if (updatedBlockeds.length > 0) counts.push(`${updatedBlockeds.length} blocked${updatedBlockeds.length !== 1 ? 's' : ''}`);
+    if (updatedBlockeds.length > 0) counts.push(`${updatedBlockeds.length} truth${updatedBlockeds.length !== 1 ? 's' : ''}`);
     
     const formatted = TagFormatter.formatSceneStatusInCodeBlock(updatedTags, updatedStatuses, updatedLimits, updatedBlockeds);
     const publicContent = `**Scene Status (${totalCount} total${counts.length > 0 ? ': ' + counts.join(', ') : ''})**\n${formatted}`;

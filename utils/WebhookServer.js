@@ -79,45 +79,6 @@ export class WebhookServer {
       }
     });
 
-    // Legacy endpoint without guild ID (for backward compatibility)
-    // This will try to find the guild by channel ID
-    this.app.post(this.webhookPath, async (req, res) => {
-      try {
-        const channelId = req.get('X-Goog-Channel-Id');
-        const resourceId = req.get('X-Goog-Resource-Id');
-
-        // Try to find guild by searching subscriptions
-        // This is less efficient but provides backward compatibility
-        const guildId = await this.findGuildIdByChannelId(channelId, resourceId);
-
-        if (!guildId) {
-          console.warn('Could not determine guild ID from webhook notification');
-          res.status(200).send('OK');
-          return;
-        }
-
-        // Redirect to the guild-specific endpoint
-        const notification = {
-          headers: {
-            'x-goog-resource-state': req.get('X-Goog-Resource-State'),
-            'x-goog-channel-id': channelId,
-            'x-goog-resource-id': resourceId,
-            'x-goog-resource-uri': req.get('X-Goog-Resource-Uri'),
-            'x-goog-channel-token': req.get('X-Goog-Channel-Token'),
-            'x-goog-message-number': req.get('X-Goog-Message-Number'),
-          },
-          body: req.body ? (typeof req.body === 'string' ? JSON.parse(req.body) : req.body) : null,
-        };
-
-        const result = await WebhookHandler.handleNotification(notification, guildId);
-        res.status(200).send('OK');
-      } catch (error) {
-        console.error('Error processing webhook:', error);
-        res.status(200).send('OK');
-      }
-    });
-  }
-
   /**
    * Find guild ID by channel ID (searches subscriptions)
    * Note: This is a simplified fallback. For proper operation, use the guild ID in the URL path.

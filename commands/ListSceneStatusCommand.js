@@ -41,7 +41,7 @@ export class ListSceneStatusCommand extends Command {
     if (tags.length > 0) counts.push(`${tags.length} tag${tags.length !== 1 ? 's' : ''}`);
     if (statuses.length > 0) counts.push(`${statuses.length} status${statuses.length !== 1 ? 'es' : ''}`);
     if (limits.length > 0) counts.push(`${limits.length} limit${limits.length !== 1 ? 's' : ''}`);
-    if (blockeds.length > 0) counts.push(`${blockeds.length} blocked${blockeds.length !== 1 ? 's' : ''}`);
+    if (blockeds.length > 0) counts.push(`${blockeds.length} truth${blockeds.length !== 1 ? 's' : ''}`);
     
     const formatted = TagFormatter.formatSceneStatusInCodeBlock(tags, statuses, limits, blockeds);
     const content = `**Scene Status (${totalCount} total: ${counts.join(', ')})**\n${formatted}`;

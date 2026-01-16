@@ -214,7 +214,7 @@ export class AddTagsCommand extends Command {
       addedSummary.push(`${addedCounts.limits} limit${addedCounts.limits !== 1 ? 's' : ''}`);
     }
     if (addedCounts.blockeds > 0) {
-      addedSummary.push(`${addedCounts.blockeds} blocked${addedCounts.blockeds !== 1 ? 's' : ''}`);
+      addedSummary.push(`${addedCounts.blockeds} truth${addedCounts.blockeds !== 1 ? 's' : ''}`);
     }
 
     const duplicateWarnings = [];
@@ -236,7 +236,7 @@ export class AddTagsCommand extends Command {
     if (allItems.tags.length > 0) counts.push(`${allItems.tags.length} tag${allItems.tags.length !== 1 ? 's' : ''}`);
     if (allItems.statuses.length > 0) counts.push(`${allItems.statuses.length} status${allItems.statuses.length !== 1 ? 'es' : ''}`);
     if (allItems.limits.length > 0) counts.push(`${allItems.limits.length} limit${allItems.limits.length !== 1 ? 's' : ''}`);
-    if (allItems.blockeds.length > 0) counts.push(`${allItems.blockeds.length} blocked${allItems.blockeds.length !== 1 ? 's' : ''}`);
+    if (allItems.blockeds.length > 0) counts.push(`${allItems.blockeds.length} truth${allItems.blockeds.length !== 1 ? 's' : ''}`);
 
     const formatted = TagFormatter.formatSceneStatusInCodeBlock(allItems.tags, allItems.statuses, allItems.limits, allItems.blockeds);
     let content = `**Added ${addedSummary.join(', ')}**`;
