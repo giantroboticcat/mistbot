@@ -116,15 +116,26 @@ export class RollExecuteCommand extends Command {
       // Build notification if any themes are ready to develop
       // Group by character to show which player can develop
       if (improvementResult.readyToDevelop.length > 0) {
-        // For now, notify the roll creator about all improvements
-        // In the future, we could send separate notifications to each player
-        const themeInfo = improvementResult.readyToDevelop.map(t => {
-          // Get character name if available
+        // Group themes by user_id to avoid duplicate mentions
+        const themesByUser = new Map();
+        for (const t of improvementResult.readyToDevelop) {
           const character = CharacterStorage.getCharacterById(guildId, t.characterId);
-          const characterName = character ? character.name : `Character #${t.characterId}`;
-          return `\n${characterName}'s **${t.themeName}** (${t.improvements} improvements)`;
-        }).join(', ');
-        improvementNotification = `\n\n✨ **Theme Development Available!** ✨\nThe following theme(s) can now be developed: ${themeInfo}`;
+          if (character && character.user_id) {
+            if (!themesByUser.has(character.user_id)) {
+              themesByUser.set(character.user_id, []);
+            }
+            themesByUser.get(character.user_id).push(t);
+          }
+        }
+
+        // Build notification with player mentions
+        const userNotifications = [];
+        for (const [userId, themes] of themesByUser.entries()) {
+          const themeList = themes.map(t => `**${t.themeName}** (${t.improvements} improvements)`).join(', ');
+          userNotifications.push(`<@${userId}>: ${themeList}`);
+        }
+        
+        improvementNotification = `\n\n✨ **Theme Development Available!** ✨\n${userNotifications.join('\n')}`;
       }
     }
 

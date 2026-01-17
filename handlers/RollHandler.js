@@ -75,6 +75,37 @@ export function combineRollComponents(displayData, interactiveComponents) {
 }
 
 /**
+ * Refetch help and hinder tag options from the character and update rollState
+ * This ensures options are fresh whenever the roll view is rebuilt
+ * @param {Object} rollState - The roll state object
+ * @param {string} guildId - Guild ID
+ * @returns {Object} { helpOptions, hinderOptions }
+ */
+function refetchTagOptions(rollState, guildId) {
+  // Get the character from rollState
+  const character = CharacterStorage.getCharacterById(guildId, rollState.characterId);
+  if (!character) {
+    // If character not found, return existing options
+    return {
+      helpOptions: rollState.helpOptions || [],
+      hinderOptions: rollState.hinderOptions || []
+    };
+  }
+
+  // Refetch help options (exclude burned tags, exclude weaknesses)
+  const helpOptions = RollView.collectTags(character, rollState.sceneId, StoryTagStorage, false, guildId, false);
+  
+  // Refetch hinder options (exclude burned tags, include weaknesses)
+  const hinderOptions = RollView.collectTags(character, rollState.sceneId, StoryTagStorage, false, guildId, true);
+
+  // Update rollState with fresh options
+  rollState.helpOptions = helpOptions;
+  rollState.hinderOptions = hinderOptions;
+
+  return { helpOptions, hinderOptions };
+}
+
+/**
  * Handle roll page selection (for pagination when >25 options)
  */
 export async function handleRollPageSelect(interaction, client) {
@@ -137,8 +168,12 @@ export async function handleRollPageSelect(interaction, client) {
 
     client.rollStates.set(rollKey, rollState);
 
+    // Refetch tag options from character
+    const { helpOptions, hinderOptions } = refetchTagOptions(rollState, guildId);
+    client.rollStates.set(rollKey, rollState); // Update rollState with fresh options
+
     // Rebuild components with updated page    
-    let interactiveComponents = RollView.buildRollInteractives(rollKey, rollState.helpOptions, rollState.hinderOptions, rollState.helpPage, 
+    let interactiveComponents = RollView.buildRollInteractives(rollKey, helpOptions, hinderOptions, rollState.helpPage, 
       rollState.hinderPage, rollState.helpTags, rollState.hinderTags, rollState.buttons, rollState.burnedTags, rollState.justificationNotes, rollState.showJustificationButton, rollState.helpFromCharacterIdMap || new Map(), rollState.hinderFromCharacterIdMap || new Map(), rollState.mightModifier || 0);
     
     let title;
@@ -311,7 +346,11 @@ export async function handleRollSelect(interaction, client) {
 
     client.rollStates.set(rollKey, rollState);
 
-    let interactiveComponents = RollView.buildRollInteractives(rollKey, rollState.helpOptions, rollState.hinderOptions, rollState.helpPage, 
+    // Refetch tag options from character
+    const { helpOptions, hinderOptions } = refetchTagOptions(rollState, guildId);
+    client.rollStates.set(rollKey, rollState); // Update rollState with fresh options
+
+    let interactiveComponents = RollView.buildRollInteractives(rollKey, helpOptions, hinderOptions, rollState.helpPage, 
       rollState.hinderPage, rollState.helpTags, rollState.hinderTags, rollState.buttons, rollState.burnedTags, 
       rollState.justificationNotes, rollState.showJustificationButton, rollState.helpFromCharacterIdMap || new Map(), rollState.hinderFromCharacterIdMap || new Map(), rollState.mightModifier || 0);    
 
@@ -417,8 +456,12 @@ export async function handleRollBurn(interaction, client) {
 
   client.rollStates.set(rollKey, rollState);
 
+  // Refetch tag options from character
+  const { helpOptions, hinderOptions } = refetchTagOptions(rollState, guildId);
+  client.rollStates.set(rollKey, rollState); // Update rollState with fresh options
+
   // Rebuild components to reflect current selection state
-  let interactiveComponents = RollView.buildRollInteractives(rollKey, rollState.helpOptions, rollState.hinderOptions, rollState.helpPage, 
+  let interactiveComponents = RollView.buildRollInteractives(rollKey, helpOptions, hinderOptions, rollState.helpPage, 
     rollState.hinderPage, rollState.helpTags, rollState.hinderTags, rollState.buttons, rollState.burnedTags, rollState.justificationNotes, rollState.showJustificationButton, rollState.helpFromCharacterIdMap || new Map(), rollState.hinderFromCharacterIdMap || new Map(), rollState.mightModifier || 0);
   
   // Update the message with new tag selections
@@ -729,11 +772,16 @@ export async function handleJustificationModal(interaction, client) {
   rollState.justificationNotes = justificationNotes;
   client.rollStates.set(rollKey, rollState);
 
+  // Refetch tag options from character
+  const guildId = getGuildId(interaction);
+  const { helpOptions, hinderOptions } = refetchTagOptions(rollState, guildId);
+  client.rollStates.set(rollKey, rollState); // Update rollState with fresh options
+
   // Rebuild the roll components with updated justification notes
   const interactiveComponents = RollView.buildRollInteractives(
     rollKey,
-    rollState.helpOptions,
-    rollState.hinderOptions,
+    helpOptions,
+    hinderOptions,
     rollState.helpPage || 0,
     rollState.hinderPage || 0,
     rollState.helpTags,
@@ -1049,11 +1097,15 @@ export async function handleHelpAction(interaction, client) {
     return !(char.user_id === rollState.creatorId && char.id === rollState.characterId);
   });
   if (otherCharacters.length === 0) {
+    // Refetch tag options from character
+    const { helpOptions, hinderOptions } = refetchTagOptions(rollState, guildId);
+    client.rollStates.set(rollKey, rollState); // Update rollState with fresh options
+
     // Rebuild normal roll view if no characters
     const interactiveComponents = RollView.buildRollInteractives(
       rollKey,
-      rollState.helpOptions,
-      rollState.hinderOptions,
+      helpOptions,
+      hinderOptions,
       rollState.helpPage || 0,
       rollState.hinderPage || 0,
       rollState.helpTags,
@@ -1297,11 +1349,15 @@ export async function handleHelpTagSelect(interaction, client) {
   
   client.rollStates.set(rollKey, rollState);
 
+  // Refetch tag options from character
+  const { helpOptions, hinderOptions } = refetchTagOptions(rollState, guildId);
+  client.rollStates.set(rollKey, rollState); // Update rollState with fresh options
+
   // Rebuild the roll components
   const interactiveComponents = RollView.buildRollInteractives(
     rollKey,
-    rollState.helpOptions,
-    rollState.hinderOptions,
+    helpOptions,
+    hinderOptions,
     rollState.helpPage || 0,
     rollState.hinderPage || 0,
     rollState.helpTags,
@@ -1420,11 +1476,15 @@ export async function handleHinderAction(interaction, client) {
       return !(char.user_id === rollState.creatorId && char.id === rollState.characterId);
     });
     if (otherCharacters.length === 0) {
+      // Refetch tag options from character
+      const { helpOptions, hinderOptions } = refetchTagOptions(rollState, guildId);
+      client.rollStates.set(rollKey, rollState); // Update rollState with fresh options
+
       // Rebuild normal roll view if no characters
       const interactiveComponents = RollView.buildRollInteractives(
         rollKey,
-        rollState.helpOptions,
-        rollState.hinderOptions,
+        helpOptions,
+        hinderOptions,
         rollState.helpPage || 0,
         rollState.hinderPage || 0,
         rollState.helpTags,
@@ -1669,11 +1729,15 @@ export async function handleHinderTagSelect(interaction, client) {
   
   client.rollStates.set(rollKey, rollState);
 
+  // Refetch tag options from character
+  const { helpOptions, hinderOptions } = refetchTagOptions(rollState, guildId);
+  client.rollStates.set(rollKey, rollState); // Update rollState with fresh options
+
   // Rebuild the roll components
   const interactiveComponents = RollView.buildRollInteractives(
     rollKey,
-    rollState.helpOptions,
-    rollState.hinderOptions,
+    helpOptions,
+    hinderOptions,
     rollState.helpPage || 0,
     rollState.hinderPage || 0,
     rollState.helpTags,
@@ -1788,11 +1852,15 @@ export async function handleMightButtonClick(interaction, client) {
     .setMaxValues(1)
     .addOptions(mightModifierOptions);
   
+  // Refetch tag options from character
+  const { helpOptions, hinderOptions } = refetchTagOptions(rollState, guildId);
+  client.rollStates.set(rollKey, rollState); // Update rollState with fresh options
+
   // Rebuild the roll view but replace the button with the dropdown
   const interactiveComponents = RollView.buildRollInteractives(
     rollKey,
-    rollState.helpOptions,
-    rollState.hinderOptions,
+    helpOptions,
+    hinderOptions,
     rollState.helpPage || 0,
     rollState.hinderPage || 0,
     rollState.helpTags,
@@ -1902,11 +1970,15 @@ export async function handleMightModifierSelect(interaction, client) {
   rollState.mightModifier = mightModifierValue;
   client.rollStates.set(rollKey, rollState);
 
+  // Refetch tag options from character
+  const { helpOptions, hinderOptions } = refetchTagOptions(rollState, guildId);
+  client.rollStates.set(rollKey, rollState); // Update rollState with fresh options
+
   // Rebuild components with updated might modifier
   const interactiveComponents = RollView.buildRollInteractives(
     rollKey,
-    rollState.helpOptions,
-    rollState.hinderOptions,
+    helpOptions,
+    hinderOptions,
     rollState.helpPage || 0,
     rollState.hinderPage || 0,
     rollState.helpTags,
