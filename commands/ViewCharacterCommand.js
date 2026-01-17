@@ -38,8 +38,13 @@ export class ViewCharacterCommand extends Command {
     const ownerId = parts[0];
     const characterId = parseInt(parts[1]);
     
-    // Get the character directly from the owner's data
-    const character = CharacterStorage.getCharacter(guildId, ownerId, characterId);
+    // Get the character - handle unassigned characters
+    let character;
+    if (ownerId === 'unassigned') {
+      character = CharacterStorage.getCharacterById(guildId, characterId);
+    } else {
+      character = CharacterStorage.getCharacter(guildId, ownerId, characterId);
+    }
     
     if (!character) {
       await interaction.reply({
@@ -50,10 +55,11 @@ export class ViewCharacterCommand extends Command {
     }
 
     // Check if this is the user's own character
-    const isOwner = ownerId === userId;
+    const isOwner = character.user_id === userId;
+    const displayOwnerId = character.user_id || null;
     
     // Display character (with edit buttons only if owner, and show owner info)
-    await EditCharacterCommand.displayCharacter(interaction, character, isOwner, ownerId);
+    await EditCharacterCommand.displayCharacter(interaction, character, isOwner, displayOwnerId);
   }
 }
 

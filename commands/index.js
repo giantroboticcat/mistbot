@@ -10,6 +10,7 @@ import { EditCharacterCommand } from './EditCharacterCommand.js';
 import { SelectCharacterCommand } from './SelectCharacterCommand.js';
 import { ViewCharacterCommand } from './ViewCharacterCommand.js';
 import { FellowshipLookupCommand } from './FellowshipLookupCommand.js';
+import { ImportCharacterCommand } from './ImportCharacterCommand.js';
 import { RollProposeCommand } from './RollProposeCommand.js';
 import { RollReactionCommand } from './RollReactionCommand.js';
 import { RollAmendCommand } from './RollAmendCommand.js';
@@ -33,6 +34,7 @@ export const commands = [
   new SelectCharacterCommand(),
   new ViewCharacterCommand(),
   new FellowshipLookupCommand(),
+  new ImportCharacterCommand(),
   new RollProposeCommand(),
   new RollReactionCommand(),
   new RollAmendCommand(),

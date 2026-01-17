@@ -423,6 +423,25 @@ export class CharacterStorage {
   }
 
   /**
+   * Set fellowship for an unassigned character
+   * @param {string} guildId - Guild ID
+   * @param {number} characterId - Character ID
+   * @param {number|null} fellowshipId - Fellowship ID or null to remove
+   * @returns {boolean} True if updated, false if not found
+   */
+  static setFellowshipForUnassigned(guildId, characterId, fellowshipId) {
+    const db = getDbForGuild(guildId);
+    const stmt = db.prepare(`
+      UPDATE characters
+      SET fellowship_id = ?, updated_at = strftime('%s', 'now')
+      WHERE id = ? AND user_id IS NULL
+    `);
+    
+    const result = stmt.run(fellowshipId, characterId);
+    return result.changes > 0;
+  }
+
+  /**
    * Mark themes/tags as burned based on tagValue strings
    * @param {string} userId - Discord user ID
    * @param {number} characterId - Character ID
@@ -593,6 +612,181 @@ export class CharacterStorage {
     });
     
     const characterId = transaction();
+    return this.getCharacter(guildId, userId, characterId);
+  }
+
+  /**
+   * Create an unassigned character (user_id = NULL, auto_sync = 1)
+   * @param {string} guildId - Guild ID
+   * @param {string} name - Character name
+   * @param {Array} themes - Array of theme objects { name, tags, weaknesses }
+   * @returns {Object} The created character
+   */
+  static createUnassignedCharacter(guildId, name, themes) {
+    const db = getDbForGuild(guildId);
+    const transaction = db.transaction(() => {
+      // Insert character with NULL user_id and auto_sync = 1
+      const insertChar = db.prepare(`
+        INSERT INTO characters (user_id, name, is_active, auto_sync)
+        VALUES (?, ?, ?, ?)
+      `);
+      
+      const result = insertChar.run(null, name, 0, 1);
+      const characterId = result.lastInsertRowid;
+      
+      // Insert themes (same as createCharacter)
+      const insertTag = db.prepare(`
+        INSERT INTO character_theme_tags (theme_id, tag, is_weakness, is_burned)
+        VALUES (?, ?, ?, ?)
+      `);
+      
+      themes.forEach((theme, index) => {
+        const themeBurned = theme.isBurned ? 1 : 0;
+        const improvements = theme.improvements !== undefined ? theme.improvements : 0;
+        const themeResult = db.prepare(`
+          INSERT INTO character_themes (character_id, name, theme_order, is_burned, improvements)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(characterId, theme.name, index, themeBurned, improvements);
+        const themeId = themeResult.lastInsertRowid;
+        
+        // Insert tags
+        if (theme.tags) {
+          theme.tags.forEach(tagObj => {
+            const tagText = typeof tagObj === 'string' ? tagObj : tagObj.tag;
+            const isBurned = typeof tagObj === 'object' ? (tagObj.isBurned ? 1 : 0) : 0;
+            insertTag.run(themeId, tagText, 0, isBurned);
+          });
+        }
+        
+        // Insert weaknesses
+        if (theme.weaknesses) {
+          theme.weaknesses.forEach(weaknessObj => {
+            const weaknessText = typeof weaknessObj === 'string' ? weaknessObj : weaknessObj.tag;
+            const isBurned = typeof weaknessObj === 'object' ? (weaknessObj.isBurned ? 1 : 0) : 0;
+            insertTag.run(themeId, weaknessText, 1, isBurned);
+          });
+        }
+      });
+      
+      return characterId;
+    });
+    
+    const characterId = transaction();
+    return this.getCharacterById(guildId, characterId);
+  }
+
+  /**
+   * Update an unassigned character
+   * @param {string} guildId - Guild ID
+   * @param {number} characterId - Character ID
+   * @param {Object} updates - Updates to apply
+   * @returns {Object|null} Updated character or null if not found
+   */
+  static updateUnassignedCharacter(guildId, characterId, updates) {
+    const db = getDbForGuild(guildId);
+    // Verify character exists and is unassigned
+    const verifyStmt = db.prepare('SELECT id FROM characters WHERE id = ? AND user_id IS NULL');
+    if (!verifyStmt.get(characterId)) {
+      return null;
+    }
+    
+    const transaction = db.transaction(() => {
+      // Update name if provided
+      if (updates.name !== undefined) {
+        db.prepare(`
+          UPDATE characters
+          SET name = ?, updated_at = strftime('%s', 'now')
+          WHERE id = ?
+        `).run(updates.name, characterId);
+      }
+      
+      // Update backpack if provided
+      if (updates.backpack !== undefined) {
+        db.prepare('DELETE FROM character_backpack WHERE character_id = ?').run(characterId);
+        if (updates.backpack.length > 0) {
+          const insertBackpack = db.prepare(`
+            INSERT INTO character_backpack (character_id, item)
+            VALUES (?, ?)
+          `);
+          updates.backpack.forEach(item => insertBackpack.run(characterId, item));
+        }
+      }
+      
+      // Update story tags if provided
+      if (updates.storyTags !== undefined) {
+        db.prepare('DELETE FROM character_story_tags WHERE character_id = ?').run(characterId);
+        if (updates.storyTags.length > 0) {
+          const insertStoryTag = db.prepare(`
+            INSERT INTO character_story_tags (character_id, tag)
+            VALUES (?, ?)
+          `);
+          updates.storyTags.forEach(tag => insertStoryTag.run(characterId, tag));
+        }
+      }
+      
+      // Update temp statuses if provided
+      if (updates.tempStatuses !== undefined) {
+        db.prepare('DELETE FROM character_statuses WHERE character_id = ?').run(characterId);
+        if (updates.tempStatuses.length > 0) {
+          const insertStatus = db.prepare(`
+            INSERT INTO character_statuses (character_id, status, power_1, power_2, power_3, power_4, power_5, power_6)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          
+          updates.tempStatuses.forEach(statusObj => {
+            const statusText = typeof statusObj === 'string' ? statusObj : statusObj.status;
+            const powers = typeof statusObj === 'object' && statusObj.powerLevels ? statusObj.powerLevels : {};
+            insertStatus.run(
+              characterId,
+              statusText,
+              powers[1] ? 1 : 0,
+              powers[2] ? 1 : 0,
+              powers[3] ? 1 : 0,
+              powers[4] ? 1 : 0,
+              powers[5] ? 1 : 0,
+              powers[6] ? 1 : 0
+            );
+          });
+        }
+      }
+    });
+    
+    transaction();
+    return this.getCharacterById(guildId, characterId);
+  }
+
+  /**
+   * Claim an unassigned character (assign it to a user and disable auto_sync)
+   * @param {string} guildId - Guild ID
+   * @param {string} userId - Discord user ID
+   * @param {number} characterId - Character ID
+   * @returns {Object|null} The claimed character or null if not found/not unassigned
+   */
+  static claimCharacter(guildId, userId, characterId) {
+    const db = getDbForGuild(guildId);
+    
+    // Verify character exists and is unassigned
+    const verifyStmt = db.prepare('SELECT id FROM characters WHERE id = ? AND user_id IS NULL');
+    if (!verifyStmt.get(characterId)) {
+      return null;
+    }
+    
+    // Check character limit (max 3 characters per user)
+    const countStmt = db.prepare('SELECT COUNT(*) as count FROM characters WHERE user_id = ?');
+    const existingCount = countStmt.get(userId).count;
+    if (existingCount >= 3) {
+      return null; // Character limit reached
+    }
+    
+    // Update character: set user_id, disable auto_sync, auto-activate if first character
+    const isFirst = existingCount === 0;
+    const updateStmt = db.prepare(`
+      UPDATE characters
+      SET user_id = ?, is_active = ?, auto_sync = 0, updated_at = strftime('%s', 'now')
+      WHERE id = ?
+    `);
+    updateStmt.run(userId, isFirst ? 1 : 0, characterId);
+    
     return this.getCharacter(guildId, userId, characterId);
   }
 
@@ -768,15 +962,17 @@ export class CharacterStorage {
   }
 
   /**
-   * Delete a character
+   * Delete a character (marks as unassigned instead of deleting)
+   * @param {string} guildId - Guild ID
    * @param {string} userId - Discord user ID
    * @param {number} characterId - Character ID
-   * @returns {boolean} True if deleted, false if not found
+   * @returns {boolean} True if marked as unassigned, false if not found
    */
   static deleteCharacter(guildId, userId, characterId) {
     const db = getDbForGuild(guildId);
     const stmt = db.prepare(`
-      DELETE FROM characters
+      UPDATE characters
+      SET user_id = NULL, is_active = 0, auto_sync = 1, updated_at = strftime('%s', 'now')
       WHERE id = ? AND user_id = ?
     `);
     
@@ -800,6 +996,25 @@ export class CharacterStorage {
     `);
     
     const result = stmt.run(sheetUrl, characterId, userId);
+    return result.changes > 0;
+  }
+
+  /**
+   * Set Google Sheet URL for an unassigned character
+   * @param {string} guildId - Guild ID
+   * @param {number} characterId - Character ID
+   * @param {string} sheetUrl - Google Sheets URL
+   * @returns {boolean} True if updated, false if not found
+   */
+  static setSheetUrlForUnassigned(guildId, characterId, sheetUrl) {
+    const db = getDbForGuild(guildId);
+    const stmt = db.prepare(`
+      UPDATE characters
+      SET google_sheet_url = ?, updated_at = strftime('%s', 'now')
+      WHERE id = ? AND user_id IS NULL
+    `);
+    
+    const result = stmt.run(sheetUrl, characterId);
     return result.changes > 0;
   }
 

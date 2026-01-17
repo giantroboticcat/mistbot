@@ -58,14 +58,22 @@ export class CharacterView {
     const fellowshipString = character.fellowship ? `\n**Fellowship: ${character.fellowship.name}**` : '';
     
     // Build owner info string if provided
-    const ownerName = await DiscordUtils.getUserDisplayName(interaction, character.user_id);
-    const ownerString = ownerName ? `\n*Owner: ${ownerName}*` : '';
+    let ownerString = '';
+    if (character.user_id) {
+      const ownerName = await DiscordUtils.getUserDisplayName(interaction, character.user_id);
+      ownerString = ownerName ? `\n*Owner: ${ownerName}*` : '';
+    } else {
+      ownerString = '\n*Status: Unassigned*';
+    }
+    
+    // Build sheet URL string if provided
+    const sheetUrlString = character.google_sheet_url ? `\n*Sheet: ${character.google_sheet_url}*` : '';
     
     // Header container
     const headerContainer = new ContainerBuilder();
     headerContainer.addTextDisplayComponents(
       new TextDisplayBuilder()
-        .setContent(`**Character: ${character.name}**${fellowshipString}${ownerString}`)
+        .setContent(`**Character: ${character.name}**${fellowshipString}${ownerString}${sheetUrlString}`)
     );
 
     // Themes container
@@ -213,11 +221,6 @@ export class CharacterView {
     rows.push(new ActionRowBuilder().setComponents(row1Components));
 
     // Row 2: Sync buttons
-    const setSheetButton = new ButtonBuilder()
-    .setCustomId(`set_sheet_url_btn_${character.id}`)
-    .setLabel('🔗 Set Sheet URL')
-    .setStyle(ButtonStyle.Primary);
-
     // Check auto_sync - handle null/undefined (defaults to false)
     // SQLite stores as INTEGER (0 or 1), but may return null if not set
     // Convert to number and check if it equals 1
@@ -242,7 +245,7 @@ export class CharacterView {
     .setLabel(autoSyncEnabled ? '🔄 Auto-sync: ON' : '🔄 Auto-sync: OFF')
     .setStyle(autoSyncEnabled ? ButtonStyle.Success : ButtonStyle.Danger);
 
-    rows.push(new ActionRowBuilder().setComponents([setSheetButton, syncToButton, syncFromButton, autoSyncButton]));
+    rows.push(new ActionRowBuilder().setComponents([syncToButton, syncFromButton, autoSyncButton]));
 
     // Row 4: Delete button
     const deleteButton = new ButtonBuilder()

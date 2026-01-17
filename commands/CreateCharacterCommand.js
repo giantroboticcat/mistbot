@@ -116,11 +116,45 @@ export class CreateCharacterCommand extends Command {
     // Check if this sheet URL is already in use
     const existingCharacter = CharacterStorage.getCharacterBySheetUrl(guildId, sheetUrl);
     if (existingCharacter) {
-      await interaction.reply({
-        content: `❌ This Google Sheet has already been imported.\n\n**Character:** ${existingCharacter.name}\n**Owner:** <@${existingCharacter.user_id}>\n\nEach sheet can only be imported once. If you need to update an existing character, use the character edit commands.`,
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
+      // If character is unassigned, allow claiming it
+      if (!existingCharacter.user_id) {
+        // Defer reply since we'll claim the character
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        
+        try {
+          // Claim the unassigned character
+          const claimedCharacter = CharacterStorage.claimCharacter(guildId, userId, existingCharacter.id);
+          
+          if (!claimedCharacter) {
+            // Character limit reached or character was already claimed
+            await interaction.editReply({
+              content: `❌ Unable to claim character. You may have reached the limit of 3 characters, or the character was already claimed by someone else.`,
+            });
+            return;
+          }
+          
+          // Sync from sheet to get latest data
+          await CharacterStorage.syncFromSheet(guildId, userId, existingCharacter.id);
+          
+          await interaction.editReply({
+            content: `✅ Character **${existingCharacter.name}** claimed successfully! The character has been assigned to you and auto-sync has been disabled.`,
+          });
+          return;
+        } catch (error) {
+          console.error('Error claiming character:', error);
+          await interaction.editReply({
+            content: `❌ Failed to claim character: ${error.message}`,
+          });
+          return;
+        }
+      } else {
+        // Character is already assigned to someone
+        await interaction.reply({
+          content: `❌ This Google Sheet has already been imported.\n\n**Character:** ${existingCharacter.name}\n**Owner:** <@${existingCharacter.user_id}>\n\nEach sheet can only be imported once. If you need to update an existing character, use the character edit commands.`,
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
     }
 
     // Check if sheets service is ready

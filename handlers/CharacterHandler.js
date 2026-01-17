@@ -894,10 +894,15 @@ export async function handleCharLookupAutocomplete(interaction) {
       .slice(0, 25); // Discord limit is 25 options
     
     await interaction.respond(
-      matching.map(char => ({
-        name: char.name,
-        value: `${char.user_id}:${char.id}`, // Encode ownerId:characterId
-      }))
+      matching.map(char => {
+        // Handle unassigned characters (user_id is NULL)
+        const ownerId = char.user_id || 'unassigned';
+        const displayName = char.user_id ? char.name : `${char.name} (Unassigned)`;
+        return {
+          name: displayName,
+          value: `${ownerId}:${char.id}`, // Encode ownerId:characterId (or 'unassigned' for unassigned)
+        };
+      })
     );
   }
 }
