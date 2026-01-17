@@ -700,6 +700,44 @@ export class CharacterStorage {
         `).run(updates.name, characterId);
       }
       
+      // Update themes if provided
+      if (updates.themes !== undefined) {
+        // Delete existing themes and tags
+        db.prepare('DELETE FROM character_themes WHERE character_id = ?').run(characterId);
+        
+        // Insert new themes
+        const insertTag = db.prepare(`
+          INSERT INTO character_theme_tags (theme_id, tag, is_weakness, is_burned)
+          VALUES (?, ?, ?, ?)
+        `);
+        
+        updates.themes.forEach((theme, index) => {
+          const themeBurned = theme.isBurned ? 1 : 0;
+          const improvements = theme.improvements !== undefined ? theme.improvements : 0;
+          const themeResult = db.prepare(`
+            INSERT INTO character_themes (character_id, name, theme_order, is_burned, improvements)
+            VALUES (?, ?, ?, ?, ?)
+          `).run(characterId, theme.name, index, themeBurned, improvements);
+          const themeId = themeResult.lastInsertRowid;
+          
+          if (theme.tags) {
+            theme.tags.forEach(tagObj => {
+              const tagText = typeof tagObj === 'string' ? tagObj : tagObj.tag;
+              const isBurned = typeof tagObj === 'object' ? (tagObj.isBurned ? 1 : 0) : 0;
+              insertTag.run(themeId, tagText, 0, isBurned);
+            });
+          }
+          
+          if (theme.weaknesses) {
+            theme.weaknesses.forEach(weaknessObj => {
+              const weaknessText = typeof weaknessObj === 'string' ? weaknessObj : weaknessObj.tag;
+              const isBurned = typeof weaknessObj === 'object' ? (weaknessObj.isBurned ? 1 : 0) : 0;
+              insertTag.run(themeId, weaknessText, 1, isBurned);
+            });
+          }
+        });
+      }
+      
       // Update backpack if provided
       if (updates.backpack !== undefined) {
         db.prepare('DELETE FROM character_backpack WHERE character_id = ?').run(characterId);
