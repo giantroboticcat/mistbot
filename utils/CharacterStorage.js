@@ -1174,13 +1174,29 @@ export class CharacterStorage {
    * @param {number} characterId - Character ID
    * @returns {Promise<Object>} Result with success status and message
    */
+  /**
+   * Sync character data from Google Sheet
+   * @param {string} guildId - Guild ID
+   * @param {string|null} userId - User ID (optional, can be null for unassigned characters)
+   * @param {number} characterId - Character ID
+   * @returns {Promise<{success: boolean, message: string}>}
+   */
   static async syncFromSheet(guildId, userId, characterId) {
     try {
-      // Get character to get sheet URL
-      const character = this.getCharacter(guildId, userId, characterId);
+      // Get character by ID (works for both assigned and unassigned)
+      const character = this.getCharacterById(guildId, characterId);
       if (!character) {
         return { success: false, message: 'Character not found' };
       }
+
+      // Verify userId matches if provided (for assigned characters)
+      if (userId !== null && character.user_id !== userId) {
+        return { success: false, message: 'Character does not belong to the specified user' };
+      }
+
+      // If userId is null but character is assigned, use character's user_id
+      const actualUserId = userId !== null ? userId : character.user_id;
+      const isUnassigned = character.user_id === null;
 
       // Check if sheet URL is set
       if (!character.google_sheet_url) {
@@ -1207,7 +1223,7 @@ export class CharacterStorage {
       }
 
       // Get current character to preserve improvements if bot has >3 and sheet shows 3
-      const currentCharacter = this.getCharacter(guildId, userId, characterId);
+      const currentCharacter = character; // Already have it from getCharacterById
       const currentThemeImprovements = new Map();
       if (currentCharacter && currentCharacter.themes) {
         currentCharacter.themes.forEach((theme, index) => {
@@ -1272,14 +1288,31 @@ export class CharacterStorage {
         skipAutoSync: true, // Prevent auto-sync when syncing from sheet
       };
 
-      const updatedCharacter = this.updateCharacter(guildId, userId, characterId, updates);
+      let updatedCharacter;
+      if (isUnassigned) {
+        updatedCharacter = this.updateUnassignedCharacter(guildId, characterId, updates);
+      } else {
+        updatedCharacter = this.updateCharacter(guildId, actualUserId, characterId, updates);
+      }
+      
+      if (!updatedCharacter) {
+        return { success: false, message: 'Failed to update character' };
+      }
       
       // Set fellowship if found
       if (fellowshipId !== null) {
-        this.setFellowship(guildId, userId, characterId, fellowshipId);
+        if (isUnassigned) {
+          this.setFellowshipForUnassigned(guildId, characterId, fellowshipId);
+        } else {
+          this.setFellowship(guildId, actualUserId, characterId, fellowshipId);
+        }
       } else if (updatedCharacter && updatedCharacter.fellowship_id) {
         // If no fellowship name in sheet but character has one, remove it
-        this.setFellowship(guildId, userId, characterId, null);
+        if (isUnassigned) {
+          this.setFellowshipForUnassigned(guildId, characterId, null);
+        } else {
+          this.setFellowship(guildId, actualUserId, characterId, null);
+        }
       }
 
       return { success: true, message: 'Character successfully synced from Google Sheet!' };

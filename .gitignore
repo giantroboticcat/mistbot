@@ -32,4 +32,6 @@ build/
 
 # Data storage
 data/
+!data/.gitkeep
+data/backups/
 

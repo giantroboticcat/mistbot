@@ -89,121 +89,6 @@ function getAllCharacters(guildId, characterId = null) {
 }
 
 /**
- * Sync unassigned character from Google Sheet
- * @param {string} guildId - Guild ID
- * @param {number} characterId - Character ID
- * @param {string} sheetUrl - Google Sheet URL
- * @returns {Promise<Object>} Result with success status and message
- */
-async function syncUnassignedCharacterFromSheet(guildId, characterId, sheetUrl) {
-  try {
-    // Check if sheets service is ready
-    if (!sheetsService.isReady()) {
-      return { success: false, message: 'Google Sheets service not initialized' };
-    }
-
-    // Read from sheet
-    const sheetData = await sheetsService.readCharacterFromSheet(sheetUrl);
-
-    // Look up fellowship if fellowship name is provided
-    let fellowshipId = null;
-    if (sheetData.fellowshipName) {
-      const fellowship = FellowshipStorage.getFellowshipByName(guildId, sheetData.fellowshipName);
-      if (fellowship) {
-        fellowshipId = fellowship.id;
-      } else {
-        console.warn(`Fellowship "${sheetData.fellowshipName}" not found in database. Character will not be assigned to a fellowship.`);
-      }
-    }
-
-    // Get current character to preserve improvements if bot has >3 and sheet shows 3
-    const currentCharacter = CharacterStorage.getCharacterById(guildId, characterId);
-    const currentThemeImprovements = new Map();
-    if (currentCharacter && currentCharacter.themes) {
-      currentCharacter.themes.forEach((theme, index) => {
-        if (theme.improvements !== undefined) {
-          currentThemeImprovements.set(index, theme.improvements);
-        }
-      });
-    }
-
-    // Prepare themes with improvements handling
-    const themesWithBurnedStatus = sheetData.themes.map((theme, index) => {
-      // Handle improvements: if bot has >3 and sheet shows 3, keep bot's count
-      let improvements = theme.improvements || 0;
-      const currentImprovements = currentThemeImprovements.get(index);
-      if (currentImprovements !== undefined && currentImprovements > 3 && improvements === 3) {
-        // Bot has more than 3, sheet only shows 3 - keep bot's count
-        improvements = currentImprovements;
-      }
-      
-      return {
-        ...theme,
-        improvements: improvements,
-        // Theme burned status comes from sheet
-        isBurned: theme.isBurned || false,
-        // Tags burned status comes from sheet
-        tags: theme.tags ? theme.tags.map(tag => {
-          const tagText = typeof tag === 'string' ? tag : (tag.tag || tag);
-          const isBurned = typeof tag === 'object' ? (tag.isBurned || false) : false;
-          return typeof tag === 'object' ? {
-            ...tag,
-            isBurned: isBurned
-          } : {
-            tag: tagText,
-            isBurned: isBurned
-          };
-        }) : [],
-        // Weaknesses burned status comes from sheet
-        weaknesses: theme.weaknesses ? theme.weaknesses.map(weakness => {
-          const weaknessText = typeof weakness === 'string' ? weakness : (weakness.tag || weakness);
-          const isBurned = typeof weakness === 'object' ? (weakness.isBurned || false) : false;
-          return typeof weakness === 'object' ? {
-            ...weakness,
-            isBurned: isBurned
-          } : {
-            tag: weaknessText,
-            isBurned: isBurned
-          };
-        }) : [],
-      };
-    });
-
-    // Update character with all data from sheet
-    const updates = {
-      name: sheetData.name,
-      themes: themesWithBurnedStatus,
-    };
-
-    if (sheetData.backpack && sheetData.backpack.length > 0) {
-      updates.backpack = sheetData.backpack;
-    }
-    if (sheetData.storyTags && sheetData.storyTags.length > 0) {
-      updates.storyTags = sheetData.storyTags;
-    }
-    if (sheetData.tempStatuses && sheetData.tempStatuses.length > 0) {
-      updates.tempStatuses = sheetData.tempStatuses;
-    }
-
-    // Update the character
-    CharacterStorage.updateUnassignedCharacter(guildId, characterId, updates);
-
-    // Set fellowship if found
-    if (fellowshipId !== null) {
-      CharacterStorage.setFellowshipForUnassigned(guildId, characterId, fellowshipId);
-    } else if (sheetData.fellowshipName && currentCharacter && currentCharacter.fellowship_id) {
-      // If sheet has no fellowship but character had one, remove it
-      CharacterStorage.setFellowshipForUnassigned(guildId, characterId, null);
-    }
-
-    return { success: true, message: 'Character successfully synced from Google Sheet!' };
-  } catch (error) {
-    console.error('Error syncing unassigned character from sheet:', error);
-    return { success: false, message: `Failed to sync: ${error.message}` };
-  }
-}
-
-/**
  * Repair all characters by syncing from their Google Sheets
  * @param {number|null} targetCharacterId - Optional character ID to target (format: guildId:characterId)
  */
@@ -271,14 +156,9 @@ async function repairCharacters(targetCharacterId = null) {
       console.log(`\n   🔄 Repairing character: ${character.name} (ID: ${character.id})`);
       
       try {
-        let result;
-        if (character.user_id) {
-          // Assigned character - use syncFromSheet
-          result = await CharacterStorage.syncFromSheet(guildId, character.user_id, character.id);
-        } else {
-          // Unassigned character - use custom sync
-          result = await syncUnassignedCharacterFromSheet(guildId, character.id, character.google_sheet_url);
-        }
+        // Use syncFromSheet for both assigned and unassigned characters
+        // It will handle null user_id automatically
+        const result = await CharacterStorage.syncFromSheet(guildId, character.user_id, character.id);
 
         if (result.success) {
           successfulRepairs++;
