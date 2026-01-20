@@ -67,8 +67,9 @@ export class RollConfirmCommand extends Command {
     // Allow confirming proposed or confirmed rolls (but not executed)
     if (roll.status === RollStatus.EXECUTED) {
       const rollType = roll.isReaction ? 'reaction roll' : 'action roll';
-      await interaction.editReply({
+      await interaction.reply({
         content: `${rollType.charAt(0).toUpperCase() + rollType.slice(1)} #${rollId} has already been executed and cannot be confirmed.`,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -98,9 +99,9 @@ export class RollConfirmCommand extends Command {
       
       const buttonRow = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
       
-      await interaction.editReply({
+      await interaction.reply({
         components: [warningContainer, buttonRow],
-        flags: MessageFlags.IsComponentsV2,
+        flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
       });
       return;
     }
