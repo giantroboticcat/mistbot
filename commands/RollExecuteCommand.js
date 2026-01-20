@@ -71,21 +71,27 @@ export class RollExecuteCommand extends Command {
     const burnedTags = roll.burnedTags || new Set();
     const baseModifier = RollView.calculateModifier(roll.helpTags, roll.hinderTags, burnedTags, guildId);
     
+    // Get might modifier from roll (default to 0 if not set)
+    const mightModifier = roll.mightModifier !== undefined && roll.mightModifier !== null ? roll.mightModifier : 0;
+    
+    // Calculate total power (base modifier + might modifier)
+    const totalPower = baseModifier + mightModifier;
+    
     let strategyModifier = 0;
     let strategyName = null;
-    let originalPower = baseModifier;
+    let originalPower = totalPower; // Include might in original power
     let strategyError = null;
     
     if (strategy === 'throw_caution') {
-      if (baseModifier > 2) {
-        strategyError = `Cannot use "Throw caution to the wind" - your Power is ${baseModifier}, but it requires Power ≤ 2.`;
+      if (totalPower > 2) {
+        strategyError = `Cannot use "Throw caution to the wind" - your Power is ${totalPower}, but it requires Power ≤ 2.`;
       } else {
         strategyModifier = -1; // Reduce Power by 1
         strategyName = 'Throw caution to the wind';
       }
     } else if (strategy === 'hedge_risks') {
-      if (baseModifier < 2) {
-        strategyError = `Cannot use "Hedge your risks" - your Power is ${baseModifier}, but it requires Power ≥ 2.`;
+      if (totalPower < 2) {
+        strategyError = `Cannot use "Hedge your risks" - your Power is ${totalPower}, but it requires Power ≥ 2.`;
       } else {
         strategyModifier = +1; // Add 1 to Power
         strategyName = 'Hedge your risks';
@@ -206,11 +212,8 @@ export class RollExecuteCommand extends Command {
     const die2 = Math.floor(Math.random() * 6) + 1;
     const baseRoll = die1 + die2;
     
-    // Get might modifier from roll (default to 0 if not set)
-    const mightModifier = roll.mightModifier !== undefined && roll.mightModifier !== null ? roll.mightModifier : 0;
-    
-    // Apply strategy modifier and might modifier to the roll result
-    const finalResult = baseRoll + baseModifier + strategyModifier + mightModifier;
+    // Apply strategy modifier to the roll result (might is already included in originalPower)
+    const finalResult = baseRoll + totalPower + strategyModifier;
 
     // Format narrator mention if they confirmed the roll
     const narratorMention = roll.confirmedBy ? `<@${roll.confirmedBy}>` : null;
@@ -247,11 +250,12 @@ export class RollExecuteCommand extends Command {
     }
     
     // Format roll result using RollView
+    // Pass totalPower (baseModifier + mightModifier) as the modifier parameter so Power includes might
     const resultData = RollView.formatRollResult(
       die1,
       die2,
       baseRoll,
-      baseModifier,
+      totalPower, // Total power includes might
       finalResult,
       roll.description,
       narratorMention,
@@ -259,7 +263,7 @@ export class RollExecuteCommand extends Command {
       roll.reactionToRollId,
       strategyName,
       strategyModifier,
-      originalPower,
+      originalPower, // This now includes might
       spendingPower,
       mightModifier
     );

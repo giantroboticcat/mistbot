@@ -381,6 +381,9 @@ export class GoogleSheetsService {
         const improvementCol = this.incrementColumn(improvementStartCol, i);
         cellsToRead.push(`${improvementCol}28`);
       }
+      
+      // Quest text (row 20, same column as tag start)
+      cellsToRead.push(`${config.tagStartCol}20`);
     }
 
     // Backpack items (14 max)
@@ -474,6 +477,11 @@ export class GoogleSheetsService {
         }
       }
       theme.improvements = improvementsFromSheet;
+      
+      // Parse quest text (row 20, same column as tag start)
+      const questCell = `${config.tagStartCol}20`;
+      const questValue = cellValues[questCell];
+      theme.quest = questValue || null;
 
       character.themes.push(theme);
     }
@@ -613,6 +621,13 @@ export class GoogleSheetsService {
           value: i < improvements ? 'TRUE' : '' 
         });
       }
+      
+      // Quest text (row 20, same column as tag start)
+      const questCell = `${config.tagStartCol}20`;
+      batchUpdates.push({ 
+        cell: questCell, 
+        value: theme.quest || '' 
+      });
     }
 
     // Backpack items

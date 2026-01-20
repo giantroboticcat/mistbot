@@ -167,12 +167,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await RollHandler.handleRollCancel(interaction, client);
       } else if (interaction.customId.startsWith('roll_might_button_')) {
         await RollHandler.handleMightButtonClick(interaction, client);
-      } else if (interaction.customId.startsWith('edit_character_')) {
-        await CharacterHandler.handleEditCharacterButton(interaction, client);
+      } else if (interaction.customId.startsWith('edit_themes_')) {
+        await CharacterHandler.handleEditThemesButton(interaction, client);
+      } else if (interaction.customId.startsWith('cancel_edit_themes_')) {
+        await CharacterHandler.handleCancelEditThemesButton(interaction, client);
       } else if (interaction.customId.startsWith('edit_backpack_')) {
         await CharacterHandler.handleEditBackpackButton(interaction, client);
       } else if (interaction.customId.startsWith('edit_statuses_')) {
         await CharacterHandler.handleEditStatusesButton(interaction, client);
+      } else if (interaction.customId.startsWith('edit_theme_')) {
+        await CharacterHandler.handleEditThemeButton(interaction, client);
       } else if (interaction.customId.startsWith('statuses_')) {
         await CharacterHandler.handleStatusesEditor(interaction, client);
       } else if (interaction.customId.startsWith('burn_refresh_')) {
@@ -217,7 +221,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   } else if (interaction.isStringSelectMenu()) {
     // Handle select menu interactions
-    if (interaction.customId.startsWith('select_active_character_')) {
+    if (interaction.customId.startsWith('select_theme_')) {
+      await CharacterHandler.handleThemeSelectMenu(interaction, client);
+    } else if (interaction.customId.startsWith('select_active_character_')) {
       await CharacterHandler.handleSelectActiveCharacter(interaction, client);
     } else if (interaction.customId.startsWith('burn_refresh_select_')) {
       await CharacterHandler.handleBurnRefreshSelect(interaction, client);

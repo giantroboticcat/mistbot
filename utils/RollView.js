@@ -54,7 +54,10 @@ export class RollView {
       throw new Error('guildId is required in buildRollDisplays options');
     }
     const modifier = this.calculateModifier(helpTags, hinderTags, burnedTags, guildId);
+    // Calculate total power (modifier + might)
+    const totalPower = modifier + mightModifier;
     const modifierText = modifier >= 0 ? `+${modifier}` : `${modifier}`;
+    const totalPowerText = totalPower >= 0 ? `+${totalPower}` : `${totalPower}`;
 
 
     // Format help items (tags, statuses) with fire emojis around burned tags
@@ -137,19 +140,11 @@ export class RollView {
     );
     
     // Add power text display if requested (moved to top, before narration)
+    // Show total power (modifier + might) as a single value
     if (showPower) {
       descriptionContainer.addTextDisplayComponents(
         new TextDisplayBuilder()
-          .setContent(`### Power **${modifierText}**`)
-      );
-    }
-    
-    // Add might modifier display if not zero
-    if (mightModifier !== 0) {
-      const mightLabelText = this.formatMightModifierLabel(mightModifier);
-      descriptionContainer.addTextDisplayComponents(
-        new TextDisplayBuilder()
-          .setContent(`### Might **${mightLabelText}**`)
+          .setContent(`### Power **${totalPowerText}**`)
       );
     }
     
@@ -970,17 +965,14 @@ export class RollView {
   static formatRollResult(die1, die2, baseRoll, modifier, finalResult, description, narratorMention = null, isReaction = false, reactionToRollId = null, strategyName = null, strategyModifier = 0, originalPower = null, spendingPower = null, mightModifier = 0) {
     const modifierText = modifier >= 0 ? `+${modifier}` : `${modifier}`;
     
-    // Build roll calculation text with strategy modifier and might modifier if applicable
+    // Build roll calculation text with strategy modifier
+    // Power already includes might, so we don't show might separately
     let rollCalculation = `${die1} + ${die2} = ${baseRoll}`;
     if (strategyModifier !== 0) {
       const strategyModText = strategyModifier >= 0 ? `+${strategyModifier}` : `${strategyModifier}`;
       rollCalculation += ` ${strategyModText} (${strategyName})`;
     }
     rollCalculation += ` ${modifierText} (Power)`;
-    if (mightModifier !== 0) {
-      const mightModText = mightModifier >= 0 ? `+${mightModifier}` : `${mightModifier}`;
-      rollCalculation += ` ${mightModText} (Might)`;
-    }
     rollCalculation += ` = **${finalResult}**`;
 
     // Determine result classification

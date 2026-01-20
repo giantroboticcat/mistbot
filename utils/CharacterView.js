@@ -13,32 +13,6 @@ export class CharacterView {
    * @returns {Object} Object with container builders for different sections
    */
   static async buildCharacterDisplays(character, interaction) {
-    // Build response showing the character
-    const themeParts = [];
-    character.themes.forEach((theme) => {
-      if (theme.tags.length > 0 || theme.weaknesses.length > 0) {
-        // Extract tag names from objects and wrap burned ones with fire emojis
-        const tagNames = theme.tags.map(t => {
-          const tagText = typeof t === 'string' ? t : t.tag;
-          const isBurned = typeof t === 'object' ? t.isBurned : false;
-          return isBurned ? `🔥${tagText}🔥` : tagText;
-        });
-        const weaknessNames = theme.weaknesses.map(w => {
-          const weakText = typeof w === 'string' ? w : w.tag;
-          const isBurned = typeof w === 'object' ? w.isBurned : false;
-          return isBurned ? `🔥${weakText}🔥` : weakText;
-        });
-        
-        const formatted = TagFormatter.formatTagsAndWeaknessesInCodeBlock(tagNames, weaknessNames);
-        
-        // Wrap burned theme names with fire emojis on both sides
-        const themeName = theme.isBurned ? `🔥${theme.name}🔥` : theme.name;
-        // Add improvement count if > 0
-        const improvementsText = theme.improvements > 0 ? ` (${theme.improvements} improvements)` : '';
-        themeParts.push(`**${themeName}:** ${improvementsText}\n${formatted}`);
-      }
-    });
-
     // Format statuses in a table format showing checked power levels
     const statusDisplay = TagFormatter.formatStatusesAsTable(character.tempStatuses);
     
@@ -76,8 +50,60 @@ export class CharacterView {
         .setContent(`**Character: ${character.name}**${fellowshipString}${ownerString}${sheetUrlString}`)
     );
 
-    // Themes container
+    // Themes container (single container with all themes)
     const themesContainer = new ContainerBuilder();
+    const themeParts = [];
+    if (character.themes && character.themes.length > 0) {
+      character.themes.forEach((theme) => {
+        // Wrap burned theme names with fire emojis on both sides
+        const themeName = theme.isBurned ? `🔥${theme.name}🔥` : theme.name;
+        // Add improvement count if > 0
+        const improvementsText = theme.improvements > 0 ? ` (${theme.improvements} improvements)` : '';
+        
+        // Build tag lines (one per line with colored circle)
+        const tagLines = [];
+        
+        // Add help tags with yellow circle (🟡)
+        if (theme.tags && theme.tags.length > 0) {
+          theme.tags.forEach(t => {
+            const tagText = typeof t === 'string' ? t : t.tag;
+            const isBurned = typeof t === 'object' ? t.isBurned : false;
+            const formatted = TagFormatter.formatStoryTag(tagText);
+            const result = isBurned ? `🔥 ${formatted} 🔥` : formatted;
+            tagLines.push(TagFormatter.formatTagWithCircle(result, 'tag'));
+          });
+        }
+        
+        // Add weakness tags with orange circle (🟠)
+        if (theme.weaknesses && theme.weaknesses.length > 0) {
+          theme.weaknesses.forEach(w => {
+            const weakText = typeof w === 'string' ? w : w.tag;
+            const isBurned = typeof w === 'object' ? w.isBurned : false;
+            const formatted = TagFormatter.formatWeakness(weakText);
+            const result = isBurned ? `🔥 ${formatted} 🔥` : formatted;
+            tagLines.push(TagFormatter.formatTagWithCircle(result, 'weakness'));
+          });
+        }
+        
+        // Build theme display
+        let themeDisplay = `**${themeName}:**${improvementsText}`;
+        
+        if (tagLines.length > 0) {
+          // Format tags in ANSI code block (like roll view)
+          themeDisplay += `\n\`\`\`ansi\n${tagLines.join('\n')}\n\`\`\``;
+        } else {
+          themeDisplay += '\n```\nNone\n```';
+        }
+        
+        // Add quest text in italics if present
+        if (theme.quest) {
+          themeDisplay += `\n*${theme.quest}*`;
+        }
+        
+        themeParts.push(themeDisplay);
+      });
+    }
+    
     if (themeParts.length > 0) {
       themesContainer.addTextDisplayComponents(
         new TextDisplayBuilder()
@@ -134,27 +160,52 @@ export class CharacterView {
     // Build response showing the character
     const themeParts = [];
     character.themes.forEach((theme) => {
-      if (theme.tags.length > 0 || theme.weaknesses.length > 0) {
-        // Extract tag names from objects and wrap burned ones with fire emojis
-        const tagNames = theme.tags.map(t => {
+      // Wrap burned theme names with fire emojis on both sides
+      const themeName = theme.isBurned ? `🔥${theme.name}🔥` : theme.name;
+      // Add improvement count if > 0
+      const improvementsText = theme.improvements > 0 ? ` (${theme.improvements} improvements)` : '';
+      
+      // Build tag lines (one per line with colored circle)
+      const tagLines = [];
+      
+      // Add help tags with yellow circle (🟡)
+      if (theme.tags && theme.tags.length > 0) {
+        theme.tags.forEach(t => {
           const tagText = typeof t === 'string' ? t : t.tag;
           const isBurned = typeof t === 'object' ? t.isBurned : false;
-          return isBurned ? `🔥${tagText}🔥` : tagText;
+          const formatted = TagFormatter.formatStoryTag(tagText);
+          const result = isBurned ? `🔥 ${formatted} 🔥` : formatted;
+          tagLines.push(TagFormatter.formatTagWithCircle(result, 'tag'));
         });
-        const weaknessNames = theme.weaknesses.map(w => {
+      }
+      
+      // Add weakness tags with orange circle (🟠)
+      if (theme.weaknesses && theme.weaknesses.length > 0) {
+        theme.weaknesses.forEach(w => {
           const weakText = typeof w === 'string' ? w : w.tag;
           const isBurned = typeof w === 'object' ? w.isBurned : false;
-          return isBurned ? `🔥${weakText}🔥` : weakText;
+          const formatted = TagFormatter.formatWeakness(weakText);
+          const result = isBurned ? `🔥 ${formatted} 🔥` : formatted;
+          tagLines.push(TagFormatter.formatTagWithCircle(result, 'weakness'));
         });
-        
-        const formatted = TagFormatter.formatTagsAndWeaknessesInCodeBlock(tagNames, weaknessNames);
-        
-        // Wrap burned theme names with fire emojis on both sides
-        const themeName = theme.isBurned ? `🔥${theme.name}🔥` : theme.name;
-        // Add improvement count if > 0
-        const improvementsText = theme.improvements > 0 ? ` (${theme.improvements} improvements)` : '';
-        themeParts.push(`**${themeName}:**${improvementsText}\n${formatted}`);
       }
+      
+      // Build theme display
+      let themeDisplay = `**${themeName}:**${improvementsText}`;
+      
+      if (tagLines.length > 0) {
+        // Format tags in ANSI code block (like roll view)
+        themeDisplay += `\n\`\`\`ansi\n${tagLines.join('\n')}\n\`\`\``;
+      } else {
+        themeDisplay += '\n```\nNone\n```';
+      }
+      
+      // Add quest text in italics if present
+      if (theme.quest) {
+        themeDisplay += `\n*${theme.quest}*`;
+      }
+      
+      themeParts.push(themeDisplay);
     });
 
     // Format statuses in a table format showing checked power levels
@@ -194,9 +245,9 @@ export class CharacterView {
     const rows = [];
 
     // Row 1: Edit buttons
-    const editButton = new ButtonBuilder()
-      .setCustomId(`edit_character_${character.id}`)
-      .setLabel('Adjust Name/Themes')
+    const themesButton = new ButtonBuilder()
+      .setCustomId(`edit_themes_${character.id}`)
+      .setLabel('Edit Themes')
       .setStyle(ButtonStyle.Primary);
 
     const backpackButton = new ButtonBuilder()
@@ -209,7 +260,7 @@ export class CharacterView {
       .setLabel('Edit Statuses')
       .setStyle(ButtonStyle.Primary);
 
-    const row1Components = [editButton, backpackButton, statusesButton];
+    const row1Components = [themesButton, backpackButton, statusesButton];
 
     const burnRefreshButton = new ButtonBuilder()
     .setCustomId(`burn_refresh_${character.id}`)
@@ -257,24 +308,35 @@ export class CharacterView {
 
     return {
       buttonRows: rows
+      // Theme buttons are now included as accessories in the Section components
     };
   }
 
   /**
    * Combine character display containers and interactive buttons
    * @param {Object} displayData - Object with container builders from buildCharacterDisplays
-   * @param {Object} interactiveData - Object with buttonRows from buildCharacterButtons
+   * @param {Object} interactiveData - Object with buttonRows and themeButtonsRow from buildCharacterButtons
    * @returns {Array} Combined array of components for Components V2
    */
   static combineCharacterComponents(displayData, interactiveData) {
-    return [
+    const components = [
       displayData.headerContainer,
-      displayData.themesContainer,
+    ];
+    
+    // Add themes container
+    components.push(displayData.themesContainer);
+    
+    // Add remaining display containers
+    components.push(
       displayData.statusesContainer,
       displayData.backpackContainer,
-      displayData.storyTagsContainer,
-      ...(interactiveData.buttonRows || [])
-    ];
+      displayData.storyTagsContainer
+    );
+    
+    // Add all other button rows at the end
+    components.push(...(interactiveData.buttonRows || []));
+    
+    return components;
   }
 }
 

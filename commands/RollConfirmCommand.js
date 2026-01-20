@@ -168,7 +168,8 @@ export class RollConfirmCommand extends Command {
       hinderPage: 0,
       buttons: {confirm: true, cancel: true},
       isReaction: isReaction,
-      reactionToRollId: roll.reactionToRollId
+      reactionToRollId: roll.reactionToRollId,
+      mightModifier: roll.mightModifier !== undefined && roll.mightModifier !== null ? roll.mightModifier : 0
     });
 
     // Build components for editing (don't show justification button in confirm view)
@@ -185,7 +186,8 @@ export class RollConfirmCommand extends Command {
       description: roll.description,
       burnedTags: burnedTags,
       characterId: roll.characterId,
-      sceneId: roll.sceneId
+      sceneId: roll.sceneId,
+      mightModifier: roll.mightModifier !== undefined && roll.mightModifier !== null ? roll.mightModifier : 0
     };
     const displayData = RollView.buildRollDisplays(
       rollStateForDisplay,

@@ -59,7 +59,7 @@ export class CharacterStorage {
     const db = getDbForGuild(guildId);
     // Load themes
     const themesStmt = db.prepare(`
-      SELECT id, name, theme_order, is_burned, improvements
+      SELECT id, name, theme_order, is_burned, improvements, quest
       FROM character_themes
       WHERE character_id = ?
       ORDER BY theme_order
@@ -80,6 +80,7 @@ export class CharacterStorage {
         name: theme.name,
         isBurned: Boolean(theme.is_burned),
         improvements: theme.improvements || 0,
+        quest: theme.quest || null,
         tags: allTags.filter(t => !t.is_weakness).map(t => ({ 
           id: t.id,
           tag: t.tag, 
@@ -583,10 +584,11 @@ export class CharacterStorage {
       themes.forEach((theme, index) => {
         const themeBurned = theme.isBurned ? 1 : 0;
         const improvements = theme.improvements !== undefined ? theme.improvements : 0;
+        const quest = theme.quest || null;
         const themeResult = db.prepare(`
-          INSERT INTO character_themes (character_id, name, theme_order, is_burned, improvements)
-          VALUES (?, ?, ?, ?, ?)
-        `).run(characterId, theme.name, index, themeBurned, improvements);
+          INSERT INTO character_themes (character_id, name, theme_order, is_burned, improvements, quest)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(characterId, theme.name, index, themeBurned, improvements, quest);
         const themeId = themeResult.lastInsertRowid;
         
         // Insert tags
@@ -643,10 +645,11 @@ export class CharacterStorage {
       themes.forEach((theme, index) => {
         const themeBurned = theme.isBurned ? 1 : 0;
         const improvements = theme.improvements !== undefined ? theme.improvements : 0;
+        const quest = theme.quest || null;
         const themeResult = db.prepare(`
-          INSERT INTO character_themes (character_id, name, theme_order, is_burned, improvements)
-          VALUES (?, ?, ?, ?, ?)
-        `).run(characterId, theme.name, index, themeBurned, improvements);
+          INSERT INTO character_themes (character_id, name, theme_order, is_burned, improvements, quest)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(characterId, theme.name, index, themeBurned, improvements, quest);
         const themeId = themeResult.lastInsertRowid;
         
         // Insert tags
@@ -714,10 +717,11 @@ export class CharacterStorage {
         updates.themes.forEach((theme, index) => {
           const themeBurned = theme.isBurned ? 1 : 0;
           const improvements = theme.improvements !== undefined ? theme.improvements : 0;
+          const quest = theme.quest || null;
           const themeResult = db.prepare(`
-            INSERT INTO character_themes (character_id, name, theme_order, is_burned, improvements)
-            VALUES (?, ?, ?, ?, ?)
-          `).run(characterId, theme.name, index, themeBurned, improvements);
+            INSERT INTO character_themes (character_id, name, theme_order, is_burned, improvements, quest)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `).run(characterId, theme.name, index, themeBurned, improvements, quest);
           const themeId = themeResult.lastInsertRowid;
           
           if (theme.tags) {
@@ -859,11 +863,6 @@ export class CharacterStorage {
         db.prepare('DELETE FROM character_themes WHERE character_id = ?').run(characterId);
         
         // Insert new themes
-        const insertTheme = db.prepare(`
-          INSERT INTO character_themes (character_id, name, theme_order, is_burned, improvements)
-          VALUES (?, ?, ?, ?, ?)
-        `);
-        
         const insertTag = db.prepare(`
           INSERT INTO character_theme_tags (theme_id, tag, is_weakness, is_burned)
           VALUES (?, ?, ?, ?)
@@ -872,10 +871,11 @@ export class CharacterStorage {
         updates.themes.forEach((theme, index) => {
           const themeBurned = theme.isBurned ? 1 : 0;
           const improvements = theme.improvements !== undefined ? theme.improvements : 0;
+          const quest = theme.quest || null;
           const themeResult = db.prepare(`
-            INSERT INTO character_themes (character_id, name, theme_order, is_burned, improvements)
-            VALUES (?, ?, ?, ?, ?)
-          `).run(characterId, theme.name, index, themeBurned, improvements);
+            INSERT INTO character_themes (character_id, name, theme_order, is_burned, improvements, quest)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `).run(characterId, theme.name, index, themeBurned, improvements, quest);
           const themeId = themeResult.lastInsertRowid;
           
           if (theme.tags) {
@@ -1054,6 +1054,73 @@ export class CharacterStorage {
     
     const result = stmt.run(sheetUrl, characterId);
     return result.changes > 0;
+  }
+
+  /**
+   * Update a single theme by theme ID
+   * @param {string} guildId - Guild ID
+   * @param {number} themeId - Theme ID to update
+   * @param {Object} themeData - Theme data to update { name, tags: string[], weaknesses: string[], quest?: string }
+   * @returns {Object|null} Updated theme object or null if not found
+   */
+  static updateSingleTheme(guildId, themeId, themeData) {
+    const db = getDbForGuild(guildId);
+    
+    // Verify theme exists and get character_id
+    const verifyStmt = db.prepare('SELECT character_id, theme_order FROM character_themes WHERE id = ?');
+    const themeInfo = verifyStmt.get(themeId);
+    if (!themeInfo) {
+      return null;
+    }
+    
+    const transaction = db.transaction(() => {
+      // Update theme name and quest
+      const updateThemeStmt = db.prepare(`
+        UPDATE character_themes
+        SET name = ?, quest = ?
+        WHERE id = ?
+      `);
+      const quest = themeData.quest || null;
+      updateThemeStmt.run(themeData.name, quest, themeId);
+      
+      // Delete existing tags and weaknesses for this theme
+      db.prepare('DELETE FROM character_theme_tags WHERE theme_id = ?').run(themeId);
+      
+      // Insert new tags
+      const insertTag = db.prepare(`
+        INSERT INTO character_theme_tags (theme_id, tag, is_weakness, is_burned)
+        VALUES (?, ?, ?, ?)
+      `);
+      
+      if (themeData.tags) {
+        themeData.tags.forEach(tag => {
+          if (tag && tag.trim()) {
+            insertTag.run(themeId, tag.trim(), 0, 0);
+          }
+        });
+      }
+      
+      // Insert new weaknesses
+      if (themeData.weaknesses) {
+        themeData.weaknesses.forEach(weakness => {
+          if (weakness && weakness.trim()) {
+            insertTag.run(themeId, weakness.trim(), 1, 0);
+          }
+        });
+      }
+    });
+    
+    transaction();
+    
+    // Return updated theme by reloading character relations
+    const characterId = themeInfo.character_id;
+    const character = db.prepare('SELECT id, user_id, name, is_active, created_at, updated_at, google_sheet_url, fellowship_id, auto_sync FROM characters WHERE id = ?').get(characterId);
+    if (!character) {
+      return null;
+    }
+    
+    const updatedCharacter = this.loadCharacterRelations(guildId, character);
+    return updatedCharacter.themes.find(t => t.id === themeId) || null;
   }
 
   /**

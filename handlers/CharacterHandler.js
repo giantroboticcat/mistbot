@@ -201,6 +201,123 @@ export async function handleModalSubmit(interaction, client) {
       components: allComponents,
       flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
     });
+  } else if (customId.startsWith('edit_theme_modal_')) {
+    // Handle edit single theme modal submission
+    // Format: edit_theme_modal_{characterId}_{themeId} or edit_theme_modal_{characterId}_{themeId}_{messageId}
+    const parts = customId.replace('edit_theme_modal_', '').split('_');
+    const characterId = parseInt(parts[0]);
+    const themeId = parseInt(parts[1]);
+    const messageId = parts.length > 2 ? parts[2] : null; // Optional message ID to edit
+    const userId = interaction.user.id;
+    
+    // Get character (works for both assigned and unassigned)
+    const character = CharacterStorage.getCharacterById(guildId, characterId);
+    if (!character) {
+      await interaction.reply({
+        content: 'Character not found.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Verify user owns the character (if it's assigned)
+    if (character.user_id && character.user_id !== userId) {
+      await interaction.reply({
+        content: 'You can only edit your own character\'s themes.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Get all form values
+    const themeName = interaction.fields.getTextInputValue('theme_name')?.trim();
+    if (!themeName || themeName.length === 0) {
+      await interaction.reply({
+        content: 'Theme name cannot be empty.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Get helpful tags (comma-separated)
+    const tagsInput = interaction.fields.getTextInputValue('helpful_tags')?.trim() || '';
+    const tags = tagsInput
+      .split(',')
+      .map(tag => tag.trim())
+      .filter(tag => tag.length > 0);
+
+    // Get weakness tags (comma-separated)
+    const weaknessesInput = interaction.fields.getTextInputValue('weakness_tags')?.trim() || '';
+    const weaknesses = weaknessesInput
+      .split(',')
+      .map(weakness => weakness.trim())
+      .filter(weakness => weakness.length > 0);
+
+    // Get quest (optional)
+    const quest = interaction.fields.getTextInputValue('quest')?.trim() || null;
+
+    // Update the theme using updateSingleTheme
+    const updatedTheme = CharacterStorage.updateSingleTheme(guildId, themeId, {
+      name: themeName,
+      tags: tags,
+      weaknesses: weaknesses,
+      quest: quest,
+    });
+
+    if (!updatedTheme) {
+      await interaction.reply({
+        content: 'Failed to update theme.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Reload character to get updated data
+    const updatedCharacter = character.user_id 
+      ? CharacterStorage.getCharacter(guildId, character.user_id, characterId)
+      : CharacterStorage.getCharacterById(guildId, characterId);
+
+    if (!updatedCharacter) {
+      await interaction.reply({
+        content: 'Character not found after update.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Build character displays using Components V2
+    const displayData = await CharacterView.buildCharacterDisplays(updatedCharacter, interaction);
+
+    // Build character buttons using CharacterView
+    const interactiveData = CharacterView.buildCharacterButtons(updatedCharacter);
+    
+    // Combine displays and buttons
+    const allComponents = CharacterView.combineCharacterComponents(displayData, interactiveData);
+
+    // If we have a messageId, try to edit that message (the one that showed the select menu)
+    if (messageId && interaction.channel) {
+      try {
+        const messageToEdit = await interaction.channel.messages.fetch(messageId);
+        if (messageToEdit) {
+          await messageToEdit.edit({
+            components: allComponents,
+            flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+          });
+          // Acknowledge the modal submission
+          await interaction.deferUpdate();
+          return;
+        }
+      } catch (error) {
+        // If we can't fetch/edit the message, fall back to replying
+        console.warn(`Could not edit message ${messageId}:`, error.message);
+      }
+    }
+
+    // Fallback: reply with the updated character view
+    await interaction.reply({
+      components: allComponents,
+      flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+    });
   }
 }
 
@@ -299,6 +416,225 @@ export async function handleEditStatusesButton(interaction, client) {
     components: allComponents,
     flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
   });
+}
+
+/**
+ * Handle edit themes button interaction (shows select menu)
+ */
+export async function handleEditThemesButton(interaction, client) {
+  const guildId = requireGuildId(interaction);
+  const customId = interaction.customId;
+  // Extract character ID: format is "edit_themes_123"
+  const characterId = parseInt(customId.replace('edit_themes_', ''));
+  const userId = interaction.user.id;
+  
+  // Get character (works for both assigned and unassigned)
+  const character = CharacterStorage.getCharacterById(guildId, characterId);
+  if (!character) {
+    await interaction.reply({
+      content: 'Character not found.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Verify user owns the character (if it's assigned)
+  if (character.user_id && character.user_id !== userId) {
+    await interaction.reply({
+      content: 'You can only edit your own character\'s themes.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Check if character has themes
+  if (!character.themes || character.themes.length === 0) {
+    await interaction.reply({
+      content: 'This character has no themes to edit.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Build select menu options from themes
+  const options = character.themes.map((theme, index) => {
+    const themeName = theme.name || `Theme ${index + 1}`;
+    return new StringSelectMenuOptionBuilder()
+      .setLabel(themeName)
+      .setDescription(`Edit ${themeName}`)
+      .setValue(`${theme.id}`);
+  });
+
+  const selectMenu = new StringSelectMenuBuilder()
+    .setCustomId(`select_theme_${characterId}`)
+    .setPlaceholder('Select a theme to edit...')
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(options);
+
+  // Cancel button to return to character view
+  const cancelButton = new ButtonBuilder()
+    .setCustomId(`cancel_edit_themes_${characterId}`)
+    .setLabel('Cancel')
+    .setStyle(ButtonStyle.Primary);
+
+  // Use Components V2 structure (no content field)
+
+  await interaction.update({
+    components: [
+      new ActionRowBuilder().setComponents([selectMenu]),
+      new ActionRowBuilder().setComponents([cancelButton])
+    ],
+  });
+}
+
+/**
+ * Handle theme select menu interaction (shows modal for selected theme)
+ */
+export async function handleThemeSelectMenu(interaction, client) {
+  const guildId = requireGuildId(interaction);
+  const customId = interaction.customId;
+  // Extract character ID: format is "select_theme_123"
+  const characterId = parseInt(customId.replace('select_theme_', ''));
+  const userId = interaction.user.id;
+  
+  // Get selected theme ID
+  const selectedThemeId = parseInt(interaction.values[0]);
+  
+  // Get character (works for both assigned and unassigned)
+  const character = CharacterStorage.getCharacterById(guildId, characterId);
+  if (!character) {
+    await interaction.reply({
+      content: 'Character not found.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Verify user owns the character (if it's assigned)
+  if (character.user_id && character.user_id !== userId) {
+    await interaction.reply({
+      content: 'You can only edit your own character\'s themes.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Find the theme
+  const theme = character.themes.find(t => t.id === selectedThemeId);
+  if (!theme) {
+    await interaction.reply({
+      content: 'Theme not found.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Find theme index for display
+  const themeIndex = character.themes.findIndex(t => t.id === selectedThemeId);
+
+  // Get the message ID from the interaction so we can edit it after modal submission
+  // The message was updated by the "Edit Themes" button, so we can get its ID
+  const messageId = interaction.message?.id || null;
+
+  // Show edit theme modal (pass messageId through customId)
+  const { EditSingleThemeModal } = await import('../utils/modals/EditSingleThemeModal.js');
+  const modal = EditSingleThemeModal.build(theme, themeIndex, characterId, messageId);
+  await interaction.showModal(modal);
+}
+
+/**
+ * Handle cancel edit themes button interaction (returns to character view)
+ */
+export async function handleCancelEditThemesButton(interaction, client) {
+  const guildId = requireGuildId(interaction);
+  const customId = interaction.customId;
+  // Extract character ID: format is "cancel_edit_themes_123"
+  const characterId = parseInt(customId.replace('cancel_edit_themes_', ''));
+  const userId = interaction.user.id;
+  
+  // Get character (works for both assigned and unassigned)
+  const character = CharacterStorage.getCharacterById(guildId, characterId);
+  if (!character) {
+    await interaction.reply({
+      content: 'Character not found.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Verify user owns the character (if it's assigned)
+  if (character.user_id && character.user_id !== userId) {
+    await interaction.reply({
+      content: 'You can only edit your own character\'s themes.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Build character displays using Components V2
+  const displayData = await CharacterView.buildCharacterDisplays(character, interaction);
+
+  // Build character buttons using CharacterView
+  const interactiveData = CharacterView.buildCharacterButtons(character);
+  
+  // Combine displays and buttons
+  const allComponents = CharacterView.combineCharacterComponents(displayData, interactiveData);
+
+  // Update the message back to character view
+  await interaction.update({
+    components: allComponents,
+  });
+}
+
+/**
+ * Handle edit single theme button interaction (legacy - for individual theme buttons)
+ */
+export async function handleEditThemeButton(interaction, client) {
+  const guildId = requireGuildId(interaction);
+  const customId = interaction.customId;
+  // Extract character ID and theme ID: format is "edit_theme_123_456"
+  const parts = customId.replace('edit_theme_', '').split('_');
+  const characterId = parseInt(parts[0]);
+  const themeId = parseInt(parts[1]);
+  const userId = interaction.user.id;
+  
+  // Get character (works for both assigned and unassigned)
+  const character = CharacterStorage.getCharacterById(guildId, characterId);
+  if (!character) {
+    await interaction.reply({
+      content: 'Character not found.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Verify user owns the character (if it's assigned)
+  if (character.user_id && character.user_id !== userId) {
+    await interaction.reply({
+      content: 'You can only edit your own character\'s themes.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Find the theme
+  const theme = character.themes.find(t => t.id === themeId);
+  if (!theme) {
+    await interaction.reply({
+      content: 'Theme not found.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // Find theme index for display
+  const themeIndex = character.themes.findIndex(t => t.id === themeId);
+
+  // Show edit theme modal
+  const { EditSingleThemeModal } = await import('../utils/modals/EditSingleThemeModal.js');
+  const modal = EditSingleThemeModal.build(theme, themeIndex, characterId);
+  await interaction.showModal(modal);
 }
 
 /**
