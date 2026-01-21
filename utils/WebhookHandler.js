@@ -270,7 +270,7 @@ export class WebhookHandler {
         // This ensures we sync from the correct tab
         console.log(`Syncing character ${character.name} from sheet ${character.google_sheet_url}`);
         const result = await CharacterStorage.syncFromSheet(guild_id, character.user_id, resource_id);
-        console.log(`Sync result: ${result}`);
+        console.log(`Sync result: ${JSON.stringify(result, null, 2)}`);
         return result;
       } else if (resource_type === 'fellowship') {
         // Sync fellowship from sheet

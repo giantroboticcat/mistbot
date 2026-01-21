@@ -101,7 +101,7 @@ export class GoogleSheetsService {
   /**
    * Get all tabs/sheets from a spreadsheet
    * @param {string} spreadsheetId - The spreadsheet ID
-   * @returns {Promise<Array>} Array of tab objects with { title, sheetId, gid }
+   * @returns {Promise<Array>} Array of tab objects with { title, sheetId, gid, hidden }
    */
   async getAllTabs(spreadsheetId) {
     if (!this.isReady()) {
@@ -117,6 +117,7 @@ export class GoogleSheetsService {
         title: sheet.properties.title,
         sheetId: sheet.properties.sheetId,
         gid: sheet.properties.sheetId.toString(),
+        hidden: sheet.properties.hidden === true,
       }));
 
       return tabs;

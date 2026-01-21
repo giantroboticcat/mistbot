@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder } from 'discord.js';
+import { SlashCommandBuilder, MessageFlags, ContainerBuilder, TextDisplayBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { Command } from './Command.js';
 import { RollStorage } from '../utils/RollStorage.js';
 import RollStatus from '../constants/RollStatus.js';
@@ -48,6 +48,40 @@ export class RollExecuteCommand extends Command {
       });
       return;
     }
+    
+    // Check for invalid roll_tags - show confirmation prompt
+    if (roll.invalidTags && roll.invalidTags.length > 0) {
+      const invalidCount = roll.invalidTags.length;
+      const helpCount = roll.invalidTags.filter(t => t.tag_type === 'help').length;
+      const hinderCount = roll.invalidTags.filter(t => t.tag_type === 'hinder').length;
+      
+      const warningContainer = new ContainerBuilder();
+      warningContainer.addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(`⚠️ **Warning: This roll contains ${invalidCount} tag(s) that no longer exist** (${helpCount} help, ${hinderCount} hinder).\n\n` +
+            `These tags were likely removed unintentionally and the roll may not calculate as expected.\n\n` +
+            `**We strongly recommend reviewing your tags using \`/roll-amend ${rollId}\` before executing.**\n\n` +
+            `Are you sure you want to continue?`)
+      );
+      
+      const confirmButton = new ButtonBuilder()
+        .setCustomId(`roll_execute_confirm_${rollId}_${strategy}`)
+        .setLabel('Execute Anyway')
+        .setStyle(ButtonStyle.Danger);
+      
+      const cancelButton = new ButtonBuilder()
+        .setCustomId(`roll_execute_cancel_${rollId}`)
+        .setLabel('Cancel')
+        .setStyle(ButtonStyle.Secondary);
+      
+      const buttonRow = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
+      
+      await interaction.reply({
+        components: [warningContainer, buttonRow],
+        flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+      });
+      return;
+    }
 
     // Check if user is the creator
     if (roll.creatorId !== userId) {
@@ -65,6 +99,9 @@ export class RollExecuteCommand extends Command {
       });
       return;
     }
+
+    // Delete any invalid tags (in case they exist but weren't caught by the warning)
+    RollStorage.deleteInvalidTags(guildId, rollId);
 
     // Validate strategy before making any changes
     // Calculate base modifier to check strategy conditions

@@ -572,6 +572,9 @@ export async function handleRollSubmit(interaction, client) {
     // This is an amendment - update existing roll
     rollId = rollState.rollId;
     
+    // Delete invalid tags before amending
+    RollStorage.deleteInvalidTags(guildId, rollId);
+    
     // Determine new status: if it was CONFIRMED, set back to PROPOSED
     const newStatus = rollState.originalStatus === RollStatus.CONFIRMED 
       ? RollStatus.PROPOSED 
@@ -857,6 +860,9 @@ export async function handleRollConfirm(interaction, client) {
     return;
   }
 
+  // Delete invalid tags before confirming
+  const deletedCount = RollStorage.deleteInvalidTags(guildId, rollState.rollId);
+  
   // Update the roll with any edits made
   RollStorage.updateRoll(guildId, rollState.rollId, {
     status: RollStatus.CONFIRMED,
@@ -1061,6 +1067,237 @@ export async function handleRollReconfirmCancel(interaction, client) {
   cancelContainer.addTextDisplayComponents(
     new TextDisplayBuilder()
       .setContent('Re-confirmation cancelled.')
+  );
+
+  await interaction.update({
+    components: [cancelContainer],
+    flags: MessageFlags.IsComponentsV2,
+  });
+}
+
+/**
+ * Handle roll execute confirm button (execute roll with invalid tags)
+ * This duplicates the execution logic from RollExecuteCommand.execute()
+ */
+export async function handleRollExecuteConfirm(interaction, client) {
+  const customId = interaction.customId;
+  // Format: roll_execute_confirm_{rollId}_{strategy}
+  const parts = customId.replace('roll_execute_confirm_', '').split('_');
+  const rollId = parseInt(parts[0]);
+  const strategy = parts.slice(1).join('_'); // Rejoin in case strategy has underscores
+  
+  const guildId = requireGuildId(interaction);
+  const userId = interaction.user.id;
+  
+  // Delete invalid tags first
+  RollStorage.deleteInvalidTags(guildId, rollId);
+  
+  // Get the roll again (after deleting invalid tags)
+  const roll = RollStorage.getRoll(guildId, rollId);
+  if (!roll) {
+    await interaction.update({
+      content: `Roll #${rollId} not found.`,
+      components: [],
+    });
+    return;
+  }
+  
+  // Check if user is the creator
+  if (roll.creatorId !== userId) {
+    await interaction.update({
+      content: `Only the creator of roll #${rollId} can execute it.`,
+      components: [],
+    });
+    return;
+  }
+  
+  if (roll.status !== RollStatus.CONFIRMED) {
+    await interaction.update({
+      content: `Roll #${rollId} is not confirmed. Current status: ${roll.status}`,
+      components: [],
+    });
+    return;
+  }
+  
+  // Import RollTagParentType for burned tag processing
+  const { RollTagParentType } = await import('../constants/RollTagParentType.js');
+  
+  // Validate strategy and calculate modifiers (duplicated from RollExecuteCommand)
+  const burnedTags = roll.burnedTags || new Set();
+  const baseModifier = RollView.calculateModifier(roll.helpTags, roll.hinderTags, burnedTags, guildId);
+  const mightModifier = roll.mightModifier !== undefined && roll.mightModifier !== null ? roll.mightModifier : 0;
+  const totalPower = baseModifier + mightModifier;
+  
+  let strategyModifier = 0;
+  let strategyName = null;
+  let originalPower = totalPower;
+  let strategyError = null;
+  
+  if (strategy === 'throw_caution') {
+    if (totalPower > 2) {
+      strategyError = `Cannot use "Throw caution to the wind" - your Power is ${totalPower}, but it requires Power ≤ 2.`;
+    } else {
+      strategyModifier = -1;
+      strategyName = 'Throw caution to the wind';
+    }
+  } else if (strategy === 'hedge_risks') {
+    if (totalPower < 2) {
+      strategyError = `Cannot use "Hedge your risks" - your Power is ${totalPower}, but it requires Power ≥ 2.`;
+    } else {
+      strategyModifier = +1;
+      strategyName = 'Hedge your risks';
+    }
+  }
+  
+  if (strategyError) {
+    await interaction.update({
+      content: `❌ ${strategyError}`,
+      components: [],
+    });
+    return;
+  }
+  
+  // Mark as executed
+  RollStorage.updateRoll(guildId, rollId, { status: RollStatus.EXECUTED });
+  
+  // Track theme improvements (duplicated from RollExecuteCommand)
+  const hinderTags = roll.hinderTags || new Set();
+  let improvementNotification = null;
+  if (hinderTags.size > 0) {
+    const improvementResult = CharacterStorage.incrementThemeImprovements(guildId, hinderTags);
+    if (improvementResult.readyToDevelop.length > 0) {
+      const themesByUser = new Map();
+      for (const t of improvementResult.readyToDevelop) {
+        const character = CharacterStorage.getCharacterById(guildId, t.characterId);
+        if (character && character.user_id) {
+          if (!themesByUser.has(character.user_id)) {
+            themesByUser.set(character.user_id, []);
+          }
+          themesByUser.get(character.user_id).push(t);
+        }
+      }
+      const userNotifications = [];
+      for (const [userId, themes] of themesByUser.entries()) {
+        const themeList = themes.map(t => `**${t.themeName}** (${t.improvements} improvements)`).join(', ');
+        userNotifications.push(`<@${userId}>: ${themeList}`);
+      }
+      improvementNotification = `\n\n✨ **Theme Development Available!** ✨\n${userNotifications.join('\n')}`;
+    }
+  }
+  
+  // Process burned tags (duplicated from RollExecuteCommand)
+  if (burnedTags.size > 0) {
+    const character = CharacterStorage.getCharacter(guildId, roll.creatorId, roll.characterId);
+    if (character) {
+      const backpackIdsToRemove = [];
+      const storyTagIdsToRemove = [];
+      const tagsToBurn = [];
+      
+      for (const tagEntity of burnedTags) {
+        const tagData = tagEntity.getTagData(guildId);
+        if (!tagData) continue;
+        
+        if (tagEntity.parentType === RollTagParentType.CHARACTER_BACKPACK) {
+          backpackIdsToRemove.push(tagEntity.parentId);
+        } else if (tagEntity.parentType === RollTagParentType.CHARACTER_STORY_TAG) {
+          storyTagIdsToRemove.push(tagEntity.parentId);
+        } else {
+          const tagString = tagEntity.toTagString(guildId);
+          if (tagString) {
+            tagsToBurn.push(tagString);
+          }
+        }
+      }
+      
+      const updates = {};
+      if (backpackIdsToRemove.length > 0) {
+        const updatedBackpack = (character.backpack || []).filter(item => {
+          const itemId = typeof item === 'object' && item.id ? item.id : null;
+          return itemId && !backpackIdsToRemove.includes(itemId);
+        });
+        updates.backpack = updatedBackpack;
+      }
+      if (storyTagIdsToRemove.length > 0) {
+        const updatedStoryTags = (character.storyTags || []).filter(tag => {
+          const tagId = typeof tag === 'object' && tag.id ? tag.id : null;
+          return tagId && !storyTagIdsToRemove.includes(tagId);
+        });
+        updates.storyTags = updatedStoryTags;
+      }
+      if (tagsToBurn.length > 0) {
+        CharacterStorage.markTagsAsBurned(guildId, roll.creatorId, roll.characterId, tagsToBurn);
+      }
+      if (Object.keys(updates).length > 0) {
+        CharacterStorage.updateCharacter(guildId, roll.creatorId, roll.characterId, updates);
+      }
+    }
+  }
+  
+  // Roll dice and calculate result (duplicated from RollExecuteCommand)
+  const die1 = Math.floor(Math.random() * 6) + 1;
+  const die2 = Math.floor(Math.random() * 6) + 1;
+  const baseRoll = die1 + die2;
+  const finalResult = baseRoll + totalPower + strategyModifier;
+  const narratorMention = roll.confirmedBy ? `<@${roll.confirmedBy}>` : null;
+  const isReactionRoll = roll.isReaction === true;
+  
+  let isSuccessful = false;
+  if (die1 === 6 && die2 === 6) {
+    isSuccessful = true;
+  } else if (die1 === 1 && die2 === 1) {
+    isSuccessful = false;
+  } else if (isReactionRoll) {
+    isSuccessful = finalResult >= 10;
+  } else {
+    isSuccessful = finalResult >= 7;
+  }
+  
+  let spendingPower = null;
+  if (isSuccessful) {
+    if (strategy === 'throw_caution') {
+      spendingPower = Math.max(originalPower, 1) + 1;
+    } else if (strategy === 'hedge_risks') {
+      spendingPower = Math.max(originalPower, 1) - 1;
+    } else {
+      spendingPower = Math.max(originalPower, 1);
+    }
+  }
+  
+  // Format and send result
+  const resultData = RollView.formatRollResult(
+    die1, die2, baseRoll, totalPower, finalResult,
+    roll.description, narratorMention, isReactionRoll,
+    roll.reactionToRollId, strategyName, strategyModifier,
+    originalPower, spendingPower, mightModifier
+  );
+  
+  if (improvementNotification && resultData.components && resultData.components.length > 0) {
+    const notificationContainer = new ContainerBuilder();
+    notificationContainer.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(improvementNotification)
+    );
+    resultData.components.push(notificationContainer);
+  }
+  
+  // Update the warning message and send the result
+  await interaction.update({
+    components: [],
+  });
+  
+  await interaction.followUp(resultData);
+}
+
+/**
+ * Handle roll execute cancel button (cancel execution)
+ */
+export async function handleRollExecuteCancel(interaction, client) {
+  const customId = interaction.customId;
+  const rollId = parseInt(customId.replace('roll_execute_cancel_', ''));
+  
+  const cancelContainer = new ContainerBuilder();
+  cancelContainer.addTextDisplayComponents(
+    new TextDisplayBuilder()
+      .setContent('Roll execution cancelled. Please review your tags using `/roll-amend` before executing.')
   );
 
   await interaction.update({

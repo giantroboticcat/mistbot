@@ -72,10 +72,12 @@ export async function handleCharacterImportAutocomplete(interaction) {
     });
 
     // Filter out:
-    // 1. Blacklisted tabs
-    // 2. Already imported tabs (by gid)
-    // 3. Filter by focused value (case-insensitive search on tab title)
+    // 1. Hidden tabs
+    // 2. Blacklisted tabs
+    // 3. Already imported tabs (by gid)
+    // 4. Filter by focused value (case-insensitive search on tab title)
     const filtered = tabs
+      .filter(tab => !tab.hidden) // Exclude hidden tabs
       .filter(tab => !blacklistGids.has(tab.gid)) // Exclude blacklisted gids
       .filter(tab => !importedGids.has(tab.gid)) // Exclude already imported tabs
       .filter(tab => tab.title.toLowerCase().includes(focusedValue))

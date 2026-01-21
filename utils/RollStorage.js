@@ -144,6 +144,9 @@ export class RollStorage {
     
     const tags = tagsStmt.all(rollId);
     
+    // Validate roll_tags and collect invalid ones
+    const invalidTags = this.validateRollTags(guildId, tags);
+    
     // Convert entity IDs back to TagEntity objects
     const helpTags = new Set();
     const hinderTags = new Set();
@@ -151,12 +154,24 @@ export class RollStorage {
     const helpFromCharacterIdMap = new Map();
     
     for (const tag of tags) {
-      // Get character ID from the entity
+      // Skip invalid tags (they won't have valid entities)
+      if (invalidTags.some(invalid => invalid.parent_id === tag.parent_id && invalid.parent_type === tag.parent_type)) {
+        continue;
+      }
+      
+      // Get character ID from the entity (may be null for scene/fellowship tags)
       const characterId = RollTagEntityConverter.getCharacterIdFromEntity(
         tag.parent_type,
         tag.parent_id,
         guildId
       );
+      
+      // For character-related tags, if characterId is null, the entity doesn't exist
+      // (This is already caught by validateRollTags, but double-check for safety)
+      if (characterId === null && this.requiresCharacterId(tag.parent_type)) {
+        // Entity doesn't exist - skip it (should have been caught by validation)
+        continue;
+      }
       
       const tagEntity = new TagEntity(tag.parent_type, tag.parent_id, characterId);
       
@@ -194,6 +209,7 @@ export class RollStorage {
       hinderTags: hinderTags,
       burnedTags: burnedTags,
       helpFromCharacterIdMap: helpFromCharacterIdMap,
+      invalidTags: invalidTags, // Include invalid tags for alerting
     };
   }
 
@@ -365,6 +381,138 @@ export class RollStorage {
     
     const rollIds = stmt.all(sceneId);
     return rollIds.map(row => this.getRoll(guildId, row.id));
+  }
+
+  /**
+   * Validate roll_tags to check if referenced entities still exist
+   * @param {string} guildId - Guild ID
+   * @param {Array} tags - Array of roll_tag objects
+   * @returns {Array} Array of invalid tag objects with { parent_type, parent_id, tag_type, reason }
+   */
+  static validateRollTags(guildId, tags) {
+    const db = getDbForGuild(guildId);
+    const invalidTags = [];
+    
+    for (const tag of tags) {
+      let exists = false;
+      
+      switch (tag.parent_type) {
+        case 'character_theme': {
+          const stmt = db.prepare('SELECT id FROM character_themes WHERE id = ?');
+          exists = !!stmt.get(tag.parent_id);
+          break;
+        }
+        case 'character_theme_tag': {
+          const stmt = db.prepare('SELECT id FROM character_theme_tags WHERE id = ?');
+          exists = !!stmt.get(tag.parent_id);
+          break;
+        }
+        case 'character_backpack': {
+          const stmt = db.prepare('SELECT id FROM character_backpack WHERE id = ?');
+          exists = !!stmt.get(tag.parent_id);
+          break;
+        }
+        case 'character_story_tag': {
+          const stmt = db.prepare('SELECT id FROM character_story_tags WHERE id = ?');
+          exists = !!stmt.get(tag.parent_id);
+          break;
+        }
+        case 'character_status': {
+          const stmt = db.prepare('SELECT id FROM character_statuses WHERE id = ?');
+          exists = !!stmt.get(tag.parent_id);
+          break;
+        }
+        case 'scene_tag': {
+          const stmt = db.prepare('SELECT id FROM scene_tags WHERE id = ?');
+          exists = !!stmt.get(tag.parent_id);
+          break;
+        }
+        case 'fellowship_tag': {
+          const stmt = db.prepare('SELECT id FROM fellowship_tags WHERE id = ?');
+          exists = !!stmt.get(tag.parent_id);
+          break;
+        }
+        default:
+          // Unknown parent type
+          invalidTags.push({
+            parent_type: tag.parent_type,
+            parent_id: tag.parent_id,
+            tag_type: tag.tag_type,
+            reason: `Unknown parent type: ${tag.parent_type}`
+          });
+          continue;
+      }
+      
+      if (!exists) {
+        invalidTags.push({
+          parent_type: tag.parent_type,
+          parent_id: tag.parent_id,
+          tag_type: tag.tag_type,
+          reason: `Entity ${tag.parent_type}:${tag.parent_id} no longer exists`
+        });
+      }
+    }
+    
+    return invalidTags;
+  }
+  
+  /**
+   * Check if a parent type requires a character ID
+   * @param {string} parentType - Parent type
+   * @returns {boolean} True if the parent type should have a character ID
+   */
+  static requiresCharacterId(parentType) {
+    return [
+      'character_theme',
+      'character_theme_tag',
+      'character_backpack',
+      'character_story_tag',
+      'character_status'
+    ].includes(parentType);
+  }
+
+  /**
+   * Delete invalid roll_tags from a roll
+   * @param {string} guildId - Guild ID
+   * @param {number} rollId - Roll ID
+   * @returns {number} Number of invalid tags deleted
+   */
+  static deleteInvalidTags(guildId, rollId) {
+    const db = getDbForGuild(guildId);
+    
+    // Get all tags for this roll
+    const tagsStmt = db.prepare(`
+      SELECT id, parent_id, parent_type
+      FROM roll_tags
+      WHERE roll_id = ?
+    `);
+    const tags = tagsStmt.all(rollId);
+    
+    // Validate tags and collect invalid ones
+    const invalidTags = this.validateRollTags(guildId, tags);
+    
+    if (invalidTags.length === 0) {
+      return 0;
+    }
+    
+    // Delete invalid tags
+    const deleteStmt = db.prepare('DELETE FROM roll_tags WHERE id = ?');
+    let deletedCount = 0;
+    
+    for (const invalidTag of invalidTags) {
+      // Find the roll_tag ID for this invalid tag
+      const tagToDelete = tags.find(t => 
+        t.parent_id === invalidTag.parent_id && 
+        t.parent_type === invalidTag.parent_type
+      );
+      
+      if (tagToDelete) {
+        deleteStmt.run(tagToDelete.id);
+        deletedCount++;
+      }
+    }
+    
+    return deletedCount;
   }
 
   /**

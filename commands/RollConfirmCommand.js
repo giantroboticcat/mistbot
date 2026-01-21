@@ -63,6 +63,17 @@ export class RollConfirmCommand extends Command {
       });
       return;
     }
+    
+    // Check for invalid roll_tags (will be shown as warning but form still displayed)
+    let invalidTagsWarning = null;
+    if (roll.invalidTags && roll.invalidTags.length > 0) {
+      const invalidCount = roll.invalidTags.length;
+      const helpCount = roll.invalidTags.filter(t => t.tag_type === 'help').length;
+      const hinderCount = roll.invalidTags.filter(t => t.tag_type === 'hinder').length;
+      
+      invalidTagsWarning = `⚠️ **Warning: This roll contains ${invalidCount} tag(s) that no longer exist** (${helpCount} help, ${hinderCount} hinder).\n\n` +
+        `These tags were likely removed unintentionally and the roll may not calculate as expected. Invalid tags will be automatically removed when you confirm.`;
+    }
 
     // Allow confirming proposed or confirmed rolls (but not executed)
     if (roll.status === RollStatus.EXECUTED) {
@@ -201,6 +212,16 @@ export class RollConfirmCommand extends Command {
 
     // Combine Components V2 display components with interactive components in the right order
     const allComponents = combineRollComponents(displayData, interactiveComponents);
+    
+    // Add warning about invalid tags if present
+    if (invalidTagsWarning) {
+      const warningContainer = new ContainerBuilder();
+      warningContainer.addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(invalidTagsWarning)
+      );
+      allComponents.unshift(warningContainer);
+    }
 
     await interaction.reply({
       components: allComponents,

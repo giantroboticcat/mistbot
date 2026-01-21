@@ -6,13 +6,13 @@ class SheetTabCache {
   constructor() {
     this.cache = null;
     this.cacheTimestamp = null;
-    this.cacheTimeout = 5 * 60 * 1000; // 5 minutes
+    this.cacheTimeout = 1 * 60 * 1000; // 5 minutes
   }
 
   /**
    * Get cached tabs or fetch fresh ones if cache is expired
    * @param {Function} fetchFunction - Function to fetch tabs if cache is invalid
-   * @returns {Promise<Array>} Array of tab objects with { title, sheetId, gid }
+   * @returns {Promise<Array>} Array of tab objects with { title, sheetId, gid, hidden }
    */
   async getTabs(fetchFunction) {
     const now = Date.now();

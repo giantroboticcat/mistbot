@@ -679,6 +679,351 @@ export class CharacterStorage {
   }
 
   /**
+   * Update themes while preserving IDs when possible
+   * This prevents breaking roll_tags relationships when syncing from sheets
+   * @param {Object} db - Database instance
+   * @param {number} characterId - Character ID
+   * @param {Array} newThemes - Array of theme objects from sheet
+   */
+  static updateThemesPreservingIds(db, characterId, newThemes) {
+    // Load existing themes and tags before making changes
+    const existingThemesStmt = db.prepare(`
+      SELECT id, name, theme_order, is_burned, improvements, quest
+      FROM character_themes
+      WHERE character_id = ?
+      ORDER BY theme_order
+    `);
+    const existingThemes = existingThemesStmt.all(characterId);
+    
+    const existingTagsStmt = db.prepare(`
+      SELECT ctt.id, ctt.theme_id, ctt.tag, ctt.is_weakness, ctt.is_burned
+      FROM character_theme_tags ctt
+      JOIN character_themes ct ON ctt.theme_id = ct.id
+      WHERE ct.character_id = ?
+    `);
+    const existingTags = existingTagsStmt.all(characterId);
+    
+    // Create maps for quick lookup
+    const existingThemeMap = new Map(); // theme_order -> theme
+    existingThemes.forEach(theme => {
+      existingThemeMap.set(theme.theme_order, theme);
+    });
+    
+    const existingTagMap = new Map(); // theme_id -> Map(tag+is_weakness -> tag)
+    existingTags.forEach(tag => {
+      if (!existingTagMap.has(tag.theme_id)) {
+        existingTagMap.set(tag.theme_id, new Map());
+      }
+      const key = `${tag.tag}|||${tag.is_weakness}`;
+      existingTagMap.get(tag.theme_id).set(key, tag);
+    });
+    
+    // Prepare statements
+    const updateTheme = db.prepare(`
+      UPDATE character_themes
+      SET name = ?, theme_order = ?, is_burned = ?, improvements = ?, quest = ?
+      WHERE id = ?
+    `);
+    
+    const insertTheme = db.prepare(`
+      INSERT INTO character_themes (character_id, name, theme_order, is_burned, improvements, quest)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    
+    const updateTag = db.prepare(`
+      UPDATE character_theme_tags
+      SET tag = ?, is_burned = ?
+      WHERE id = ?
+    `);
+    
+    const insertTag = db.prepare(`
+      INSERT INTO character_theme_tags (theme_id, tag, is_weakness, is_burned)
+      VALUES (?, ?, ?, ?)
+    `);
+    
+    const deleteTag = db.prepare('DELETE FROM character_theme_tags WHERE id = ?');
+    const deleteTheme = db.prepare('DELETE FROM character_themes WHERE id = ?');
+    
+    // Track which existing themes/tags we've used
+    const usedThemeIds = new Set();
+    const usedTagIds = new Set();
+    
+    // Process each new theme
+    newThemes.forEach((newTheme, index) => {
+      const themeBurned = newTheme.isBurned ? 1 : 0;
+      const improvements = newTheme.improvements !== undefined ? newTheme.improvements : 0;
+      const quest = newTheme.quest || null;
+      
+      // Try to find existing theme by order (position)
+      let themeId = null;
+      const existingTheme = existingThemeMap.get(index);
+      
+      if (existingTheme && existingTheme.name === newTheme.name) {
+        // Update existing theme
+        themeId = existingTheme.id;
+        usedThemeIds.add(themeId);
+        updateTheme.run(newTheme.name, index, themeBurned, improvements, quest, themeId);
+      } else {
+        // Create new theme
+        const result = insertTheme.run(characterId, newTheme.name, index, themeBurned, improvements, quest);
+        themeId = result.lastInsertRowid;
+      }
+      
+      // Process tags for this theme
+      const themeTagMap = existingTagMap.get(themeId) || new Map();
+      const newTagKeys = new Set();
+      
+      // Process regular tags
+      if (newTheme.tags) {
+        newTheme.tags.forEach(tagObj => {
+          const tagText = typeof tagObj === 'string' ? tagObj : tagObj.tag;
+          const isBurned = typeof tagObj === 'object' ? (tagObj.isBurned ? 1 : 0) : 0;
+          const key = `${tagText}|||0`;
+          newTagKeys.add(key);
+          
+          const existingTag = themeTagMap.get(key);
+          if (existingTag) {
+            // Update existing tag
+            usedTagIds.add(existingTag.id);
+            updateTag.run(tagText, isBurned, existingTag.id);
+          } else {
+            // Insert new tag
+            insertTag.run(themeId, tagText, 0, isBurned);
+          }
+        });
+      }
+      
+      // Process weaknesses
+      if (newTheme.weaknesses) {
+        newTheme.weaknesses.forEach(weaknessObj => {
+          const weaknessText = typeof weaknessObj === 'string' ? weaknessObj : weaknessObj.tag;
+          const isBurned = typeof weaknessObj === 'object' ? (weaknessObj.isBurned ? 1 : 0) : 0;
+          const key = `${weaknessText}|||1`;
+          newTagKeys.add(key);
+          
+          const existingTag = themeTagMap.get(key);
+          if (existingTag) {
+            // Update existing tag
+            usedTagIds.add(existingTag.id);
+            updateTag.run(weaknessText, isBurned, existingTag.id);
+          } else {
+            // Insert new tag
+            insertTag.run(themeId, weaknessText, 1, isBurned);
+          }
+        });
+      }
+      
+      // Delete tags that no longer exist for this theme
+      themeTagMap.forEach((tag, key) => {
+        if (!newTagKeys.has(key)) {
+          deleteTag.run(tag.id);
+        }
+      });
+    });
+    
+    // Delete themes that no longer exist
+    existingThemes.forEach(theme => {
+      if (!usedThemeIds.has(theme.id)) {
+        deleteTheme.run(theme.id);
+      }
+    });
+  }
+
+  /**
+   * Update backpack items while preserving IDs when possible
+   * @param {Object} db - Database instance
+   * @param {number} characterId - Character ID
+   * @param {Array} newBackpack - Array of backpack items (strings or objects with item property)
+   */
+  static updateBackpackPreservingIds(db, characterId, newBackpack) {
+    // Load existing backpack items
+    const existingStmt = db.prepare(`
+      SELECT id, item
+      FROM character_backpack
+      WHERE character_id = ?
+      ORDER BY id
+    `);
+    const existing = existingStmt.all(characterId);
+    
+    // Create map for quick lookup: item text -> backpack item
+    const existingMap = new Map();
+    existing.forEach(item => {
+      existingMap.set(item.item, item);
+    });
+    
+    // Prepare statements
+    const insertItem = db.prepare(`
+      INSERT INTO character_backpack (character_id, item)
+      VALUES (?, ?)
+    `);
+    const deleteItem = db.prepare('DELETE FROM character_backpack WHERE id = ?');
+    
+    // Track which items we've used
+    const usedIds = new Set();
+    
+    // Process each new item
+    newBackpack.forEach(newItem => {
+      const itemText = typeof newItem === 'string' ? newItem : (newItem.item || newItem);
+      
+      const existingItem = existingMap.get(itemText);
+      if (existingItem) {
+        // Item already exists - keep the ID
+        usedIds.add(existingItem.id);
+      } else {
+        // New item - insert it
+        insertItem.run(characterId, itemText);
+      }
+    });
+    
+    // Delete items that no longer exist
+    existing.forEach(item => {
+      if (!usedIds.has(item.id)) {
+        deleteItem.run(item.id);
+      }
+    });
+  }
+  
+  /**
+   * Update story tags while preserving IDs when possible
+   * @param {Object} db - Database instance
+   * @param {number} characterId - Character ID
+   * @param {Array} newStoryTags - Array of story tag strings
+   */
+  static updateStoryTagsPreservingIds(db, characterId, newStoryTags) {
+    // Load existing story tags
+    const existingStmt = db.prepare(`
+      SELECT id, tag
+      FROM character_story_tags
+      WHERE character_id = ?
+      ORDER BY id
+    `);
+    const existing = existingStmt.all(characterId);
+    
+    // Create map for quick lookup: tag text -> story tag
+    const existingMap = new Map();
+    existing.forEach(tag => {
+      existingMap.set(tag.tag, tag);
+    });
+    
+    // Prepare statements
+    const insertTag = db.prepare(`
+      INSERT INTO character_story_tags (character_id, tag)
+      VALUES (?, ?)
+    `);
+    const deleteTag = db.prepare('DELETE FROM character_story_tags WHERE id = ?');
+    
+    // Track which tags we've used
+    const usedIds = new Set();
+    
+    // Process each new tag
+    newStoryTags.forEach(newTag => {
+      const tagText = typeof newTag === 'string' ? newTag : (newTag.tag || newTag);
+      
+      const existingTag = existingMap.get(tagText);
+      if (existingTag) {
+        // Tag already exists - keep the ID
+        usedIds.add(existingTag.id);
+      } else {
+        // New tag - insert it
+        insertTag.run(characterId, tagText);
+      }
+    });
+    
+    // Delete tags that no longer exist
+    existing.forEach(tag => {
+      if (!usedIds.has(tag.id)) {
+        deleteTag.run(tag.id);
+      }
+    });
+  }
+  
+  /**
+   * Update statuses while preserving IDs when possible
+   * @param {Object} db - Database instance
+   * @param {number} characterId - Character ID
+   * @param {Array} newStatuses - Array of status objects
+   */
+  static updateStatusesPreservingIds(db, characterId, newStatuses) {
+    // Load existing statuses
+    const existingStmt = db.prepare(`
+      SELECT id, status, power_1, power_2, power_3, power_4, power_5, power_6
+      FROM character_statuses
+      WHERE character_id = ?
+      ORDER BY id
+    `);
+    const existing = existingStmt.all(characterId);
+    
+    // Create map for quick lookup: status name + power levels -> status
+    // Key format: "statusName|||power1|power2|power3|power4|power5|power6"
+    const existingMap = new Map();
+    existing.forEach(status => {
+      const powerKey = `${status.power_1}|${status.power_2}|${status.power_3}|${status.power_4}|${status.power_5}|${status.power_6}`;
+      const key = `${status.status}|||${powerKey}`;
+      existingMap.set(key, status);
+    });
+    
+    // Prepare statements
+    const updateStatus = db.prepare(`
+      UPDATE character_statuses
+      SET status = ?, power_1 = ?, power_2 = ?, power_3 = ?, power_4 = ?, power_5 = ?, power_6 = ?
+      WHERE id = ?
+    `);
+    const insertStatus = db.prepare(`
+      INSERT INTO character_statuses (character_id, status, power_1, power_2, power_3, power_4, power_5, power_6)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const deleteStatus = db.prepare('DELETE FROM character_statuses WHERE id = ?');
+    
+    // Track which statuses we've used
+    const usedIds = new Set();
+    
+    // Process each new status
+    newStatuses.forEach(newStatusObj => {
+      const statusText = typeof newStatusObj === 'string' ? newStatusObj : newStatusObj.status;
+      const powers = typeof newStatusObj === 'object' && newStatusObj.powerLevels ? newStatusObj.powerLevels : {};
+      
+      // Build power key
+      const powerKey = `${powers[1] ? 1 : 0}|${powers[2] ? 1 : 0}|${powers[3] ? 1 : 0}|${powers[4] ? 1 : 0}|${powers[5] ? 1 : 0}|${powers[6] ? 1 : 0}`;
+      const key = `${statusText}|||${powerKey}`;
+      
+      const existingStatus = existingMap.get(key);
+      if (existingStatus) {
+        // Status already exists - keep the ID (update in case anything changed)
+        usedIds.add(existingStatus.id);
+        updateStatus.run(
+          statusText,
+          powers[1] ? 1 : 0,
+          powers[2] ? 1 : 0,
+          powers[3] ? 1 : 0,
+          powers[4] ? 1 : 0,
+          powers[5] ? 1 : 0,
+          powers[6] ? 1 : 0,
+          existingStatus.id
+        );
+      } else {
+        // New status - insert it
+        insertStatus.run(
+          characterId,
+          statusText,
+          powers[1] ? 1 : 0,
+          powers[2] ? 1 : 0,
+          powers[3] ? 1 : 0,
+          powers[4] ? 1 : 0,
+          powers[5] ? 1 : 0,
+          powers[6] ? 1 : 0
+        );
+      }
+    });
+    
+    // Delete statuses that no longer exist
+    existing.forEach(status => {
+      if (!usedIds.has(status.id)) {
+        deleteStatus.run(status.id);
+      }
+    });
+  }
+
+  /**
    * Update an unassigned character
    * @param {string} guildId - Guild ID
    * @param {number} characterId - Character ID
@@ -705,91 +1050,22 @@ export class CharacterStorage {
       
       // Update themes if provided
       if (updates.themes !== undefined) {
-        // Delete existing themes and tags
-        db.prepare('DELETE FROM character_themes WHERE character_id = ?').run(characterId);
-        
-        // Insert new themes
-        const insertTag = db.prepare(`
-          INSERT INTO character_theme_tags (theme_id, tag, is_weakness, is_burned)
-          VALUES (?, ?, ?, ?)
-        `);
-        
-        updates.themes.forEach((theme, index) => {
-          const themeBurned = theme.isBurned ? 1 : 0;
-          const improvements = theme.improvements !== undefined ? theme.improvements : 0;
-          const quest = theme.quest || null;
-          const themeResult = db.prepare(`
-            INSERT INTO character_themes (character_id, name, theme_order, is_burned, improvements, quest)
-            VALUES (?, ?, ?, ?, ?, ?)
-          `).run(characterId, theme.name, index, themeBurned, improvements, quest);
-          const themeId = themeResult.lastInsertRowid;
-          
-          if (theme.tags) {
-            theme.tags.forEach(tagObj => {
-              const tagText = typeof tagObj === 'string' ? tagObj : tagObj.tag;
-              const isBurned = typeof tagObj === 'object' ? (tagObj.isBurned ? 1 : 0) : 0;
-              insertTag.run(themeId, tagText, 0, isBurned);
-            });
-          }
-          
-          if (theme.weaknesses) {
-            theme.weaknesses.forEach(weaknessObj => {
-              const weaknessText = typeof weaknessObj === 'string' ? weaknessObj : weaknessObj.tag;
-              const isBurned = typeof weaknessObj === 'object' ? (weaknessObj.isBurned ? 1 : 0) : 0;
-              insertTag.run(themeId, weaknessText, 1, isBurned);
-            });
-          }
-        });
+        this.updateThemesPreservingIds(db, characterId, updates.themes);
       }
       
       // Update backpack if provided
       if (updates.backpack !== undefined) {
-        db.prepare('DELETE FROM character_backpack WHERE character_id = ?').run(characterId);
-        if (updates.backpack.length > 0) {
-          const insertBackpack = db.prepare(`
-            INSERT INTO character_backpack (character_id, item)
-            VALUES (?, ?)
-          `);
-          updates.backpack.forEach(item => insertBackpack.run(characterId, item));
-        }
+        this.updateBackpackPreservingIds(db, characterId, updates.backpack);
       }
       
       // Update story tags if provided
       if (updates.storyTags !== undefined) {
-        db.prepare('DELETE FROM character_story_tags WHERE character_id = ?').run(characterId);
-        if (updates.storyTags.length > 0) {
-          const insertStoryTag = db.prepare(`
-            INSERT INTO character_story_tags (character_id, tag)
-            VALUES (?, ?)
-          `);
-          updates.storyTags.forEach(tag => insertStoryTag.run(characterId, tag));
-        }
+        this.updateStoryTagsPreservingIds(db, characterId, updates.storyTags);
       }
       
       // Update temp statuses if provided
       if (updates.tempStatuses !== undefined) {
-        db.prepare('DELETE FROM character_statuses WHERE character_id = ?').run(characterId);
-        if (updates.tempStatuses.length > 0) {
-          const insertStatus = db.prepare(`
-            INSERT INTO character_statuses (character_id, status, power_1, power_2, power_3, power_4, power_5, power_6)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          `);
-          
-          updates.tempStatuses.forEach(statusObj => {
-            const statusText = typeof statusObj === 'string' ? statusObj : statusObj.status;
-            const powers = typeof statusObj === 'object' && statusObj.powerLevels ? statusObj.powerLevels : {};
-            insertStatus.run(
-              characterId,
-              statusText,
-              powers[1] ? 1 : 0,
-              powers[2] ? 1 : 0,
-              powers[3] ? 1 : 0,
-              powers[4] ? 1 : 0,
-              powers[5] ? 1 : 0,
-              powers[6] ? 1 : 0
-            );
-          });
-        }
+        this.updateStatusesPreservingIds(db, characterId, updates.tempStatuses);
       }
     });
     
@@ -859,94 +1135,22 @@ export class CharacterStorage {
       
       // Update themes if provided
       if (updates.themes !== undefined) {
-        // Delete existing themes and tags
-        db.prepare('DELETE FROM character_themes WHERE character_id = ?').run(characterId);
-        
-        // Insert new themes
-        const insertTag = db.prepare(`
-          INSERT INTO character_theme_tags (theme_id, tag, is_weakness, is_burned)
-          VALUES (?, ?, ?, ?)
-        `);
-        
-        updates.themes.forEach((theme, index) => {
-          const themeBurned = theme.isBurned ? 1 : 0;
-          const improvements = theme.improvements !== undefined ? theme.improvements : 0;
-          const quest = theme.quest || null;
-          const themeResult = db.prepare(`
-            INSERT INTO character_themes (character_id, name, theme_order, is_burned, improvements, quest)
-            VALUES (?, ?, ?, ?, ?, ?)
-          `).run(characterId, theme.name, index, themeBurned, improvements, quest);
-          const themeId = themeResult.lastInsertRowid;
-          
-          if (theme.tags) {
-            theme.tags.forEach(tagObj => {
-              const tagText = typeof tagObj === 'string' ? tagObj : tagObj.tag;
-              const isBurned = typeof tagObj === 'object' ? (tagObj.isBurned ? 1 : 0) : 0;
-              insertTag.run(themeId, tagText, 0, isBurned);
-            });
-          }
-          
-          if (theme.weaknesses) {
-            theme.weaknesses.forEach(weaknessObj => {
-              const weaknessText = typeof weaknessObj === 'string' ? weaknessObj : weaknessObj.tag;
-              const isBurned = typeof weaknessObj === 'object' ? (weaknessObj.isBurned ? 1 : 0) : 0;
-              insertTag.run(themeId, weaknessText, 1, isBurned);
-            });
-          }
-        });
+        this.updateThemesPreservingIds(db, characterId, updates.themes);
       }
       
       // Update backpack if provided
       if (updates.backpack !== undefined) {
-        db.prepare('DELETE FROM character_backpack WHERE character_id = ?').run(characterId);
-        
-        const insertItem = db.prepare(`
-          INSERT INTO character_backpack (character_id, item)
-          VALUES (?, ?)
-        `);
-        
-        updates.backpack.forEach(item => {
-          insertItem.run(characterId, item);
-        });
+        this.updateBackpackPreservingIds(db, characterId, updates.backpack);
       }
       
       // Update story tags if provided
       if (updates.storyTags !== undefined) {
-        db.prepare('DELETE FROM character_story_tags WHERE character_id = ?').run(characterId);
-        
-        const insertTag = db.prepare(`
-          INSERT INTO character_story_tags (character_id, tag)
-          VALUES (?, ?)
-        `);
-        
-        updates.storyTags.forEach(tag => {
-          insertTag.run(characterId, tag);
-        });
+        this.updateStoryTagsPreservingIds(db, characterId, updates.storyTags);
       }
       
       // Update statuses if provided
       if (updates.tempStatuses !== undefined) {
-        db.prepare('DELETE FROM character_statuses WHERE character_id = ?').run(characterId);
-        
-        const insertStatus = db.prepare(`
-          INSERT INTO character_statuses (character_id, status, power_1, power_2, power_3, power_4, power_5, power_6)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        
-        updates.tempStatuses.forEach(statusObj => {
-          const statusText = typeof statusObj === 'string' ? statusObj : statusObj.status;
-          const powers = typeof statusObj === 'object' && statusObj.powerLevels ? statusObj.powerLevels : {};
-          insertStatus.run(
-            characterId,
-            statusText,
-            powers[1] ? 1 : 0,
-            powers[2] ? 1 : 0,
-            powers[3] ? 1 : 0,
-            powers[4] ? 1 : 0,
-            powers[5] ? 1 : 0,
-            powers[6] ? 1 : 0
-          );
-        });
+        this.updateStatusesPreservingIds(db, characterId, updates.tempStatuses);
       }
       
       // Update auto_sync if provided

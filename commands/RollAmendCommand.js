@@ -38,6 +38,17 @@ export class RollAmendCommand extends Command {
       });
       return;
     }
+    
+    // Check for invalid roll_tags (will be shown as warning but form still displayed)
+    let invalidTagsWarning = null;
+    if (roll.invalidTags && roll.invalidTags.length > 0) {
+      const invalidCount = roll.invalidTags.length;
+      const helpCount = roll.invalidTags.filter(t => t.tag_type === 'help').length;
+      const hinderCount = roll.invalidTags.filter(t => t.tag_type === 'hinder').length;
+      
+      invalidTagsWarning = `⚠️ **Warning: This roll contains ${invalidCount} tag(s) that no longer exist** (${helpCount} help, ${hinderCount} hinder).\n\n` +
+        `These tags were likely removed unintentionally and the roll may not calculate as expected. Invalid tags will be automatically removed when you submit your amendment.`;
+    }
 
     // Check if user is the creator
     if (roll.creatorId !== userId) {
@@ -140,8 +151,19 @@ export class RollAmendCommand extends Command {
         .setContent(headerMessage)
     );
     
+    // Add warning about invalid tags if present
+    const componentsToSend = [headerContainer, ...allComponents];
+    if (invalidTagsWarning) {
+      const warningContainer = new ContainerBuilder();
+      warningContainer.addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(invalidTagsWarning)
+      );
+      componentsToSend.unshift(warningContainer);
+    }
+    
     await interaction.reply({
-      components: [headerContainer, ...allComponents],
+      components: componentsToSend,
       flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
     });
   }

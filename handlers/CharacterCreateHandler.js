@@ -41,8 +41,9 @@ export async function handleCharacterCreateAutocomplete(interaction) {
       return await sheetsService.getAllTabs(parsed.spreadsheetId);
     });
 
-    // Filter out blacklisted tabs, then filter by focused value (case-insensitive search on tab title)
+    // Filter out hidden tabs, blacklisted tabs, then filter by focused value (case-insensitive search on tab title)
     const filtered = tabs
+      .filter(tab => !tab.hidden) // Exclude hidden tabs
       .filter(tab => !blacklistGids.has(tab.gid)) // Exclude blacklisted gids
       .filter(tab => tab.title.toLowerCase().includes(focusedValue))
       .slice(0, 25); // Discord autocomplete limit is 25
