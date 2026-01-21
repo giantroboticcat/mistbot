@@ -1080,6 +1080,9 @@ export async function handleRollReconfirmCancel(interaction, client) {
  * This duplicates the execution logic from RollExecuteCommand.execute()
  */
 export async function handleRollExecuteConfirm(interaction, client) {
+  // Defer immediately to prevent interaction timeout
+  await interaction.deferUpdate();
+  
   const customId = interaction.customId;
   // Format: roll_execute_confirm_{rollId}_{strategy}
   const parts = customId.replace('roll_execute_confirm_', '').split('_');
@@ -1095,7 +1098,7 @@ export async function handleRollExecuteConfirm(interaction, client) {
   // Get the roll again (after deleting invalid tags)
   const roll = RollStorage.getRoll(guildId, rollId);
   if (!roll) {
-    await interaction.update({
+    await interaction.editReply({
       content: `Roll #${rollId} not found.`,
       components: [],
     });
@@ -1104,7 +1107,7 @@ export async function handleRollExecuteConfirm(interaction, client) {
   
   // Check if user is the creator
   if (roll.creatorId !== userId) {
-    await interaction.update({
+    await interaction.editReply({
       content: `Only the creator of roll #${rollId} can execute it.`,
       components: [],
     });
@@ -1112,7 +1115,7 @@ export async function handleRollExecuteConfirm(interaction, client) {
   }
   
   if (roll.status !== RollStatus.CONFIRMED) {
-    await interaction.update({
+    await interaction.editReply({
       content: `Roll #${rollId} is not confirmed. Current status: ${roll.status}`,
       components: [],
     });
@@ -1150,7 +1153,7 @@ export async function handleRollExecuteConfirm(interaction, client) {
   }
   
   if (strategyError) {
-    await interaction.update({
+    await interaction.editReply({
       content: `❌ ${strategyError}`,
       components: [],
     });
@@ -1279,9 +1282,17 @@ export async function handleRollExecuteConfirm(interaction, client) {
     resultData.components.push(notificationContainer);
   }
   
-  // Update the warning message and send the result
-  await interaction.update({
-    components: [],
+  // Clear the warning message and send the result
+  // Use Components V2 format since the original message was Components V2
+  const executingContainer = new ContainerBuilder();
+  executingContainer.addTextDisplayComponents(
+    new TextDisplayBuilder()
+      .setContent('Executing roll...')
+  );
+  
+  await interaction.editReply({
+    components: [executingContainer],
+    flags: MessageFlags.IsComponentsV2,
   });
   
   await interaction.followUp(resultData);
@@ -1291,6 +1302,9 @@ export async function handleRollExecuteConfirm(interaction, client) {
  * Handle roll execute cancel button (cancel execution)
  */
 export async function handleRollExecuteCancel(interaction, client) {
+  // Defer immediately to prevent interaction timeout
+  await interaction.deferUpdate();
+  
   const customId = interaction.customId;
   const rollId = parseInt(customId.replace('roll_execute_cancel_', ''));
   
@@ -1300,7 +1314,7 @@ export async function handleRollExecuteCancel(interaction, client) {
       .setContent('Roll execution cancelled. Please review your tags using `/roll-amend` before executing.')
   );
 
-  await interaction.update({
+  await interaction.editReply({
     components: [cancelContainer],
     flags: MessageFlags.IsComponentsV2,
   });
