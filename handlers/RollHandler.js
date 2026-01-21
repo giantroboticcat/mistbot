@@ -26,6 +26,55 @@ function findEntityInSet(tagSet, entity) {
 }
 
 /**
+ * Get the name range for a page of items
+ * @param {Array} items - Array of items (characters or tag options)
+ * @param {number} page - Page number (0-indexed)
+ * @param {number} itemsPerPage - Number of items per page
+ * @param {Function} getName - Function to get the name from an item
+ * @returns {string} Formatted range like "A-Me" or "Mf-Z"
+ */
+function getNameRangeForPage(items, page, itemsPerPage, getName) {
+  const start = page * itemsPerPage;
+  const end = Math.min(start + itemsPerPage, items.length);
+  
+  if (items.length === 0 || start >= items.length) {
+    return '';
+  }
+  
+  const firstItem = items[start];
+  const lastItem = items[end - 1];
+  
+  if (!firstItem || !lastItem) {
+    return '';
+  }
+  
+  const firstName = getName(firstItem);
+  const lastName = getName(lastItem);
+  
+  // If only one item on the page, just return the name (truncated if needed)
+  if (firstName === lastName || start === end - 1) {
+    return firstName.length > 25 ? firstName.substring(0, 22) + '...' : firstName;
+  }
+  
+  // Format as "FirstName-LastName" but keep it concise
+  // Discord label limit is 100, but we want to keep it readable
+  const maxLength = 30; // Reasonable length for range display
+  
+  let firstDisplay = firstName;
+  let lastDisplay = lastName;
+  
+  // If names are too long, truncate them
+  if (firstDisplay.length > maxLength) {
+    firstDisplay = firstDisplay.substring(0, maxLength - 3) + '...';
+  }
+  if (lastDisplay.length > maxLength) {
+    lastDisplay = lastDisplay.substring(0, maxLength - 3) + '...';
+  }
+  
+  return `${firstDisplay}-${lastDisplay}`;
+}
+
+/**
  * Check if a user can edit a roll (creator or has editor role)
  * @param {import('discord.js').Interaction} interaction - The interaction
  * @param {Object} rollState - The roll state object
@@ -1347,6 +1396,10 @@ export async function handleHelpAction(interaction, client) {
     // Exclude current player's character
     return !(char.user_id === rollState.creatorId && char.id === rollState.characterId);
   });
+  
+  // Sort characters alphabetically by name
+  otherCharacters.sort((a, b) => a.name.localeCompare(b.name));
+  
   if (otherCharacters.length === 0) {
     // Refetch tag options from character
     const { helpOptions, hinderOptions } = refetchTagOptions(rollState, guildId);
@@ -1391,8 +1444,19 @@ export async function handleHelpAction(interaction, client) {
     return;
   }
 
-  // Build character select menu
-  const characterOptions = otherCharacters.map(char => {
+  // Initialize character page if not set
+  if (rollState.helpCharacterPage === undefined) {
+    rollState.helpCharacterPage = 0;
+  }
+  
+  // Calculate pagination
+  const characterPages = Math.ceil(otherCharacters.length / 25);
+  const characterPage = Math.min(rollState.helpCharacterPage || 0, Math.max(0, characterPages - 1));
+  const characterStart = characterPage * 25;
+  const characterEnd = characterStart + 25;
+
+  // Build character select menu with pagination
+  const characterOptions = otherCharacters.slice(characterStart, characterEnd).map(char => {
     return new StringSelectMenuOptionBuilder()
       .setLabel(char.name)
       .setValue(`${char.id}`)
@@ -1403,7 +1467,31 @@ export async function handleHelpAction(interaction, client) {
     .setPlaceholder('Select a character to help...')
     .setMinValues(1)
     .setMaxValues(1)
-    .addOptions(characterOptions.slice(0, 25)); // Discord limit is 25 options
+    .addOptions(characterOptions);
+
+  const components = [new ActionRowBuilder().setComponents([characterSelect])];
+
+  // Add page selector if there are multiple pages
+  if (characterPages > 1) {
+    const pageOptions = [];
+    for (let i = 0; i < characterPages; i++) {
+      const range = getNameRangeForPage(otherCharacters, i, 25, (char) => char.name);
+      const label = range ? `${range} (Page ${i + 1})` : `Page ${i + 1} of ${characterPages}`;
+      pageOptions.push(new StringSelectMenuOptionBuilder()
+        .setLabel(label)
+        .setValue(`${i}`)
+        .setDefault(i === characterPage));
+    }
+    const currentRange = getNameRangeForPage(otherCharacters, characterPage, 25, (char) => char.name);
+    const placeholder = currentRange ? `${currentRange} (Page ${characterPage + 1} of ${characterPages})` : `Page ${characterPage + 1} of ${characterPages}`;
+    const pageSelect = new StringSelectMenuBuilder()
+      .setCustomId(`roll_help_character_page_${rollKey}`)
+      .setPlaceholder(placeholder)
+      .setMinValues(1)
+      .setMaxValues(1)
+      .addOptions(pageOptions);
+    components.push(new ActionRowBuilder().setComponents([pageSelect]));
+  }
 
   // Add cancel button
   const cancelButton = new ButtonBuilder()
@@ -1411,11 +1499,10 @@ export async function handleHelpAction(interaction, client) {
     .setLabel('Back to Roll Proposal')
     .setStyle(ButtonStyle.Primary);
 
+  components.push(new ActionRowBuilder().setComponents([cancelButton]));
+
   await interaction.update({
-    components: [
-      new ActionRowBuilder().setComponents([characterSelect]),
-      new ActionRowBuilder().setComponents([cancelButton])
-    ],
+    components: components,
     flags: MessageFlags.IsComponentsV2,
   });
   } catch (error) {
@@ -1466,7 +1553,7 @@ export async function handleHelpCharacterSelect(interaction, client) {
   }
 
   // Collect help tags from the selected character
-  const helpOptions = RollView.collectTags(selectedCharacter, rollState.sceneId, StoryTagStorage, false, guildId, true);
+  let helpOptions = RollView.collectTags(selectedCharacter, rollState.sceneId, StoryTagStorage, false, guildId, true);
   
   if (helpOptions.length === 0) {
     await interaction.update({
@@ -1476,11 +1563,31 @@ export async function handleHelpCharacterSelect(interaction, client) {
     return;
   }
 
+  // Sort tags alphabetically by label
+  helpOptions.sort((a, b) => a.data.label.localeCompare(b.data.label));
+
+  // Initialize tag page map if not exists
+  if (!rollState.helpTagPageMap) {
+    rollState.helpTagPageMap = new Map();
+  }
+  
+  // Get or initialize page for this character
+  const tagPageKey = `${characterId}`;
+  if (!rollState.helpTagPageMap.has(tagPageKey)) {
+    rollState.helpTagPageMap.set(tagPageKey, 0);
+  }
+  
+  // Calculate pagination
+  const tagPages = Math.ceil(helpOptions.length / 25);
+  const tagPage = Math.min(rollState.helpTagPageMap.get(tagPageKey) || 0, Math.max(0, tagPages - 1));
+  const tagStart = tagPage * 25;
+  const tagEnd = tagStart + 25;
+
   // Build tag select menu - mark already selected tags as default
   const helpTags = rollState.helpTags || new Set();
   const helpFromCharacterIdMap = rollState.helpFromCharacterIdMap || new Map();
   
-  const tagOptions = helpOptions.slice(0, 25).map(opt => {
+  const tagOptions = helpOptions.slice(tagStart, tagEnd).map(opt => {
     const isAlreadySelected = helpTags.has(opt.data.value) && 
                              helpFromCharacterIdMap.get(opt.data.value) === characterId;
     const option = new StringSelectMenuOptionBuilder()
@@ -1498,17 +1605,40 @@ export async function handleHelpCharacterSelect(interaction, client) {
     .setMaxValues(Math.min(tagOptions.length, 25)) // Allow multiple selections, up to 25 (Discord limit)
     .addOptions(tagOptions);
 
+  const components = [new ActionRowBuilder().setComponents([tagSelect])];
+
+  // Add page selector if there are multiple pages
+  if (tagPages > 1) {
+    const pageOptions = [];
+    for (let i = 0; i < tagPages; i++) {
+      const range = getNameRangeForPage(helpOptions, i, 25, (opt) => opt.data.label);
+      const label = range ? `${range} (Page ${i + 1})` : `Page ${i + 1} of ${tagPages}`;
+      pageOptions.push(new StringSelectMenuOptionBuilder()
+        .setLabel(label)
+        .setValue(`${i}`)
+        .setDefault(i === tagPage));
+    }
+    const currentRange = getNameRangeForPage(helpOptions, tagPage, 25, (opt) => opt.data.label);
+    const placeholder = currentRange ? `${currentRange} (Page ${tagPage + 1} of ${tagPages})` : `Page ${tagPage + 1} of ${tagPages}`;
+    const pageSelect = new StringSelectMenuBuilder()
+      .setCustomId(`roll_help_tag_page_${rollKey}_${characterId}`)
+      .setPlaceholder(placeholder)
+      .setMinValues(1)
+      .setMaxValues(1)
+      .addOptions(pageOptions);
+    components.push(new ActionRowBuilder().setComponents([pageSelect]));
+  }
+
   // Add cancel button
   const cancelButton = new ButtonBuilder()
     .setCustomId(`roll_help_action_cancel_${rollKey}`)
     .setLabel('Back to Roll Proposal')
     .setStyle(ButtonStyle.Primary);
 
+  components.push(new ActionRowBuilder().setComponents([cancelButton]));
+
   await interaction.update({
-    components: [
-      new ActionRowBuilder().setComponents([tagSelect]),
-      new ActionRowBuilder().setComponents([cancelButton])
-    ],
+    components: components,
     flags: MessageFlags.IsComponentsV2,
   });
 }
@@ -1632,6 +1762,219 @@ export async function handleHelpTagSelect(interaction, client) {
   // Update the roll view directly - no ephemeral message needed
   await interaction.update({
     components: allComponents,
+    flags: MessageFlags.IsComponentsV2,
+  });
+}
+
+/**
+ * Handle character page selection for Help Action
+ */
+export async function handleHelpCharacterPageSelect(interaction, client) {
+  const customId = interaction.customId;
+  const rollKey = customId.replace('roll_help_character_page_', '');
+  
+  if (!client.rollStates.has(rollKey)) {
+    await interaction.reply({
+      content: 'This roll session has expired. Please run /roll-propose again.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const rollState = client.rollStates.get(rollKey);
+  const selectedPage = parseInt(interaction.values[0]);
+  rollState.helpCharacterPage = selectedPage;
+  client.rollStates.set(rollKey, rollState);
+
+  const guildId = requireGuildId(interaction);
+  const allCharacters = CharacterStorage.getAllCharacters(guildId);
+  
+  // Filter out only the current player's character
+  const otherCharacters = allCharacters.filter(char => {
+    return !(char.user_id === rollState.creatorId && char.id === rollState.characterId);
+  });
+  
+  // Sort characters alphabetically by name
+  otherCharacters.sort((a, b) => a.name.localeCompare(b.name));
+  
+  // Calculate pagination
+  const characterPages = Math.ceil(otherCharacters.length / 25);
+  const characterPage = Math.min(selectedPage, Math.max(0, characterPages - 1));
+  const characterStart = characterPage * 25;
+  const characterEnd = characterStart + 25;
+
+  // Build character select menu with pagination
+  const characterOptions = otherCharacters.slice(characterStart, characterEnd).map(char => {
+    return new StringSelectMenuOptionBuilder()
+      .setLabel(char.name)
+      .setValue(`${char.id}`)
+  });
+
+  const characterSelect = new StringSelectMenuBuilder()
+    .setCustomId(`roll_help_character_${rollKey}`)
+    .setPlaceholder('Select a character to help...')
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(characterOptions);
+
+  const components = [new ActionRowBuilder().setComponents([characterSelect])];
+
+  // Add page selector if there are multiple pages
+  if (characterPages > 1) {
+    const pageOptions = [];
+    for (let i = 0; i < characterPages; i++) {
+      const range = getNameRangeForPage(otherCharacters, i, 25, (char) => char.name);
+      const label = range ? `${range} (Page ${i + 1})` : `Page ${i + 1} of ${characterPages}`;
+      pageOptions.push(new StringSelectMenuOptionBuilder()
+        .setLabel(label)
+        .setValue(`${i}`)
+        .setDefault(i === characterPage));
+    }
+    const currentRange = getNameRangeForPage(otherCharacters, characterPage, 25, (char) => char.name);
+    const placeholder = currentRange ? `${currentRange} (Page ${characterPage + 1} of ${characterPages})` : `Page ${characterPage + 1} of ${characterPages}`;
+    const pageSelect = new StringSelectMenuBuilder()
+      .setCustomId(`roll_help_character_page_${rollKey}`)
+      .setPlaceholder(placeholder)
+      .setMinValues(1)
+      .setMaxValues(1)
+      .addOptions(pageOptions);
+    components.push(new ActionRowBuilder().setComponents([pageSelect]));
+  }
+
+  // Add cancel button
+  const cancelButton = new ButtonBuilder()
+    .setCustomId(`roll_help_action_cancel_${rollKey}`)
+    .setLabel('Back to Roll Proposal')
+    .setStyle(ButtonStyle.Primary);
+
+  components.push(new ActionRowBuilder().setComponents([cancelButton]));
+
+  await interaction.update({
+    components: components,
+    flags: MessageFlags.IsComponentsV2,
+  });
+}
+
+/**
+ * Handle tag page selection for Help Action
+ */
+export async function handleHelpTagPageSelect(interaction, client) {
+  const customId = interaction.customId;
+  // Format: roll_help_tag_page_{rollKey}_{characterId}
+  const parts = customId.replace('roll_help_tag_page_', '').split('_');
+  const characterId = parseInt(parts[parts.length - 1]);
+  const rollKey = parts.slice(0, -1).join('_');
+  
+  if (!client.rollStates.has(rollKey)) {
+    await interaction.reply({
+      content: 'This roll session has expired. Please run /roll-propose again.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const rollState = client.rollStates.get(rollKey);
+  const selectedPage = parseInt(interaction.values[0]);
+  const guildId = requireGuildId(interaction);
+  
+  // Initialize tag page map if not exists
+  if (!rollState.helpTagPageMap) {
+    rollState.helpTagPageMap = new Map();
+  }
+  
+  // Set page for this character
+  const tagPageKey = `${characterId}`;
+  rollState.helpTagPageMap.set(tagPageKey, selectedPage);
+  client.rollStates.set(rollKey, rollState);
+  
+  // Get the selected character
+  const allCharacters = CharacterStorage.getAllCharacters(guildId);
+  const selectedCharacter = allCharacters.find(char => char.id === characterId);
+  
+  if (!selectedCharacter) {
+    await interaction.update({
+      content: 'Character not found.',
+      components: [],
+    });
+    return;
+  }
+
+  // Collect help tags from the selected character
+  let helpOptions = RollView.collectTags(selectedCharacter, rollState.sceneId, StoryTagStorage, false, guildId, true);
+  
+  if (helpOptions.length === 0) {
+    await interaction.update({
+      content: `No help tags available for ${selectedCharacter.name}.`,
+      components: [],
+    });
+    return;
+  }
+
+  // Sort tags alphabetically by label
+  helpOptions.sort((a, b) => a.data.label.localeCompare(b.data.label));
+  
+  // Calculate pagination
+  const tagPages = Math.ceil(helpOptions.length / 25);
+  const tagPage = Math.min(selectedPage, Math.max(0, tagPages - 1));
+  const tagStart = tagPage * 25;
+  const tagEnd = tagStart + 25;
+
+  // Build tag select menu - mark already selected tags as default
+  const helpTags = rollState.helpTags || new Set();
+  const helpFromCharacterIdMap = rollState.helpFromCharacterIdMap || new Map();
+  
+  const tagOptions = helpOptions.slice(tagStart, tagEnd).map(opt => {
+    const isAlreadySelected = helpTags.has(opt.data.value) && 
+                             helpFromCharacterIdMap.get(opt.data.value) === characterId;
+    const option = new StringSelectMenuOptionBuilder()
+      .setLabel(opt.data.label)
+      .setValue(opt.data.value)
+      .setDescription(opt.data.description)
+      .setDefault(isAlreadySelected);
+    return option;
+  });
+
+  const tagSelect = new StringSelectMenuBuilder()
+    .setCustomId(`roll_help_tag_${rollKey}_${characterId}`)
+    .setPlaceholder(`Select tags from ${selectedCharacter.name}...`)
+    .setMinValues(1)
+    .setMaxValues(Math.min(tagOptions.length, 25)) // Allow multiple selections, up to 25 (Discord limit)
+    .addOptions(tagOptions);
+
+  const components = [new ActionRowBuilder().setComponents([tagSelect])];
+
+  // Add page selector if there are multiple pages
+  if (tagPages > 1) {
+    const pageOptions = [];
+    for (let i = 0; i < tagPages; i++) {
+      const range = getNameRangeForPage(helpOptions, i, 25, (opt) => opt.data.label);
+      const label = range ? `${range} (Page ${i + 1})` : `Page ${i + 1} of ${tagPages}`;
+      pageOptions.push(new StringSelectMenuOptionBuilder()
+        .setLabel(label)
+        .setValue(`${i}`)
+        .setDefault(i === tagPage));
+    }
+    const currentRange = getNameRangeForPage(helpOptions, tagPage, 25, (opt) => opt.data.label);
+    const placeholder = currentRange ? `${currentRange} (Page ${tagPage + 1} of ${tagPages})` : `Page ${tagPage + 1} of ${tagPages}`;
+    const pageSelect = new StringSelectMenuBuilder()
+      .setCustomId(`roll_help_tag_page_${rollKey}_${characterId}`)
+      .setPlaceholder(placeholder)
+      .setMinValues(1)
+      .setMaxValues(1)
+      .addOptions(pageOptions);
+    components.push(new ActionRowBuilder().setComponents([pageSelect]));
+  }
+
+  // Add cancel button
+  const cancelButton = new ButtonBuilder()
+    .setCustomId(`roll_help_action_cancel_${rollKey}`)
+    .setLabel('Back to Roll Proposal')
+    .setStyle(ButtonStyle.Primary);
+
+  components.push(new ActionRowBuilder().setComponents([cancelButton]));
+
+  await interaction.update({
+    components: components,
     flags: MessageFlags.IsComponentsV2,
   });
 }

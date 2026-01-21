@@ -237,6 +237,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await CharacterHandler.handleStatusesEditSelect(interaction, client);
     } else if (interaction.customId.startsWith('narrator_guide_select_')) {
       await NarratorGuideHandler.handleNarratorGuideSelect(interaction, client);
+    } else if (interaction.customId.startsWith('roll_help_character_page_')) {
+      await RollHandler.handleHelpCharacterPageSelect(interaction, client);
+    } else if (interaction.customId.startsWith('roll_help_tag_page_')) {
+      await RollHandler.handleHelpTagPageSelect(interaction, client);
     } else if (interaction.customId.startsWith('roll_help_character_')) {
       await RollHandler.handleHelpCharacterSelect(interaction, client);
     } else if (interaction.customId.startsWith('roll_help_tag_')) {
